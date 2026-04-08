@@ -1,0 +1,34 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/contenido?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate          # 운영: validate / 개발: create 또는 update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+    show-sql: false               # 운영에서는 false 유지
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}  # 로컬 개발 시 비워둠
+
+jwt:
+  secret: ${JWT_SECRET:ZnJvbS1jb250ZW5pZG8tc2VjcmV0LWtleS1tdXN0LWJlLWF0LWxlYXN0LTI1Ni1iaXRzLWxvbmcx}
+  access-token-expiration: 1800000      # 30분 (ms)
+  refresh-token-expiration: 1209600000  # 14일 (ms)
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.contenido: DEBUG
+    org.springframework.security: INFO
