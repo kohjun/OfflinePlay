@@ -39,16 +39,16 @@ class User(
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     lateinit var createdAt: LocalDateTime
-        private set
+        protected set
 
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     lateinit var updatedAt: LocalDateTime
-        private set
+        protected set
 
     @Column(name = "deleted_at")
     var deletedAt: LocalDateTime? = null
-        private set
+        protected set
 
     val isDeleted: Boolean
         get() = deletedAt != null

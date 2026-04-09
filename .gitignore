@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Environment / Secrets
+.env
+*.env.local
+
+# Local profile (로컬 DB 접속 정보 포함 — 커밋 금지)
+src/main/resources/application-local.yml
+
+# Log files
+*.log
+logs/

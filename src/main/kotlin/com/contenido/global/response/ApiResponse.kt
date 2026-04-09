@@ -12,6 +12,9 @@ data class ApiResponse<T>(
         fun <T> ok(data: T, message: String = "OK"): ApiResponse<T> =
             ApiResponse(success = true, message = message, data = data)
 
+        fun ok(message: String): ApiResponse<Nothing> =
+            ApiResponse(success = true, message = message)
+
         fun <T> created(data: T, message: String = "Created"): ApiResponse<T> =
             ApiResponse(success = true, message = message, data = data)
 

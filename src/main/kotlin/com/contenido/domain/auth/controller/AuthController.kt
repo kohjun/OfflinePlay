@@ -3,11 +3,14 @@ package com.contenido.domain.auth.controller
 import com.contenido.domain.auth.dto.*
 import com.contenido.domain.auth.service.AuthService
 import com.contenido.global.response.ApiResponse
+import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
 
+@Tag(name = "Auth", description = "인증 API")
 @RestController
 @RequestMapping("/api/v1/auth")
 class AuthController(
@@ -18,6 +21,10 @@ class AuthController(
      * POST /api/v1/auth/signup
      * 신규 회원가입. 성공 시 201 Created 반환.
      */
+    @Operation(
+        summary = "회원가입",
+        description = "이메일, 비밀번호, 닉네임, 전화번호로 신규 계정을 생성합니다. 이메일과 닉네임은 중복 불가합니다.",
+    )
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     fun signup(
@@ -60,6 +67,6 @@ class AuthController(
         @AuthenticationPrincipal userId: Long,
     ): ApiResponse<Nothing> {
         authService.logout(userId)
-        return ApiResponse.ok(null, "로그아웃 되었습니다.")
+        return ApiResponse.ok("로그아웃 되었습니다.")
     }
 }

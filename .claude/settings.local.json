@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/kohju/AppData/Local/Programs//**)",
+      "Read(//c/ProgramData/**)",
+      "Bash(powershell.exe -Command 'Get-Service | Where-Object { $_.Name -like '\\\\''*mysql*'\\\\'' }')",
+      "Bash(docker --version)",
+      "Bash(docker compose:*)",
+      "Bash(docker exec location_redis:*)",
+      "Bash(java -version)",
+      "Bash(where java:*)",
+      "Bash(winget search:*)",
+      "Bash(./gradlew compileKotlin)",
+      "Bash(ls \"c:/OfflinePlay/OfflinePlay/gradlew\"*)",
+      "Bash(gradle compileKotlin)",
+      "Bash(where gradle.bat)",
+      "Bash(where gradle:*)",
+      "Bash(~/.gradle/wrapper/dists/gradle-8.9-bin/90cnw93cvbtalezasaz0blq0a/gradle-8.9/bin/gradle --version)",
+      "Bash(~/.gradle/wrapper/dists/gradle-8.9-bin/90cnw93cvbtalezasaz0blq0a/gradle-8.9/bin/gradle compileKotlin)",
+      "Bash(~/.gradle/wrapper/dists/gradle-8.9-bin/90cnw93cvbtalezasaz0blq0a/gradle-8.9/bin/gradle wrapper:*)"
+    ]
+  }
+}
