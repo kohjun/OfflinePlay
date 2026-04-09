@@ -5,8 +5,8 @@ import com.contenido.domain.post.dto.PostResponse
 import com.contenido.domain.post.dto.UpdatePostRequest
 import com.contenido.domain.post.service.PostService
 import com.contenido.global.response.ApiResponse
+import com.contenido.global.response.PageResponse
 import jakarta.validation.Valid
-import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
@@ -32,8 +32,8 @@ class PostController(
         @PathVariable channelId: Long,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "10") size: Int,
-    ): ApiResponse<Page<PostResponse>> {
-        return ApiResponse.ok(postService.getPosts(channelId, page, size))
+    ): ApiResponse<PageResponse<PostResponse>> {
+        return ApiResponse.ok(PageResponse.of(postService.getPosts(channelId, page, size)))
     }
 
     @GetMapping("/{postId}")

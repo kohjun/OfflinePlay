@@ -19,7 +19,6 @@ class ChannelStatsController(
     fun getChannelStats(
         @PathVariable channelId: Long,
         @AuthenticationPrincipal userId: Long,
-    ): ApiResponse<ChannelStatsResponse> {
-        return ApiResponse.success(channelStatsService.getChannelStats(userId, channelId))
-    }
+    ): ApiResponse<ChannelStatsResponse> =
+        ApiResponse.ok(channelStatsService.getChannelStats(userId, channelId))
 }

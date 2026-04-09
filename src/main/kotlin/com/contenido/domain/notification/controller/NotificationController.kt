@@ -4,7 +4,7 @@ import com.contenido.domain.notification.dto.NotificationResponse
 import com.contenido.domain.notification.service.NotificationService
 import com.contenido.domain.notification.service.SseEmitterService
 import com.contenido.global.response.ApiResponse
-import org.springframework.data.domain.Page
+import com.contenido.global.response.PageResponse
 import org.springframework.http.MediaType
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
@@ -29,8 +29,8 @@ class NotificationController(
         @AuthenticationPrincipal userId: Long,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
-    ): ApiResponse<Page<NotificationResponse>> {
-        return ApiResponse.ok(notificationService.getNotifications(userId, page, size))
+    ): ApiResponse<PageResponse<NotificationResponse>> {
+        return ApiResponse.ok(PageResponse.of(notificationService.getNotifications(userId, page, size)))
     }
 
     @GetMapping("/unread-count")

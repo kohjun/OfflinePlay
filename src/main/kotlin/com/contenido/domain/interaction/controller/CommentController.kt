@@ -5,8 +5,8 @@ import com.contenido.domain.interaction.dto.CreateCommentRequest
 import com.contenido.domain.interaction.entity.TargetType
 import com.contenido.domain.interaction.service.CommentService
 import com.contenido.global.response.ApiResponse
+import com.contenido.global.response.PageResponse
 import jakarta.validation.Valid
-import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
@@ -36,8 +36,8 @@ class CommentController(
         @PathVariable targetId: Long,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
-    ): ApiResponse<Page<CommentResponse>> {
-        return ApiResponse.ok(commentService.getComments(targetType, targetId, page, size))
+    ): ApiResponse<PageResponse<CommentResponse>> {
+        return ApiResponse.ok(PageResponse.of(commentService.getComments(targetType, targetId, page, size)))
     }
 
     @DeleteMapping("/api/v1/comments/{commentId}")

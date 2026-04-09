@@ -22,18 +22,16 @@ class AdminController(
     fun getUsers(
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
-    ): ApiResponse<PageResponse<AdminUserResponse>> {
-        val result = adminService.getUsers(page, size)
-        return ApiResponse.success(PageResponse.of(result))
-    }
+    ): ApiResponse<PageResponse<AdminUserResponse>> =
+        ApiResponse.ok(PageResponse.of(adminService.getUsers(page, size)))
 
     @GetMapping("/users/{id}")
     fun getUser(@PathVariable id: Long): ApiResponse<AdminUserResponse> =
-        ApiResponse.success(adminService.getUser(id))
+        ApiResponse.ok(adminService.getUser(id))
 
     @PatchMapping("/users/{id}/ban")
     fun banUser(@PathVariable id: Long): ApiResponse<AdminUserResponse> =
-        ApiResponse.success(adminService.banUser(id))
+        ApiResponse.ok(adminService.banUser(id))
 
     // ── 채널 관리 ──────────────────────────────────────────────────────────────
 
@@ -41,14 +39,12 @@ class AdminController(
     fun getChannels(
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
-    ): ApiResponse<PageResponse<AdminChannelResponse>> {
-        val result = adminService.getChannels(page, size)
-        return ApiResponse.success(PageResponse.of(result))
-    }
+    ): ApiResponse<PageResponse<AdminChannelResponse>> =
+        ApiResponse.ok(PageResponse.of(adminService.getChannels(page, size)))
 
     @PatchMapping("/channels/{id}/ban")
     fun banChannel(@PathVariable id: Long): ApiResponse<AdminChannelResponse> =
-        ApiResponse.success(adminService.banChannel(id))
+        ApiResponse.ok(adminService.banChannel(id))
 
     // ── 신고 관리 ──────────────────────────────────────────────────────────────
 
@@ -56,8 +52,6 @@ class AdminController(
     fun getReports(
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
-    ): ApiResponse<PageResponse<ReportResponse>> {
-        val result = adminService.getReports(page, size)
-        return ApiResponse.success(PageResponse.of(result))
-    }
+    ): ApiResponse<PageResponse<ReportResponse>> =
+        ApiResponse.ok(PageResponse.of(adminService.getReports(page, size)))
 }

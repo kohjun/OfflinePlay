@@ -7,8 +7,8 @@ import com.contenido.domain.channel.dto.UpdateChannelRequest
 import com.contenido.domain.channel.entity.ChannelCategory
 import com.contenido.domain.channel.service.ChannelService
 import com.contenido.global.response.ApiResponse
+import com.contenido.global.response.PageResponse
 import jakarta.validation.Valid
-import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
@@ -52,8 +52,8 @@ class ChannelController(
         @PathVariable category: ChannelCategory,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "10") size: Int,
-    ): ApiResponse<Page<ChannelResponse>> {
-        return ApiResponse.ok(channelService.getChannelsByCategory(category, page, size))
+    ): ApiResponse<PageResponse<ChannelResponse>> {
+        return ApiResponse.ok(PageResponse.of(channelService.getChannelsByCategory(category, page, size)))
     }
 
     @PostMapping("/{channelId}/subscribe")
@@ -79,7 +79,7 @@ class ChannelController(
         @AuthenticationPrincipal userId: Long,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "10") size: Int,
-    ): ApiResponse<Page<ChannelResponse>> {
-        return ApiResponse.ok(channelService.getMySubscriptions(userId, page, size))
+    ): ApiResponse<PageResponse<ChannelResponse>> {
+        return ApiResponse.ok(PageResponse.of(channelService.getMySubscriptions(userId, page, size)))
     }
 }

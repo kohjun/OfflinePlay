@@ -21,6 +21,6 @@ class ReportController(
         @AuthenticationPrincipal userId: Long,
         @Valid @RequestBody request: CreateReportRequest,
     ): ApiResponse<ReportResponse> {
-        return ApiResponse.success(reportService.createReport(userId, request))
+        return ApiResponse.created(reportService.createReport(userId, request), "신고가 접수되었습니다.")
     }
 }

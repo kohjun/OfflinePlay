@@ -1,49 +1,69 @@
 package com.contenido.domain.creator.controller
 
+import com.contenido.domain.creator.dto.ApplyRequest
+import com.contenido.domain.creator.dto.CreatorApplicationResponse
+import com.contenido.domain.creator.dto.RejectRequest
 import com.contenido.domain.creator.service.CreatorApplicationService
-import org.springframework.http.ResponseEntity
+import com.contenido.global.response.ApiResponse
+import com.contenido.global.response.PageResponse
+import jakarta.validation.Valid
+import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
+import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
-
-data class ApplyRequest(
-    val reason: String,
-    val portfolioUrl: String?
-)
 
 @RestController
 @RequestMapping("/api/v1")
 class CreatorApplicationController(
-    private val applicationService: CreatorApplicationService
+    private val applicationService: CreatorApplicationService,
 ) {
 
     @PostMapping("/creator/apply")
+    @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('PARTICIPANT')")
     fun applyForCreator(
-        // TODO: 실제 SecurityContext에서 userId 추출 애노테이션으로 변경 필요 (@AuthenticationPrincipal 등)
-        @RequestAttribute("userId") userId: Long, 
-        @RequestBody request: ApplyRequest
-    ): ResponseEntity<Void> {
+        @AuthenticationPrincipal userId: Long,
+        @Valid @RequestBody request: ApplyRequest,
+    ): ApiResponse<Nothing> {
         applicationService.apply(userId, request.reason, request.portfolioUrl)
-        return ResponseEntity.ok().build()
+        return ApiResponse.ok("크리에이터 신청이 완료되었습니다.")
+    }
+
+    @GetMapping("/creator/my-application")
+    @PreAuthorize("isAuthenticated()")
+    fun getMyApplication(
+        @AuthenticationPrincipal userId: Long,
+    ): ApiResponse<CreatorApplicationResponse> {
+        return ApiResponse.ok(applicationService.getMyApplication(userId))
+    }
+
+    @GetMapping("/admin/creator/applications")
+    @PreAuthorize("hasRole('ADMIN')")
+    fun getPendingApplications(
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int,
+    ): ApiResponse<PageResponse<CreatorApplicationResponse>> {
+        return ApiResponse.ok(applicationService.getPendingApplications(page, size))
     }
 
     @PatchMapping("/admin/creator/applications/{id}/approve")
     @PreAuthorize("hasRole('ADMIN')")
     fun approveApplication(
-        @RequestAttribute("userId") adminId: Long,
-        @PathVariable id: Long
-    ): ResponseEntity<Void> {
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable id: Long,
+    ): ApiResponse<Nothing> {
         applicationService.approve(adminId, id)
-        return ResponseEntity.ok().build()
+        return ApiResponse.ok("크리에이터 신청을 승인했습니다.")
     }
 
     @PatchMapping("/admin/creator/applications/{id}/reject")
     @PreAuthorize("hasRole('ADMIN')")
     fun rejectApplication(
-        @RequestAttribute("userId") adminId: Long,
-        @PathVariable id: Long
-    ): ResponseEntity<Void> {
-        applicationService.reject(adminId, id, null)
-        return ResponseEntity.ok().build()
+        @AuthenticationPrincipal adminId: Long,
+        @PathVariable id: Long,
+        @RequestBody(required = false) request: RejectRequest?,
+    ): ApiResponse<Nothing> {
+        applicationService.reject(adminId, id, request?.rejectReason)
+        return ApiResponse.ok("크리에이터 신청을 거절했습니다.")
     }
 }

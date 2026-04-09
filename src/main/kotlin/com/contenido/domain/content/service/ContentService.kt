@@ -1,6 +1,5 @@
 package com.contenido.domain.content.service
 
-import com.contenido.domain.content.dto.ContentPageResponse
 import com.contenido.domain.content.dto.ContentResponse
 import com.contenido.domain.content.dto.CreateContentRequest
 import com.contenido.domain.content.dto.UpdateContentRequest
@@ -11,6 +10,7 @@ import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.*
+import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -26,9 +26,7 @@ class ContentService(
     fun createContent(userId: Long, request: CreateContentRequest): ContentResponse {
         val user = findActiveUser(userId)
 
-        if (user.role != UserRole.CREATOR) {
-            throw NotCreatorException()
-        }
+        if (user.role != UserRole.CREATOR) throw NotCreatorException()
 
         val content = contentRepository.save(
             Content(
@@ -43,16 +41,10 @@ class ContentService(
         return content.toResponse()
     }
 
-    fun getContents(page: Int, size: Int): ContentPageResponse {
+    fun getContents(page: Int, size: Int): Page<ContentResponse> {
         val pageable = PageRequest.of(page, size)
-        val result = contentRepository.findAllByStatusOrderByCreatedAtDesc(ContentStatus.PUBLISHED, pageable)
-
-        return ContentPageResponse(
-            contents = result.content.map { it.toResponse() },
-            totalElements = result.totalElements,
-            totalPages = result.totalPages,
-            currentPage = result.number,
-        )
+        return contentRepository.findAllByStatusOrderByCreatedAtDesc(ContentStatus.PUBLISHED, pageable)
+            .map { it.toResponse() }
     }
 
     @Transactional
@@ -72,9 +64,7 @@ class ContentService(
         val content = contentRepository.findByIdAndStatusNot(contentId, ContentStatus.DELETED)
             .orElseThrow { ContentNotFoundException() }
 
-        if (content.creator.id != userId) {
-            throw UnauthorizedContentAccessException()
-        }
+        if (content.creator.id != userId) throw UnauthorizedContentAccessException()
 
         request.title?.let { content.title = it }
         request.description?.let { content.description = it }
@@ -100,8 +90,7 @@ class ContentService(
     // ── private ──────────────────────────────────────────────────────────────
 
     private fun findActiveUser(userId: Long): User {
-        val user = userRepository.findById(userId)
-            .orElseThrow { UserNotFoundException() }
+        val user = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
         if (user.isDeleted) throw DeletedUserException()
         return user
     }

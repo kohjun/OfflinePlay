@@ -1,11 +1,11 @@
 package com.contenido.domain.content.controller
 
-import com.contenido.domain.content.dto.ContentPageResponse
 import com.contenido.domain.content.dto.ContentResponse
 import com.contenido.domain.content.dto.CreateContentRequest
 import com.contenido.domain.content.dto.UpdateContentRequest
 import com.contenido.domain.content.service.ContentService
 import com.contenido.global.response.ApiResponse
+import com.contenido.global.response.PageResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
@@ -32,8 +32,8 @@ class ContentController(
     fun getContents(
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "10") size: Int,
-    ): ApiResponse<ContentPageResponse> {
-        return ApiResponse.ok(contentService.getContents(page, size))
+    ): ApiResponse<PageResponse<ContentResponse>> {
+        return ApiResponse.ok(PageResponse.of(contentService.getContents(page, size)))
     }
 
     @GetMapping("/{id}")

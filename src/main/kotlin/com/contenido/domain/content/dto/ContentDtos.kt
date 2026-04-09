@@ -37,9 +37,3 @@ data class ContentResponse(
     val createdAt: LocalDateTime,
 )
 
-data class ContentPageResponse(
-    val contents: List<ContentResponse>,
-    val totalElements: Long,
-    val totalPages: Int,
-    val currentPage: Int,
-)

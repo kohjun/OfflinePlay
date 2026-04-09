@@ -7,7 +7,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener
 import java.time.LocalDateTime
 
 enum class NotificationType {
-    NEW_EVENT, NEW_POST, NEW_COMMENT, NEW_LIKE
+    NEW_EVENT, NEW_POST, NEW_COMMENT, NEW_LIKE,
+    APPLICATION_APPROVED, APPLICATION_REJECTED
 }
 
 @Entity
@@ -20,7 +21,7 @@ class Notification(
     val receiver: User,
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     val type: NotificationType,
 
     @Column(nullable = false)

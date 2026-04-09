@@ -11,4 +11,5 @@ interface CreatorApplicationRepository : JpaRepository<CreatorApplication, Long>
     fun findByApplicantAndStatus(applicant: User, status: ApplicationStatus): CreatorApplication?
     fun existsByApplicantAndStatus(applicant: User, status: ApplicationStatus): Boolean
     fun findByStatus(status: ApplicationStatus, pageable: Pageable): Page<CreatorApplication>
+    fun findTopByApplicantOrderByCreatedAtDesc(applicant: User): CreatorApplication?
 }
