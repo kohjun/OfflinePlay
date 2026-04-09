@@ -9,11 +9,12 @@ import com.contenido.domain.channel.entity.ChannelCategory
 import com.contenido.domain.channel.entity.ChannelSubscription
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
-import com.contenido.domain.search.service.SearchSyncService
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.event.ChannelSyncEvent
 import com.contenido.global.exception.*
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
@@ -25,7 +26,7 @@ class ChannelService(
     private val channelRepository: ChannelRepository,
     private val channelSubscriptionRepository: ChannelSubscriptionRepository,
     private val userRepository: UserRepository,
-    private val searchSyncService: SearchSyncService,
+    private val publisher: ApplicationEventPublisher,
 ) {
 
     @Transactional
@@ -45,7 +46,7 @@ class ChannelService(
             )
         )
 
-        searchSyncService.syncChannel(channel)
+        publisher.publishEvent(ChannelSyncEvent(channel.id))
         return channel.toResponse()
     }
 
@@ -72,7 +73,7 @@ class ChannelService(
         request.description?.let { channel.description = it }
         request.thumbnailUrl?.let { channel.thumbnailUrl = it }
 
-        searchSyncService.syncChannel(channel)
+        publisher.publishEvent(ChannelSyncEvent(channel.id))
         return channel.toResponse()
     }
 

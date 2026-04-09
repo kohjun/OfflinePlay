@@ -8,6 +8,7 @@ import com.contenido.global.exception.DeletedUserException
 import com.contenido.global.exception.DuplicateNicknameException
 import com.contenido.global.exception.InvalidCredentialsException
 import com.contenido.global.exception.UserNotFoundException
+import com.contenido.global.util.MaskingUtil
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -28,7 +29,7 @@ class UserService(
             userId = user.id,
             email = user.email,
             nickname = user.nickname,
-            phoneNumber = user.phoneNumber,
+            phoneNumber = MaskingUtil.maskPhoneNumber(user.phoneNumber),
             role = user.role,
             createdAt = user.createdAt,
         )
@@ -52,7 +53,7 @@ class UserService(
             userId = user.id,
             email = user.email,
             nickname = user.nickname,
-            phoneNumber = user.phoneNumber,
+            phoneNumber = MaskingUtil.maskPhoneNumber(user.phoneNumber),
             role = user.role,
             createdAt = user.createdAt,
         )

@@ -28,10 +28,10 @@ class LikeService(
 
         if (alreadyLiked) {
             likeRepository.deleteByUserAndTargetTypeAndTargetId(user, targetType, targetId)
-            syncLikeCount(targetType, targetId, delta = -1)
+            updateLikeCount(targetType, targetId, delta = -1)
         } else {
             likeRepository.save(Like(user = user, targetType = targetType, targetId = targetId))
-            syncLikeCount(targetType, targetId, delta = +1)
+            updateLikeCount(targetType, targetId, delta = +1)
         }
 
         val likeCount = likeRepository.countByTargetTypeAndTargetId(targetType, targetId)
@@ -68,16 +68,10 @@ class LikeService(
         return user
     }
 
-    private fun syncLikeCount(targetType: TargetType, targetId: Long, delta: Int) {
+    private fun updateLikeCount(targetType: TargetType, targetId: Long, delta: Int) {
         when (targetType) {
-            TargetType.POST -> {
-                val post = postRepository.findById(targetId).orElseThrow { PostNotFoundException() }
-                post.likeCount = (post.likeCount + delta).coerceAtLeast(0)
-            }
-            TargetType.EVENT -> {
-                val event = eventRepository.findById(targetId).orElseThrow { EventNotFoundException() }
-                event.likeCount = (event.likeCount + delta).coerceAtLeast(0)
-            }
+            TargetType.POST -> postRepository.updateLikeCount(targetId, delta)
+            TargetType.EVENT -> eventRepository.updateLikeCount(targetId, delta)
             TargetType.COMMENT -> { /* Comment likeCount은 CommentService에서 관리 */ }
         }
     }

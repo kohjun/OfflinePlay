@@ -12,8 +12,19 @@ spring:
   elasticsearch:
     uris: ${ELASTICSEARCH_URI:http://localhost:9200}
 
+  task:
+    execution:
+      pool:
+        core-size: 5
+        max-size: 20
+        queue-capacity: 100
+
 server:
   port: 8080
+  servlet:
+    session:
+      cookie:
+        http-only: true
 
 jwt:
   secret: ${JWT_SECRET:ZnJvbS1jb250ZW5pZG8tc2VjcmV0LWtleS1tdXN0LWJlLWF0LWxlYXN0LTI1Ni1iaXRzLWxvbmcx}

@@ -11,11 +11,14 @@ import com.contenido.domain.post.dto.UpdatePostRequest
 import com.contenido.domain.post.entity.Post
 import com.contenido.domain.post.entity.PostStatus
 import com.contenido.domain.post.repository.PostRepository
-import com.contenido.domain.search.service.SearchSyncService
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.event.ContentSyncAction
+import com.contenido.global.event.ContentSyncEvent
 import com.contenido.global.exception.*
+import com.contenido.global.util.HtmlSanitizer
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
@@ -29,7 +32,7 @@ class PostService(
     private val channelSubscriptionRepository: ChannelSubscriptionRepository,
     private val userRepository: UserRepository,
     private val notificationService: NotificationService,
-    private val searchSyncService: SearchSyncService,
+    private val publisher: ApplicationEventPublisher,
 ) {
 
     @Transactional
@@ -44,12 +47,12 @@ class PostService(
                 channel = channel,
                 author = user,
                 title = request.title,
-                content = request.content,
+                content = HtmlSanitizer.sanitize(request.content),
                 thumbnailUrl = request.thumbnailUrl,
             )
         )
 
-        searchSyncService.syncPost(post)
+        publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "POST", post.id))
 
         // 채널 구독자 전원에게 NEW_POST 알림
         val subscriberIds = channelSubscriptionRepository.findByChannel(channel)
@@ -90,7 +93,7 @@ class PostService(
         if (post.author.id != userId) throw UnauthorizedException()
 
         request.title?.let { post.title = it }
-        request.content?.let { post.content = it }
+        request.content?.let { post.content = HtmlSanitizer.sanitize(it) }
         request.thumbnailUrl?.let { post.thumbnailUrl = it }
 
         return post.toResponse()
@@ -104,7 +107,7 @@ class PostService(
         if (post.author.id != userId && user.role != UserRole.ADMIN) throw UnauthorizedException()
 
         post.status = PostStatus.DELETED
-        searchSyncService.deleteContent("POST", postId)
+        publisher.publishEvent(ContentSyncEvent(ContentSyncAction.DELETE, "POST", postId))
     }
 
     // ── private ──────────────────────────────────────────────────────────────

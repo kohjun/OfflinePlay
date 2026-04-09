@@ -9,6 +9,7 @@ import com.contenido.global.exception.NotificationNotFoundException
 import com.contenido.global.exception.UserNotFoundException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
+import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -21,10 +22,9 @@ class NotificationService(
 ) {
 
     /**
-     * 알림 생성 + SSE 즉시 전송.
-     * 부모 트랜잭션에 참여하지 않도록 REQUIRES_NEW 사용 — 이벤트/게시물 저장 실패와 무관하게 커밋되지 않으며,
-     * 반대로 알림 저장 실패가 부모 트랜잭션을 롤백하지 않도록 호출부에서 예외를 흡수해야 한다.
+     * 알림 생성 + SSE 즉시 전송. @Async로 별도 스레드에서 실행되어 호출자 트랜잭션과 독립적으로 처리된다.
      */
+    @Async
     @Transactional
     fun notify(
         receiverIds: List<Long>,

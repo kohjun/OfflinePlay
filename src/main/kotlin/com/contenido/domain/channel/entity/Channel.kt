@@ -31,10 +31,16 @@ class Channel(
 
     @Column(name = "subscriber_count", nullable = false)
     var subscriberCount: Long = 0,
+
+    @Column(name = "is_active", nullable = false)
+    var isActive: Boolean = true,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0
+
+    @Version
+    val version: Long = 0
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -52,5 +58,9 @@ class Channel(
 
     fun decreaseSubscriber() {
         if (subscriberCount > 0) subscriberCount--
+    }
+
+    fun deactivate() {
+        isActive = false
     }
 }

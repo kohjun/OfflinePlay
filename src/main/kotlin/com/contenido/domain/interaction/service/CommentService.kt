@@ -13,6 +13,7 @@ import com.contenido.domain.post.repository.PostRepository
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.*
+import com.contenido.global.util.HtmlSanitizer
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
@@ -47,7 +48,7 @@ class CommentService(
                 author = user,
                 targetType = targetType,
                 targetId = targetId,
-                content = request.content,
+                content = HtmlSanitizer.sanitize(request.content),
                 parentComment = parentComment,
             )
         )

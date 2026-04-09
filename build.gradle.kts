@@ -26,6 +26,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-aop")
 
     // Kotlin
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
@@ -44,6 +45,15 @@ dependencies {
 
     // Swagger / OpenAPI
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.5.0")
+
+    // Spring Retry (낙관적 락 재시도)
+    implementation("org.springframework.retry:spring-retry")
+
+    // HTML Sanitizer (XSS 방어)
+    implementation("org.jsoup:jsoup:1.17.2")
+
+    // Rate Limiting
+    implementation("com.github.vladimir-bukhtoyarov:bucket4j-core:7.6.0")
 
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")

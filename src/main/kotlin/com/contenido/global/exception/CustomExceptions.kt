@@ -107,3 +107,16 @@ class ExpiredTokenException : ContENIDOException(
 class DeletedUserException : ContENIDOException(
     HttpStatus.FORBIDDEN, "탈퇴한 사용자입니다."
 )
+
+// --- Admin / Report ---
+class ReportNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "존재하지 않는 신고입니다."
+)
+
+class AlreadyBannedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 처리된 대상입니다."
+)
+
+class BannedChannelException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "비활성화된 채널입니다."
+)

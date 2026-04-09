@@ -11,5 +11,7 @@ interface EventParticipationRepository : JpaRepository<EventParticipation, Long>
 
     fun countByEvent(event: Event): Long
 
+    fun countByEventIn(events: List<Event>): Long
+
     fun deleteByEventAndParticipant(event: Event, participant: User)
 }

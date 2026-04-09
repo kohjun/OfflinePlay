@@ -11,12 +11,16 @@ import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.notification.entity.NotificationType
 import com.contenido.domain.notification.service.NotificationService
-import com.contenido.domain.search.service.SearchSyncService
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.event.ContentSyncAction
+import com.contenido.global.event.ContentSyncEvent
 import com.contenido.global.exception.*
+import org.springframework.context.ApplicationEventPublisher
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
+import org.springframework.retry.annotation.Retryable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -29,7 +33,7 @@ class EventService(
     private val channelSubscriptionRepository: ChannelSubscriptionRepository,
     private val userRepository: UserRepository,
     private val notificationService: NotificationService,
-    private val searchSyncService: SearchSyncService,
+    private val publisher: ApplicationEventPublisher,
 ) {
 
     @Transactional
@@ -51,7 +55,7 @@ class EventService(
             )
         )
 
-        searchSyncService.syncEvent(event)
+        publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "EVENT", event.id))
 
         // 채널 구독자 전원에게 NEW_EVENT 알림
         val subscriberIds = channelSubscriptionRepository.findByChannel(channel)
@@ -79,6 +83,7 @@ class EventService(
     fun getEvent(eventId: Long): EventResponse =
         findEvent(eventId).toResponse()
 
+    @Retryable(retryFor = [OptimisticLockingFailureException::class], maxAttempts = 3)
     @Transactional
     fun joinEvent(userId: Long, eventId: Long) {
         val user = findActiveUser(userId)

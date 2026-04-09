@@ -33,8 +33,6 @@ class SecurityConfig(
     fun corsConfigurationSource(): CorsConfigurationSource {
         val config = CorsConfiguration()
 
-        // TODO: 운영 환경에서는 환경변수(ALLOWED_ORIGINS)로 분리 필요
-        // e.g. environment.getProperty("cors.allowed-origins").split(",")
         config.allowedOriginPatterns = listOf(
             "http://localhost:3000",  // React CRA / Next.js
             "http://localhost:5173",  // Vite
@@ -58,6 +56,11 @@ class SecurityConfig(
             .formLogin { it.disable() }
             .httpBasic { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
+            .headers { headers ->
+                headers.frameOptions { it.deny() }
+                headers.contentTypeOptions { }
+                headers.xssProtection { }
+            }
             .authorizeHttpRequests { auth ->
                 auth
                     // Swagger UI
@@ -76,6 +79,8 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.GET, "/api/v1/search/**").permitAll()
                     // 헬스체크 / actuator
                     .requestMatchers("/actuator/health").permitAll()
+                    // 어드민 (ADMIN 권한 필요 - 메서드 시큐리티로 추가 검증)
+                    .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                     // 그 외 모든 요청 인증 필요
                     .anyRequest().authenticated()
             }
