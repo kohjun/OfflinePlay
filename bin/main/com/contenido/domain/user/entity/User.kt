@@ -14,7 +14,6 @@ enum class UserRole {
 @Table(name = "users")
 @EntityListeners(AuditingEntityListener::class)
 class User(
-
     @Column(nullable = false, unique = true)
     val email: String,
 
@@ -24,17 +23,17 @@ class User(
     @Column(nullable = false, length = 50)
     var nickname: String,
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    val role: UserRole = UserRole.PARTICIPANT,
-
     @Column(name = "phone_number", nullable = false, length = 20)
-    var phoneNumber: String,
-
+    var phoneNumber: String
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    var role: UserRole = UserRole.PARTICIPANT
+        protected set // 이제 몸체에 있으므로 정상 작동합니다.
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -55,5 +54,9 @@ class User(
 
     fun softDelete() {
         deletedAt = LocalDateTime.now()
+    }
+
+    fun updateRole(newRole: UserRole) {
+        this.role = newRole
     }
 }

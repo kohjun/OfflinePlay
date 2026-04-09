@@ -71,19 +71,24 @@ class AuthService(
 
         val userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken)
 
-        // 2. Redis 에 저장된 토큰과 일치 여부 확인 (토큰 탈취 방지)
+        // 2. Redis 에 저장된 토큰 확인 (Token Rotation 검증)
         val storedToken = redisTemplate.opsForValue().get("$REFRESH_TOKEN_PREFIX$userId")
-            ?: throw InvalidTokenException("로그아웃된 사용자입니다.")
 
-        if (storedToken != request.refreshToken) {
-            throw InvalidTokenException("Refresh Token이 일치하지 않습니다.")
+        // 만약 Redis에 토큰이 없거나, 보관된 토큰과 요청된 토큰이 다르다면
+        // 누군가 이미 탈취된 토큰으로 재발급을 받아 Redis 토큰을 교체했음을 의미함
+        if (storedToken == null || storedToken != request.refreshToken) {
+            // 탈취가 의심되므로 해당 유저의 세션 전체를 강제 삭제 (로그아웃 처리)
+            redisTemplate.delete("$REFRESH_TOKEN_PREFIX$userId")
+            throw TokenReusedException()
         }
 
         val user = userRepository.findById(userId)
             .orElseThrow { UserNotFoundException() }
 
-        if (user.isDeleted) throw DeletedUserException()
+        if (user.isDeleted) {throw DeletedUserException()}
 
+        // 3. 정상 요청인 경우 issueTokens 내부에서 
+        // 새로운 Access Token과 새로운 Refresh Token을 발급하고 Redis에 새 값으로 덮어씀 (Rotation)
         return issueTokens(user)
     }
 

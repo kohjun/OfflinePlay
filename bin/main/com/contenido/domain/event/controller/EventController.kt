@@ -4,6 +4,7 @@ import com.contenido.domain.event.dto.CreateEventRequest
 import com.contenido.domain.event.dto.EventResponse
 import com.contenido.domain.event.service.EventService
 import com.contenido.global.response.ApiResponse
+import com.contenido.global.response.PageResponse // 1. PageResponse 임포트 추가
 import jakarta.validation.Valid
 import org.springframework.data.domain.Page
 import org.springframework.http.HttpStatus
@@ -31,8 +32,11 @@ class EventController(
         @PathVariable channelId: Long,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "10") size: Int,
-    ): ApiResponse<Page<EventResponse>> {
-        return ApiResponse.ok(eventService.getEvents(channelId, page, size))
+    ): ApiResponse<PageResponse<EventResponse>> { // 2. Page 대신 PageResponse로 타입 변경
+        val eventsPage: Page<EventResponse> = eventService.getEvents(channelId, page, size)
+        
+        // 3. PageResponse.of() 를 사용하여 Page 객체를 공통 포맷으로 감싸서 반환
+        return ApiResponse.ok(PageResponse.of(eventsPage))
     }
 
     @GetMapping("/{eventId}")

@@ -15,7 +15,12 @@ class DuplicateEmailException : ContENIDOException(
 class DuplicateNicknameException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."
 )
-
+class AlreadyCreatorException(
+    message: String = "이미 크리에이터입니다.") : RuntimeException(message)
+class DuplicateApplicationException(
+    message: String = "이미 신청 중입니다.") : RuntimeException(message)
+class TokenReusedException(
+    message: String = "비정상적인 토큰 재사용이 감지되었습니다. 모든 기기에서 로그아웃됩니다.") : RuntimeException(message)
 class InvalidCredentialsException : ContENIDOException(
     HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."
 )
