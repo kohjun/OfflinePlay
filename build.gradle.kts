@@ -55,6 +55,9 @@ dependencies {
     // Rate Limiting
     implementation("com.github.vladimir-bukhtoyarov:bucket4j-core:7.6.0")
 
+    //S3 연동
+    implementation("software.amazon.awssdk:s3:2.25.60")
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")

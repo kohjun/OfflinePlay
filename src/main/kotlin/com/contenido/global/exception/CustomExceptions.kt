@@ -15,6 +15,18 @@ class DuplicateEmailException : ContENIDOException(
 class DuplicateNicknameException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다."
 )
+class FileUploadException(detail: String = "파일 업로드에 실패했습니다.") : ContENIDOException(
+    HttpStatus.INTERNAL_SERVER_ERROR, detail
+)
+ 
+class InvalidFileTypeException(allowedTypes: String = "JPEG, PNG, WebP, GIF") : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "허용되지 않는 파일 형식입니다. 허용 형식: $allowedTypes"
+)
+ 
+class FileSizeExceededException(maxMb: Int = 10) : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "파일 크기가 허용 용량(${maxMb}MB)을 초과했습니다."
+)
+ 
 class AlreadyCreatorException(
     message: String = "이미 크리에이터입니다.") : RuntimeException(message)
 class DuplicateApplicationException(
