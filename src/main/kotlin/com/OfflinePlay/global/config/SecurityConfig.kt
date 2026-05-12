@@ -35,7 +35,11 @@ class SecurityConfig(
 
         config.allowedOriginPatterns = listOf(
             "http://localhost:3000",  // React CRA / Next.js
+            "http://127.0.0.1:3000",
             "http://localhost:5173",  // Vite
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
         )
 
         config.allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
@@ -72,6 +76,11 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.GET, "/api/v1/contents", "/api/v1/contents/**").permitAll()
                     // 채널 조회 (비로그인 허용)
                     .requestMatchers(HttpMethod.GET, "/api/v1/channels/**").permitAll()
+                    // 이벤트 단건 flat 조회 (비로그인 허용, 알림/Studio 진입용). 단일 세그먼트만 허용해
+                    // /events/{id}/participations 같은 인증 필요 경로는 영향받지 않는다.
+                    .requestMatchers(HttpMethod.GET, "/api/v1/events/*").permitAll()
+                    // Explore 통합 조회 (비로그인 허용)
+                    .requestMatchers(HttpMethod.GET, "/api/v1/explore").permitAll()
                     // 댓글/좋아요 조회 (비로그인 허용)
                     .requestMatchers(HttpMethod.GET, "/api/v1/events/*/comments", "/api/v1/posts/*/comments").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/v1/events/*/likes", "/api/v1/posts/*/likes").permitAll()

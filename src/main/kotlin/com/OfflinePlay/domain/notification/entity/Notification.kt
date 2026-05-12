@@ -8,7 +8,18 @@ import java.time.LocalDateTime
 
 enum class NotificationType {
     NEW_EVENT, NEW_POST, NEW_COMMENT, NEW_LIKE,
-    APPLICATION_APPROVED, APPLICATION_REJECTED
+    /** 크리에이터(기획자) 신청 결과 — 어드민이 승인/거절. */
+    APPLICATION_APPROVED, APPLICATION_REJECTED,
+    /** 이벤트 참가 신청이 접수됨 — 채널 owner(기획자)에게 발송. */
+    PARTICIPATION_REQUESTED,
+    /** 이벤트 참가 신청 결과 — 채널 owner(기획자)가 승인/거절. */
+    PARTICIPATION_APPROVED, PARTICIPATION_REJECTED,
+    /** APPROVED 상태에서 참가자가 직접 취소 — 채널 owner(기획자)에게 발송. */
+    PARTICIPATION_CANCELED,
+    /** 티켓 발급 완료 — 승인된 참가자(buyer)에게 발송. */
+    TICKET_ISSUED,
+    /** 현장 체크인 완료 — 참가자(buyer)에게 발송. */
+    TICKET_CHECKED_IN,
 }
 
 @Entity

@@ -19,7 +19,7 @@ class SearchController(
     /**
      * GET /api/v1/search/channels
      * @param keyword  검색어 (필수)
-     * @param category 카테고리 필터 (LOVE/CHASE/PSYCHOLOGICAL/SPORTS/TRAVEL/RACE/MUSIC/COOKING/PARTY)
+     * @param category 카테고리 필터 (TRAVEL/LOVE/RACE/PSYCHOLOGICAL/SURVIVAL/MUSIC/SPORTS/COOKING/PARTY)
      * @param sortBy   정렬 기준: relevance(기본) | subscriberCount
      */
     @GetMapping("/channels")

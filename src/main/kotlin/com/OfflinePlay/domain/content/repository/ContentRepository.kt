@@ -2,6 +2,7 @@ package com.contenido.domain.content.repository
 
 import com.contenido.domain.content.entity.Content
 import com.contenido.domain.content.entity.ContentStatus
+import com.contenido.domain.user.entity.User
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
@@ -12,4 +13,6 @@ interface ContentRepository : JpaRepository<Content, Long> {
     fun findAllByStatusOrderByCreatedAtDesc(status: ContentStatus, pageable: Pageable): Page<Content>
 
     fun findByIdAndStatusNot(id: Long, status: ContentStatus): Optional<Content>
+
+    fun countByCreator(creator: User): Long
 }

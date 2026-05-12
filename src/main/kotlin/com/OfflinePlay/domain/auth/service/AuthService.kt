@@ -2,6 +2,7 @@ package com.contenido.domain.auth.service
 
 import com.contenido.domain.auth.dto.*
 import com.contenido.domain.user.entity.User
+import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.*
 import com.contenido.global.jwt.JwtTokenProvider
@@ -12,6 +13,20 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.concurrent.TimeUnit
 
+/**
+ * Authentication entry points and refresh-token lifecycle.
+ *
+ * Refresh tokens are persisted in Redis under `RT:{userId}` with a TTL equal to the
+ * configured refresh-token expiration. Rotation policy:
+ *
+ *  - login: issue new {access, refresh}; store refresh in Redis (overwrites any prior value)
+ *  - reissue: verify caller's refresh matches stored value, then issue new pair and
+ *             overwrite stored refresh (rotation). On mismatch, force-delete the stored
+ *             value and throw [TokenReusedException] (401) — the caller must re-login.
+ *  - logout: delete stored refresh.
+ *
+ * Access tokens are stateless JWTs and are never persisted server-side.
+ */
 @Service
 @Transactional(readOnly = true)
 class AuthService(
@@ -36,13 +51,17 @@ class AuthService(
             throw DuplicateNicknameException()
         }
 
+        // 가입 시 선택 가능한 역할은 PARTICIPANT / CREATOR 뿐. ADMIN은 self-issue 불가.
+        // DTO Pattern 으로도 막혀 있지만 서비스에서 한 번 더 검증한다(보안 표면 축소).
+        val signupRole = parseSignupRole(request.role)
+
         val user = userRepository.save(
             User(
                 email = request.email,
                 password = passwordEncoder.encode(request.password),
                 nickname = request.nickname,
                 phoneNumber = request.phoneNumber,
-            )
+            ).apply { updateRole(signupRole) }
         )
 
         return SignupResponse(
@@ -50,6 +69,16 @@ class AuthService(
             email = user.email,
             nickname = user.nickname,
         )
+    }
+
+    private fun parseSignupRole(raw: String?): UserRole {
+        if (raw.isNullOrBlank()) return UserRole.PARTICIPANT
+        return when (raw.uppercase()) {
+            "PARTICIPANT" -> UserRole.PARTICIPANT
+            "CREATOR" -> UserRole.CREATOR
+            // ADMIN 및 그 외 값은 모두 거부.
+            else -> throw InvalidSignupRoleException()
+        }
     }
 
     fun login(request: LoginRequest): TokenResponse {
@@ -66,34 +95,29 @@ class AuthService(
     }
 
     fun reissue(request: TokenReissueRequest): TokenResponse {
-        // 1. Refresh Token 자체 유효성 검증
+        // 1. Reject malformed or expired refresh tokens before touching Redis.
         jwtTokenProvider.validateToken(request.refreshToken)
 
         val userId = jwtTokenProvider.getUserIdFromToken(request.refreshToken)
 
-        // 2. Redis 에 저장된 토큰 확인 (Token Rotation 검증)
-        val storedToken = redisTemplate.opsForValue().get("$REFRESH_TOKEN_PREFIX$userId")
-
-        // 만약 Redis에 토큰이 없거나, 보관된 토큰과 요청된 토큰이 다르다면
-        // 누군가 이미 탈취된 토큰으로 재발급을 받아 Redis 토큰을 교체했음을 의미함
+        // 2. The token must match exactly what we last stored. A mismatch means either
+        //    the token was stolen and the legitimate user has since rotated, or the
+        //    stored entry has expired. In either case force-delete and require re-login.
+        val storedToken = redisTemplate.opsForValue().get(redisKey(userId))
         if (storedToken == null || storedToken != request.refreshToken) {
-            // 탈취가 의심되므로 해당 유저의 세션 전체를 강제 삭제 (로그아웃 처리)
-            redisTemplate.delete("$REFRESH_TOKEN_PREFIX$userId")
+            deleteRefreshToken(userId)
             throw TokenReusedException()
         }
 
-        val user = userRepository.findById(userId)
-            .orElseThrow { UserNotFoundException() }
+        val user = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
+        if (user.isDeleted) throw DeletedUserException()
 
-        if (user.isDeleted) {throw DeletedUserException()}
-
-        // 3. 정상 요청인 경우 issueTokens 내부에서 
-        // 새로운 Access Token과 새로운 Refresh Token을 발급하고 Redis에 새 값으로 덮어씀 (Rotation)
+        // 3. Rotate: issueTokens overwrites the Redis entry with the new refresh token.
         return issueTokens(user)
     }
 
     fun logout(userId: Long) {
-        redisTemplate.delete("$REFRESH_TOKEN_PREFIX$userId")
+        deleteRefreshToken(userId)
     }
 
     // ── private ──────────────────────────────────────────────────────────────
@@ -103,18 +127,27 @@ class AuthService(
         val accessToken = jwtTokenProvider.generateAccessToken(user.id, role)
         val refreshToken = jwtTokenProvider.generateRefreshToken(user.id, role)
 
-        // Refresh Token → Redis (TTL = refreshTokenExpiration ms → 초 변환)
-        redisTemplate.opsForValue().set(
-            "$REFRESH_TOKEN_PREFIX${user.id}",
-            refreshToken,
-            refreshTokenExpiration,
-            TimeUnit.MILLISECONDS,
-        )
+        saveRefreshToken(user.id, refreshToken)
 
         return TokenResponse(
             accessToken = accessToken,
             refreshToken = refreshToken,
             expiresIn = accessTokenExpiration / 1000,
         )
+    }
+
+    private fun redisKey(userId: Long): String = "$REFRESH_TOKEN_PREFIX$userId"
+
+    private fun saveRefreshToken(userId: Long, refreshToken: String) {
+        redisTemplate.opsForValue().set(
+            redisKey(userId),
+            refreshToken,
+            refreshTokenExpiration,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun deleteRefreshToken(userId: Long) {
+        redisTemplate.delete(redisKey(userId))
     }
 }

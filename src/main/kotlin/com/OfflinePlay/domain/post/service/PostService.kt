@@ -54,17 +54,19 @@ class PostService(
 
         publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "POST", post.id))
 
-        // 채널 구독자 전원에게 NEW_POST 알림
+        // 채널 구독자 전원에게 NEW_POST 알림.
+        // 클릭 시 채널 공지 탭으로 이동해야 하므로 targetType="channels", targetId=channel.id 로
+        // 통일한다 (post 단건 페이지는 아직 없음 — 프론트가 ?tab=posts 로 진입).
         val subscriberIds = channelSubscriptionRepository.findByChannel(channel)
             .map { it.subscriber.id }
         runCatching {
             notificationService.notify(
                 receiverIds = subscriberIds,
                 type = NotificationType.NEW_POST,
-                title = "${channel.name}에 새 게시물이 등록되었습니다.",
+                title = "${channel.name}에 새 공지가 등록되었어요",
                 message = post.title,
-                targetType = "posts",
-                targetId = post.id,
+                targetType = "channels",
+                targetId = channel.id,
             )
         }
 
@@ -87,10 +89,11 @@ class PostService(
 
     @Transactional
     fun updatePost(userId: Long, postId: Long, request: UpdatePostRequest): PostResponse {
-        findActiveUser(userId)
+        val user = findActiveUser(userId)
         val post = findActivePost(postId)
 
-        if (post.author.id != userId) throw UnauthorizedException()
+        // 작성자 본인 또는 ADMIN 만 수정 가능 (deletePost 와 동일 정책).
+        if (post.author.id != userId && user.role != UserRole.ADMIN) throw UnauthorizedException()
 
         request.title?.let { post.title = it }
         request.content?.let { post.content = HtmlSanitizer.sanitize(it) }

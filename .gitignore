@@ -3,6 +3,9 @@
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
+# Eclipse build output (project also uses Gradle build/; bin/ is the IDE-side mirror)
+bin/
+
 # IntelliJ IDEA
 .idea/
 *.iws
@@ -12,6 +15,14 @@ out/
 
 # VS Code
 .vscode/
+
+# Claude Code local permissions cache (per-machine; not shared)
+.claude/settings.local.json
+
+# Local tooling caches (Codex / agent workspaces / app data mirrors)
+.appdata/
+.gradle-codex/
+.localappdata/
 
 # macOS
 .DS_Store

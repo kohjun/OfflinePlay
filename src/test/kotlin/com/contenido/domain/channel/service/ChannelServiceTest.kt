@@ -3,13 +3,16 @@ package com.contenido.domain.channel.service
 import com.contenido.domain.channel.dto.CreateChannelRequest
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
+import com.contenido.domain.channel.entity.ChannelMember
+import com.contenido.domain.channel.entity.ChannelMemberRole
 import com.contenido.domain.channel.entity.ChannelSubscription
+import com.contenido.domain.channel.repository.ChannelMemberRepository
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
-import com.contenido.domain.search.service.SearchSyncService
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.event.ChannelSyncEvent
 import com.contenido.global.exception.*
 import io.mockk.*
 import io.mockk.impl.annotations.MockK
@@ -19,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.ExtendWith
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.test.util.ReflectionTestUtils
 import java.time.LocalDateTime
 import java.util.Optional
@@ -27,9 +31,10 @@ import java.util.Optional
 class ChannelServiceTest {
 
     @MockK lateinit var channelRepository: ChannelRepository
+    @MockK lateinit var channelMemberRepository: ChannelMemberRepository
     @MockK lateinit var channelSubscriptionRepository: ChannelSubscriptionRepository
     @MockK lateinit var userRepository: UserRepository
-    @MockK lateinit var searchSyncService: SearchSyncService
+    @MockK lateinit var publisher: ApplicationEventPublisher
 
     private lateinit var channelService: ChannelService
 
@@ -37,11 +42,15 @@ class ChannelServiceTest {
     fun setUp() {
         channelService = ChannelService(
             channelRepository = channelRepository,
+            channelMemberRepository = channelMemberRepository,
             channelSubscriptionRepository = channelSubscriptionRepository,
             userRepository = userRepository,
-            searchSyncService = searchSyncService,
+            publisher = publisher,
         )
-        every { searchSyncService.syncChannel(any()) } just Runs
+        every { publisher.publishEvent(any<ChannelSyncEvent>()) } just Runs
+        // Owner-as-member 라인이 항상 한 번씩 실행되므로 기본 동작을 미리 stub.
+        every { channelMemberRepository.existsByChannelAndUser(any(), any()) } returns false
+        every { channelMemberRepository.save(any()) } answers { firstArg() }
     }
 
     // ── createChannel ─────────────────────────────────────────────────────────
@@ -60,7 +69,30 @@ class ChannelServiceTest {
 
         assertThat(result.name).isEqualTo("Test Channel")
         assertThat(result.ownerNickname).isEqualTo("testUser")
-        verify { searchSyncService.syncChannel(savedChannel) }
+        verify {
+            publisher.publishEvent(match<ChannelSyncEvent> { it.channelId == savedChannel.id })
+        }
+    }
+
+    @Test
+    fun `createChannel 성공 시 owner 가 ChannelMember OWNER 로 자동 등록`() {
+        val creator = createUser(id = 1L, role = UserRole.CREATOR)
+        val request = CreateChannelRequest("채널명", "설명", ChannelCategory.MUSIC)
+        val savedChannel = createChannel(id = 1L, owner = creator)
+        val captured = slot<ChannelMember>()
+
+        every { userRepository.findById(1L) } returns Optional.of(creator)
+        every { channelRepository.existsByOwner(creator) } returns false
+        every { channelRepository.save(any()) } returns savedChannel
+        every { channelMemberRepository.existsByChannelAndUser(savedChannel, creator) } returns false
+        every { channelMemberRepository.save(capture(captured)) } answers { firstArg() }
+
+        channelService.createChannel(1L, request)
+
+        verify(exactly = 1) { channelMemberRepository.save(any<ChannelMember>()) }
+        assertThat(captured.captured.role).isEqualTo(ChannelMemberRole.OWNER)
+        assertThat(captured.captured.channel).isEqualTo(savedChannel)
+        assertThat(captured.captured.user).isEqualTo(creator)
     }
 
     @Test
@@ -141,7 +173,8 @@ class ChannelServiceTest {
             role: UserRole = UserRole.PARTICIPANT,
             nickname: String = "testUser",
         ): User {
-            val user = User("test@test.com", "encodedPassword", nickname, role, "01012345678")
+            val user = User("test@test.com", "encodedPassword", nickname, "01012345678")
+                .apply { updateRole(role) }
             ReflectionTestUtils.setField(user, "id", id)
             ReflectionTestUtils.setField(user, "createdAt", LocalDateTime.now())
             ReflectionTestUtils.setField(user, "updatedAt", LocalDateTime.now())

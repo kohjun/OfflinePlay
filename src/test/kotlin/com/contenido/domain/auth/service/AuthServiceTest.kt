@@ -68,6 +68,22 @@ class AuthServiceTest {
     }
 
     @Test
+    fun `signup 은 Redis 에 token 을 저장하지 않는다`() {
+        val request = signupRequest()
+        val savedUser = createUser(id = 1L)
+
+        every { userRepository.existsByEmail(request.email) } returns false
+        every { userRepository.existsByNickname(request.nickname) } returns false
+        every { passwordEncoder.encode(request.password) } returns "encodedPassword"
+        every { userRepository.save(any()) } returns savedUser
+
+        authService.signup(request)
+
+        verify(exactly = 0) { valueOps.set(any(), any(), any(), any<TimeUnit>()) }
+        verify(exactly = 0) { redisTemplate.delete(any<String>()) }
+    }
+
+    @Test
     fun `signup 이메일 중복 예외`() {
         val request = signupRequest()
         every { userRepository.existsByEmail(request.email) } returns true
@@ -86,6 +102,58 @@ class AuthServiceTest {
         verify(exactly = 0) { userRepository.save(any()) }
     }
 
+    @Test
+    fun `signup role 미지정 시 PARTICIPANT 로 저장`() {
+        val request = signupRequest(role = null)
+        val savedUser = createUser(id = 1L, role = UserRole.PARTICIPANT)
+        val captured = slot<User>()
+
+        every { userRepository.existsByEmail(request.email) } returns false
+        every { userRepository.existsByNickname(request.nickname) } returns false
+        every { passwordEncoder.encode(request.password) } returns "encodedPassword"
+        every { userRepository.save(capture(captured)) } returns savedUser
+
+        authService.signup(request)
+
+        assertThat(captured.captured.role).isEqualTo(UserRole.PARTICIPANT)
+    }
+
+    @Test
+    fun `signup role CREATOR 로 저장`() {
+        val request = signupRequest(role = "CREATOR")
+        val savedUser = createUser(id = 1L, role = UserRole.CREATOR)
+        val captured = slot<User>()
+
+        every { userRepository.existsByEmail(request.email) } returns false
+        every { userRepository.existsByNickname(request.nickname) } returns false
+        every { passwordEncoder.encode(request.password) } returns "encodedPassword"
+        every { userRepository.save(capture(captured)) } returns savedUser
+
+        authService.signup(request)
+
+        assertThat(captured.captured.role).isEqualTo(UserRole.CREATOR)
+    }
+
+    @Test
+    fun `signup role ADMIN 은 InvalidSignupRoleException`() {
+        val request = signupRequest(role = "ADMIN")
+        every { userRepository.existsByEmail(request.email) } returns false
+        every { userRepository.existsByNickname(request.nickname) } returns false
+
+        assertThrows<InvalidSignupRoleException> { authService.signup(request) }
+        verify(exactly = 0) { userRepository.save(any()) }
+    }
+
+    @Test
+    fun `signup role 알 수 없는 값은 InvalidSignupRoleException`() {
+        val request = signupRequest(role = "GHOST")
+        every { userRepository.existsByEmail(request.email) } returns false
+        every { userRepository.existsByNickname(request.nickname) } returns false
+
+        assertThrows<InvalidSignupRoleException> { authService.signup(request) }
+        verify(exactly = 0) { userRepository.save(any()) }
+    }
+
     // ── login ─────────────────────────────────────────────────────────────────
 
     @Test
@@ -101,6 +169,26 @@ class AuthServiceTest {
 
         assertThat(result.accessToken).isEqualTo("accessToken")
         assertThat(result.refreshToken).isEqualTo("refreshToken")
+        // tokenType defaults to "Bearer" in the DTO
+        assertThat(result.tokenType).isEqualTo("Bearer")
+        // expiresIn is in seconds (accessTokenExpiration / 1000)
+        assertThat(result.expiresIn).isEqualTo(1800L)
+    }
+
+    @Test
+    fun `login 성공 시 Redis 에 refresh token 을 설정된 TTL 로 저장`() {
+        val user = createUser(id = 1L)
+        every { userRepository.findByEmail("test@test.com") } returns Optional.of(user)
+        every { passwordEncoder.matches("password123", "encodedPassword") } returns true
+        every { jwtTokenProvider.generateAccessToken(1L, "PARTICIPANT") } returns "accessToken"
+        every { jwtTokenProvider.generateRefreshToken(1L, "PARTICIPANT") } returns "refreshToken"
+        every { valueOps.set(any(), any(), any(), any<TimeUnit>()) } just Runs
+
+        authService.login(LoginRequest("test@test.com", "password123"))
+
+        verify {
+            valueOps.set("RT:1", "refreshToken", 1209600000L, TimeUnit.MILLISECONDS)
+        }
     }
 
     @Test
@@ -146,14 +234,67 @@ class AuthServiceTest {
     }
 
     @Test
-    fun `reissue Redis 토큰 불일치 예외`() {
+    fun `reissue Redis 토큰 불일치 시 TokenReusedException + Redis key 삭제`() {
         val refreshToken = "validRefreshToken"
 
         every { jwtTokenProvider.validateToken(refreshToken) } returns true
         every { jwtTokenProvider.getUserIdFromToken(refreshToken) } returns 1L
         every { valueOps.get("RT:1") } returns "differentToken"
+        every { redisTemplate.delete("RT:1") } returns true
 
-        assertThrows<InvalidTokenException> {
+        assertThrows<TokenReusedException> {
+            authService.reissue(TokenReissueRequest(refreshToken))
+        }
+        verify { redisTemplate.delete("RT:1") }
+    }
+
+    @Test
+    fun `reissue 시 Redis 에 refresh token 이 없으면 TokenReusedException + Redis key 삭제`() {
+        val refreshToken = "validRefreshToken"
+
+        every { jwtTokenProvider.validateToken(refreshToken) } returns true
+        every { jwtTokenProvider.getUserIdFromToken(refreshToken) } returns 1L
+        every { valueOps.get("RT:1") } returns null
+        every { redisTemplate.delete("RT:1") } returns false
+
+        assertThrows<TokenReusedException> {
+            authService.reissue(TokenReissueRequest(refreshToken))
+        }
+        verify { redisTemplate.delete("RT:1") }
+    }
+
+    @Test
+    fun `reissue 성공 시 Redis 에 새 refresh token 으로 rotation`() {
+        val user = createUser(id = 1L)
+        val oldRefresh = "oldRefreshToken"
+
+        every { jwtTokenProvider.validateToken(oldRefresh) } returns true
+        every { jwtTokenProvider.getUserIdFromToken(oldRefresh) } returns 1L
+        every { valueOps.get("RT:1") } returns oldRefresh
+        every { userRepository.findById(1L) } returns Optional.of(user)
+        every { jwtTokenProvider.generateAccessToken(1L, "PARTICIPANT") } returns "newAccessToken"
+        every { jwtTokenProvider.generateRefreshToken(1L, "PARTICIPANT") } returns "newRefreshToken"
+        every { valueOps.set(any(), any(), any(), any<TimeUnit>()) } just Runs
+
+        authService.reissue(TokenReissueRequest(oldRefresh))
+
+        // Stored value must be overwritten with the *new* refresh token, not the old one.
+        verify {
+            valueOps.set("RT:1", "newRefreshToken", 1209600000L, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    @Test
+    fun `reissue 탈퇴한 유저 예외`() {
+        val user = createUser(id = 1L).also { it.softDelete() }
+        val refreshToken = "validRefreshToken"
+
+        every { jwtTokenProvider.validateToken(refreshToken) } returns true
+        every { jwtTokenProvider.getUserIdFromToken(refreshToken) } returns 1L
+        every { valueOps.get("RT:1") } returns refreshToken
+        every { userRepository.findById(1L) } returns Optional.of(user)
+
+        assertThrows<DeletedUserException> {
             authService.reissue(TokenReissueRequest(refreshToken))
         }
     }
@@ -169,6 +310,15 @@ class AuthServiceTest {
         verify { redisTemplate.delete("RT:1") }
     }
 
+    @Test
+    fun `logout 은 Redis 에 새 값을 쓰지 않는다`() {
+        every { redisTemplate.delete("RT:1") } returns true
+
+        authService.logout(1L)
+
+        verify(exactly = 0) { valueOps.set(any(), any(), any(), any<TimeUnit>()) }
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────
 
     companion object {
@@ -180,7 +330,7 @@ class AuthServiceTest {
             phoneNumber: String = "01012345678",
             role: UserRole = UserRole.PARTICIPANT,
         ): User {
-            val user = User(email, password, nickname, role, phoneNumber)
+            val user = User(email, password, nickname, phoneNumber).apply { updateRole(role) }
             ReflectionTestUtils.setField(user, "id", id)
             ReflectionTestUtils.setField(user, "createdAt", LocalDateTime.now())
             ReflectionTestUtils.setField(user, "updatedAt", LocalDateTime.now())
@@ -192,6 +342,7 @@ class AuthServiceTest {
             password: String = "password123",
             nickname: String = "testUser",
             phoneNumber: String = "01012345678",
-        ) = SignupRequest(email, password, nickname, phoneNumber)
+            role: String? = null,
+        ) = SignupRequest(email, password, nickname, phoneNumber, role)
     }
 }

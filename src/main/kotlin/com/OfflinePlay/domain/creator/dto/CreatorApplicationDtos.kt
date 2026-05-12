@@ -26,3 +26,10 @@ data class CreatorApplicationResponse(
     val createdAt: LocalDateTime,
     val reviewedAt: LocalDateTime?,
 )
+
+data class CreatorStatsResponse(
+    val channelCount: Long,
+    val eventCount: Long,
+    val contentCount: Long,
+    val subscriberCount: Long,
+)

@@ -54,4 +54,12 @@ class AdminController(
         @RequestParam(defaultValue = "20") size: Int,
     ): ApiResponse<PageResponse<ReportResponse>> =
         ApiResponse.ok(PageResponse.of(adminService.getReports(page, size)))
+
+    @PatchMapping("/reports/{id}/resolve")
+    fun resolveReport(@PathVariable id: Long): ApiResponse<ReportResponse> =
+        ApiResponse.ok(adminService.resolveReport(id), "신고를 해결 처리했습니다.")
+
+    @PatchMapping("/reports/{id}/dismiss")
+    fun dismissReport(@PathVariable id: Long): ApiResponse<ReportResponse> =
+        ApiResponse.ok(adminService.dismissReport(id), "신고를 기각 처리했습니다.")
 }

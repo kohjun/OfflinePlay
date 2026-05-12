@@ -6,7 +6,10 @@ import com.contenido.domain.channel.dto.CreateChannelRequest
 import com.contenido.domain.channel.dto.UpdateChannelRequest
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
+import com.contenido.domain.channel.entity.ChannelMember
+import com.contenido.domain.channel.entity.ChannelMemberRole
 import com.contenido.domain.channel.entity.ChannelSubscription
+import com.contenido.domain.channel.repository.ChannelMemberRepository
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
 import com.contenido.domain.user.entity.User
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional
 @Transactional(readOnly = true)
 class ChannelService(
     private val channelRepository: ChannelRepository,
+    private val channelMemberRepository: ChannelMemberRepository,
     private val channelSubscriptionRepository: ChannelSubscriptionRepository,
     private val userRepository: UserRepository,
     private val publisher: ApplicationEventPublisher,
@@ -45,6 +49,14 @@ class ChannelService(
                 thumbnailUrl = request.thumbnailUrl,
             )
         )
+
+        // 채널 owner를 ChannelMember(OWNER)로 자동 등록한다. 추후 STAFF 영입 흐름이
+        // 들어와도 동일 테이블에서 다루도록 한다. existsBy* 검사는 idempotency용 방어선.
+        if (!channelMemberRepository.existsByChannelAndUser(channel, user)) {
+            channelMemberRepository.save(
+                ChannelMember(channel = channel, user = user, role = ChannelMemberRole.OWNER)
+            )
+        }
 
         publisher.publishEvent(ChannelSyncEvent(channel.id))
         return channel.toResponse()
@@ -129,6 +141,7 @@ class ChannelService(
 
     private fun Channel.toResponse() = ChannelResponse(
         id = id,
+        ownerId = owner.id,
         ownerNickname = owner.nickname,
         name = name,
         description = description,
@@ -141,6 +154,7 @@ class ChannelService(
 
     private fun Channel.toDetailResponse(isSubscribed: Boolean) = ChannelDetailResponse(
         id = id,
+        ownerId = owner.id,
         ownerNickname = owner.nickname,
         name = name,
         description = description,

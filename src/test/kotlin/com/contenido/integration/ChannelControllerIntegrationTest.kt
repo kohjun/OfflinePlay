@@ -2,7 +2,10 @@ package com.contenido.integration
 
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
+import com.contenido.domain.channel.entity.ChannelMemberRole
+import com.contenido.domain.channel.repository.ChannelMemberRepository
 import com.contenido.domain.channel.repository.ChannelRepository
+import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
 import com.contenido.domain.search.service.SearchSyncService
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
@@ -10,9 +13,9 @@ import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.jwt.JwtTokenProvider
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.ninjasquad.springmockk.MockkBean
+import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
-import io.mockk.Runs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -38,12 +41,16 @@ class ChannelControllerIntegrationTest {
     @Autowired lateinit var objectMapper: ObjectMapper
     @Autowired lateinit var userRepository: UserRepository
     @Autowired lateinit var channelRepository: ChannelRepository
+    @Autowired lateinit var channelMemberRepository: ChannelMemberRepository
+    @Autowired lateinit var channelSubscriptionRepository: ChannelSubscriptionRepository
     @Autowired lateinit var jwtTokenProvider: JwtTokenProvider
     @Autowired lateinit var passwordEncoder: PasswordEncoder
 
     @MockkBean lateinit var redisTemplate: RedisTemplate<String, String>
-    @MockkBean lateinit var searchSyncService: SearchSyncService
-    @MockkBean lateinit var elasticsearchOperations: ElasticsearchOperations
+    // SearchSyncService methods are private and invoked via @TransactionalEventListener;
+    // relaxed mock silently no-ops listener invocations without exposing private API to tests.
+    @MockkBean(relaxed = true) lateinit var searchSyncService: SearchSyncService
+    @MockkBean(relaxed = true) lateinit var elasticsearchOperations: ElasticsearchOperations
 
     private lateinit var creatorUser: User
     private lateinit var participantUser: User
@@ -57,15 +64,14 @@ class ChannelControllerIntegrationTest {
         every { valueOps.set(any(), any(), any(), any()) } just Runs
         every { valueOps.get(any<String>()) } returns null
         every { redisTemplate.delete(any<String>()) } returns true
-        every { searchSyncService.syncChannel(any()) } just Runs
-        every { searchSyncService.syncEvent(any()) } just Runs
-        every { searchSyncService.syncPost(any()) } just Runs
 
         creatorUser = userRepository.save(
-            User("creator@test.com", passwordEncoder.encode("password123"), "creator", UserRole.CREATOR, "01012345678")
+            User("creator@test.com", passwordEncoder.encode("password123"), "creator", "01012345678")
+                .apply { updateRole(UserRole.CREATOR) }
         )
         participantUser = userRepository.save(
-            User("participant@test.com", passwordEncoder.encode("password123"), "participant", UserRole.PARTICIPANT, "01087654321")
+            User("participant@test.com", passwordEncoder.encode("password123"), "participant", "01087654321")
+                .apply { updateRole(UserRole.PARTICIPANT) }
         )
 
         creatorToken = jwtTokenProvider.generateAccessToken(creatorUser.id, "CREATOR")
@@ -74,6 +80,10 @@ class ChannelControllerIntegrationTest {
 
     @AfterEach
     fun tearDown() {
+        // FK order: channel_members + channel_subscriptions both reference channels;
+        // channels references users. Delete deepest dependents first.
+        channelMemberRepository.deleteAll()
+        channelSubscriptionRepository.deleteAll()
         channelRepository.deleteAll()
         userRepository.deleteAll()
     }
@@ -89,6 +99,12 @@ class ChannelControllerIntegrationTest {
             .andExpect(status().isCreated)
             .andExpect(jsonPath("$.data.name").value("테스트 채널"))
             .andExpect(jsonPath("$.data.ownerNickname").value("creator"))
+
+        // owner 가 ChannelMember(OWNER)로 자동 등록되어야 한다.
+        val members = channelMemberRepository.findAll()
+        org.assertj.core.api.Assertions.assertThat(members).hasSize(1)
+        org.assertj.core.api.Assertions.assertThat(members[0].role).isEqualTo(ChannelMemberRole.OWNER)
+        org.assertj.core.api.Assertions.assertThat(members[0].user.id).isEqualTo(creatorUser.id)
     }
 
     @Test

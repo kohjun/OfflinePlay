@@ -2,8 +2,10 @@ package com.contenido.domain.creator.controller
 
 import com.contenido.domain.creator.dto.ApplyRequest
 import com.contenido.domain.creator.dto.CreatorApplicationResponse
+import com.contenido.domain.creator.dto.CreatorStatsResponse
 import com.contenido.domain.creator.dto.RejectRequest
 import com.contenido.domain.creator.service.CreatorApplicationService
+import com.contenido.domain.creator.service.CreatorStatsService
 import com.contenido.global.response.ApiResponse
 import com.contenido.global.response.PageResponse
 import jakarta.validation.Valid
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.*
 @RequestMapping("/api/v1")
 class CreatorApplicationController(
     private val applicationService: CreatorApplicationService,
+    private val creatorStatsService: CreatorStatsService,
 ) {
 
     @PostMapping("/creator/apply")
@@ -33,8 +36,16 @@ class CreatorApplicationController(
     @PreAuthorize("isAuthenticated()")
     fun getMyApplication(
         @AuthenticationPrincipal userId: Long,
-    ): ApiResponse<CreatorApplicationResponse> {
+    ): ApiResponse<CreatorApplicationResponse?> {
         return ApiResponse.ok(applicationService.getMyApplication(userId))
+    }
+
+    @GetMapping("/creator/stats")
+    @PreAuthorize("hasRole('CREATOR')")
+    fun getCreatorStats(
+        @AuthenticationPrincipal userId: Long,
+    ): ApiResponse<CreatorStatsResponse> {
+        return ApiResponse.ok(creatorStatsService.getStats(userId))
     }
 
     @GetMapping("/admin/creator/applications")

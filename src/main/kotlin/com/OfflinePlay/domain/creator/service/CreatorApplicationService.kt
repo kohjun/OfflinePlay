@@ -39,10 +39,16 @@ class CreatorApplicationService(
         )
     }
 
-    fun getMyApplication(userId: Long): CreatorApplicationResponse {
+    /**
+     * 사용자의 가장 최근 크리에이터 신청을 반환한다. 신청 이력이 없으면 null.
+     *
+     * 과거 구현은 미신청 사용자에 대해 IllegalStateException을 던졌고 GlobalExceptionHandler가
+     * 이를 500으로 응답했다. 신청 이력이 없는 것은 정상 상태이므로 null로 응답한다.
+     */
+    fun getMyApplication(userId: Long): CreatorApplicationResponse? {
         val user = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
         val application = applicationRepository.findTopByApplicantOrderByCreatedAtDesc(user)
-            ?: throw IllegalStateException("신청 내역이 없습니다.")
+            ?: return null
         return application.toResponse()
     }
 

@@ -4,6 +4,8 @@ import com.contenido.global.response.ApiResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.AccessDeniedException
+import org.springframework.security.core.AuthenticationException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
@@ -38,6 +40,22 @@ class GlobalExceptionHandler {
         return ResponseEntity
             .status(HttpStatus.BAD_REQUEST)
             .body(ApiResponse.fail("올바르지 않은 파라미터입니다: ${e.name}"))
+    }
+
+    @ExceptionHandler(AccessDeniedException::class)
+    fun handleAccessDenied(e: AccessDeniedException): ResponseEntity<ApiResponse<Nothing>> {
+        log.warn("[AccessDenied] ${e.message}")
+        return ResponseEntity
+            .status(HttpStatus.FORBIDDEN)
+            .body(ApiResponse.fail("권한이 없습니다."))
+    }
+
+    @ExceptionHandler(AuthenticationException::class)
+    fun handleAuthentication(e: AuthenticationException): ResponseEntity<ApiResponse<Nothing>> {
+        log.warn("[Authentication] ${e.message}")
+        return ResponseEntity
+            .status(HttpStatus.UNAUTHORIZED)
+            .body(ApiResponse.fail("인증이 필요합니다."))
     }
 
     @ExceptionHandler(Exception::class)

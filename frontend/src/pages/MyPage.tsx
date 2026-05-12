@@ -1,0 +1,381 @@
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { getMyParticipations } from '../api/events'
+import { Badge } from '../components/Badge'
+import { Skeleton } from '../components/Skeleton'
+import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
+import { notificationStore } from '../stores/notificationStore'
+import type {
+  EventParticipationStatus,
+  MyParticipationItem,
+  TicketStatus,
+  UserRole,
+} from '../types'
+
+interface MyPageProps {
+  onNavigate: (path: string) => void
+}
+
+const ROLE_LABEL: Record<UserRole, string> = {
+  PARTICIPANT: '참가자',
+  CREATOR: '기획자',
+  ADMIN: '관리자',
+}
+
+const STATUS_LABEL: Record<EventParticipationStatus, string> = {
+  PENDING: '승인 대기',
+  APPROVED: '참가 확정',
+  REJECTED: '거절됨',
+  CANCELED: '취소됨',
+}
+
+const STATUS_TONE: Record<EventParticipationStatus, 'primary' | 'success' | 'danger' | 'neutral'> = {
+  PENDING: 'primary',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  CANCELED: 'neutral',
+}
+
+const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
+  PAID: '발급 완료',
+  USED: '사용 완료',
+  REFUNDED: '환불됨',
+  CANCELED: '취소됨',
+}
+
+interface ActionEntry {
+  title: string
+  description: string
+  href?: string
+  preview?: boolean
+  previewMessage?: string
+}
+
+function buildEntries(role: UserRole | undefined): ActionEntry[] {
+  const notifications: ActionEntry = {
+    title: '알림',
+    description: '구독한 채널의 새 이벤트와 공지가 도착하면 알려드려요.',
+    href: '/notifications',
+  }
+
+  if (role === 'PARTICIPANT') {
+    return [
+      {
+        title: '기획자 신청하기',
+        description: '직접 채널을 만들고 이벤트를 기획해보세요.',
+        href: '/creator/apply',
+      },
+      notifications,
+      {
+        title: '구독한 채널',
+        description: '관심 채널을 모아 새 이벤트 알림을 받습니다.',
+        href: '/explore',
+      },
+      {
+        title: '찜 목록',
+        description: '관심 이벤트와 채널을 모아 둡니다.',
+        preview: true,
+        previewMessage: '찜하기 기능은 곧 만나요.',
+      },
+    ]
+  }
+
+  if (role === 'CREATOR') {
+    return [
+      {
+        title: '기획자 스튜디오',
+        description: '내 채널 관리와 이벤트 기획을 한 곳에서.',
+        href: '/creator',
+      },
+      notifications,
+      {
+        title: '내 채널',
+        description: '내가 운영 중인 채널의 상세 페이지로 이동합니다.',
+        href: '/creator',
+      },
+      {
+        title: '이벤트 관리',
+        description: '현재 진행 중이거나 예정된 이벤트를 관리해요.',
+        href: '/creator',
+      },
+      {
+        title: '신청자 관리',
+        description: '이벤트별 참가 신청을 검토하고 승인합니다.',
+        preview: true,
+        previewMessage: '이벤트 상세에서 신청자 관리 섹션을 이용해주세요.',
+      },
+    ]
+  }
+
+  if (role === 'ADMIN') {
+    return [
+      {
+        title: '관리자 콘솔',
+        description: '기획자 신청 검수와 신고 처리.',
+        href: '/admin',
+      },
+      notifications,
+    ]
+  }
+
+  return [notifications]
+}
+
+const PreviewIcon: ReactNode = (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5l3 2" />
+  </svg>
+)
+
+function formatStartAt(value: string) {
+  const d = new Date(value)
+  const now = new Date()
+  const sameYear = d.getFullYear() === now.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return sameYear ? `${month}.${day} ${hh}:${mm}` : `${d.getFullYear()}.${month}.${day} ${hh}:${mm}`
+}
+
+function formatFee(fee: number) {
+  return fee === 0 ? '무료' : `${fee.toLocaleString()}원`
+}
+
+interface ParticipationCardProps {
+  item: MyParticipationItem
+  onOpen: (channelId: number, eventId: number) => void
+  onOpenTicket: (ticketId: number) => void
+}
+
+function ParticipationCard({ item, onOpen, onOpenTicket }: ParticipationCardProps) {
+  const isApproved = item.status === 'APPROVED'
+  const initial = item.eventTitle.slice(0, 1).toUpperCase()
+  const hasTicket = isApproved && item.ticketId != null
+
+  return (
+    <div className={`ct-my-app-card ${isApproved ? 'is-approved' : ''}`}>
+      <button
+        type="button"
+        className="ct-my-app-card-main"
+        onClick={() => onOpen(item.channelId, item.eventId)}
+        aria-label={`${item.eventTitle} 상세 보기`}
+      >
+        <div className="ct-my-app-card-thumb" aria-hidden="true">
+          {item.mainImageUrl ? (
+            <img
+              src={item.mainImageUrl}
+              alt=""
+              onError={(e) => (e.currentTarget.style.display = 'none')}
+            />
+          ) : (
+            <span className="ct-my-app-card-initial">{initial}</span>
+          )}
+        </div>
+        <div className="ct-my-app-card-body">
+          <div className="ct-my-app-card-tags">
+            <Badge tone="neutral">{item.channelName}</Badge>
+            <Badge tone={STATUS_TONE[item.status]}>{STATUS_LABEL[item.status]}</Badge>
+          </div>
+          <strong className="ct-my-app-card-title">{item.eventTitle}</strong>
+          <ul className="ct-my-app-card-meta">
+            <li>
+              <span aria-hidden="true">📅</span>
+              <span>{formatStartAt(item.startAt)}</span>
+            </li>
+            <li>
+              <span aria-hidden="true">📍</span>
+              <span>{item.location}</span>
+            </li>
+            <li>
+              <span aria-hidden="true">🎟</span>
+              <span>{formatFee(item.participationFee)}</span>
+            </li>
+          </ul>
+          {hasTicket ? (
+            <div className="ct-my-app-card-ticket">
+              <span>티켓 #{item.ticketId}</span>
+              <span>{item.ticketStatus ? TICKET_STATUS_LABEL[item.ticketStatus] : '발급 완료'}</span>
+            </div>
+          ) : null}
+          {item.status === 'REJECTED' && item.rejectReason ? (
+            <p className="ct-my-app-card-reason">사유: {item.rejectReason}</p>
+          ) : null}
+        </div>
+      </button>
+      {hasTicket ? (
+        <button
+          type="button"
+          className="button button-primary ct-my-app-card-ticket-btn"
+          onClick={() => onOpenTicket(item.ticketId as number)}
+        >
+          티켓 보기
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+export function MyPage({ onNavigate }: MyPageProps) {
+  const { user } = useAuth()
+  const { showToast } = useToast()
+  const roleLabel = ROLE_LABEL[(user?.role ?? 'PARTICIPANT') as UserRole] ?? '참가자'
+  const entries = buildEntries(user?.role)
+
+  const [items, setItems] = useState<MyParticipationItem[]>([])
+  const [loadingItems, setLoadingItems] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+
+  const loadItems = useCallback(async () => {
+    try {
+      const page = await getMyParticipations({ size: 20 })
+      setItems(page.content)
+      setLoadError(false)
+    } catch {
+      setItems([])
+      setLoadError(true)
+    }
+  }, [])
+
+  // SSE 알림 수신 시 내 신청/티켓 목록을 새로고침.
+  useEffect(() => {
+    const relevant = new Set([
+      'PARTICIPATION_APPROVED',
+      'PARTICIPATION_REJECTED',
+      'TICKET_ISSUED',
+      'TICKET_CHECKED_IN',
+    ])
+    return notificationStore.onIncoming((n) => {
+      if (relevant.has(n.type)) {
+        loadItems().catch(() => {
+          /* non-fatal */
+        })
+      }
+    })
+  }, [loadItems])
+
+  useEffect(() => {
+    let alive = true
+    setLoadingItems(true)
+    setLoadError(false)
+    getMyParticipations({ size: 20 })
+      .then((page) => {
+        if (!alive) return
+        setItems(page.content)
+      })
+      .catch(() => {
+        if (!alive) return
+        setItems([])
+        setLoadError(true)
+      })
+      .finally(() => {
+        if (alive) setLoadingItems(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  function handleEntryClick(entry: ActionEntry) {
+    if (entry.preview) {
+      showToast({
+        title: '곧 만나요',
+        message: entry.previewMessage ?? '이 기능은 준비 중입니다.',
+        tone: 'info',
+      })
+      return
+    }
+    if (entry.href) onNavigate(entry.href)
+  }
+
+  function openEvent(channelId: number, eventId: number) {
+    onNavigate(`/channels/${channelId}/events/${eventId}`)
+  }
+
+  function openTicket(ticketId: number) {
+    onNavigate(`/tickets/${ticketId}`)
+  }
+
+  const sectionTitle = '내 신청 / 티켓'
+
+  return (
+    <main className="page ct-my-page">
+      <section className="ct-my-hero">
+        <div className="ct-my-avatar" aria-hidden="true">
+          {(user?.nickname ?? 'C').slice(0, 1).toUpperCase()}
+        </div>
+        <div className="ct-my-meta">
+          <strong>{user?.nickname ?? 'CONTENIDO'}</strong>
+          <span className="muted">{roleLabel}</span>
+        </div>
+      </section>
+
+      <section className="ct-my-participations" aria-label={sectionTitle}>
+        <div className="section-heading">
+          <h2 className="ct-my-section-title">{sectionTitle}</h2>
+          {!loadingItems && items.length > 0 ? (
+            <span className="muted">{items.length}건</span>
+          ) : null}
+        </div>
+        {loadingItems ? (
+          <div className="stack" aria-hidden="true">
+            <Skeleton lines={4} />
+            <Skeleton lines={4} />
+          </div>
+        ) : loadError ? (
+          <div className="ct-my-empty">
+            <span aria-hidden="true">⚠️</span>
+            <strong>신청 내역을 불러오지 못했어요</strong>
+            <span className="muted">잠시 후 다시 시도해주세요.</span>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="ct-my-empty">
+            <span aria-hidden="true">🎟</span>
+            <strong>아직 신청한 이벤트가 없어요</strong>
+            <span className="muted">관심 있는 이벤트를 둘러보고 신청해보세요.</span>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => onNavigate('/explore')}
+            >
+              이벤트 둘러보기
+            </button>
+          </div>
+        ) : (
+          <div className="stack">
+            {items.map((item) => (
+              <ParticipationCard
+                key={item.participationId}
+                item={item}
+                onOpen={openEvent}
+                onOpenTicket={openTicket}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="section stack" aria-label="MY 메뉴">
+        {entries.map((entry) => (
+          <button
+            key={entry.title}
+            type="button"
+            className={`card action-card ${entry.preview ? 'is-preview' : ''}`}
+            onClick={() => handleEntryClick(entry)}
+            aria-disabled={entry.preview ? true : undefined}
+          >
+            <strong>{entry.title}</strong>
+            <span className="muted">{entry.description}</span>
+            {entry.preview ? (
+              <span className="action-tag" aria-label="준비 중">
+                <span className="action-tag-icon" aria-hidden="true">{PreviewIcon}</span>
+                준비 중
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </section>
+    </main>
+  )
+}

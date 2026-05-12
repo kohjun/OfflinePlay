@@ -27,6 +27,22 @@ data class SignupRequest(
         message = "올바른 전화번호 형식이 아닙니다.",
     )
     val phoneNumber: String,
+
+    /**
+     * 가입 시 사용자가 선택한 역할.
+     *
+     *  - null / 미지정 : PARTICIPANT 로 기본 가입
+     *  - "PARTICIPANT" : 참가자
+     *  - "CREATOR"     : 기획자 (가입 직후 채널 생성 가능)
+     *
+     * "ADMIN" 은 자가 발급이 불가능하므로 패턴 단계에서 차단되고, 서비스 레이어에서도
+     * 이중 검증한다(보안 표면 최소화).
+     */
+    @field:Pattern(
+        regexp = "PARTICIPANT|CREATOR",
+        message = "역할은 PARTICIPANT 또는 CREATOR 중 하나여야 합니다.",
+    )
+    val role: String? = null,
 )
 
 data class LoginRequest(

@@ -31,10 +31,17 @@ class AlreadyCreatorException(
     message: String = "이미 크리에이터입니다.") : RuntimeException(message)
 class DuplicateApplicationException(
     message: String = "이미 신청 중입니다.") : RuntimeException(message)
-class TokenReusedException(
-    message: String = "비정상적인 토큰 재사용이 감지되었습니다. 모든 기기에서 로그아웃됩니다.") : RuntimeException(message)
+class TokenReusedException : ContENIDOException(
+    HttpStatus.UNAUTHORIZED,
+    "비정상적인 토큰 재사용이 감지되었습니다. 모든 기기에서 로그아웃됩니다."
+)
 class InvalidCredentialsException : ContENIDOException(
     HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."
+)
+
+class InvalidSignupRoleException : ContENIDOException(
+    HttpStatus.BAD_REQUEST,
+    "회원가입 시 역할은 PARTICIPANT 또는 CREATOR 만 선택할 수 있습니다."
 )
 
 class UserNotFoundException : ContENIDOException(
@@ -66,6 +73,42 @@ class EventFullException : ContENIDOException(
 
 class AlreadyJoinedException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 참여한 이벤트입니다."
+)
+
+class InvalidEventDateRangeException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "이벤트 종료 시간은 시작 시간 이후여야 합니다."
+)
+
+class EventClosedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 종료된 이벤트입니다."
+)
+
+class OwnerCannotApplyException : ContENIDOException(
+    HttpStatus.CONFLICT, "본인이 운영하는 채널의 이벤트에는 신청할 수 없습니다."
+)
+
+class ParticipationNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "참가 신청 내역을 찾을 수 없습니다."
+)
+
+class ParticipationNotPendingException : ContENIDOException(
+    HttpStatus.CONFLICT, "현재 상태에서는 처리할 수 없는 신청입니다."
+)
+
+class EventAlreadyStartedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 시작된 이벤트는 취소할 수 없습니다."
+)
+
+class EventHasIssuedTicketsException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 발급된 티켓이 있어 참가비를 변경할 수 없습니다."
+)
+
+class MaxParticipantsBelowCurrentException : ContENIDOException(
+    HttpStatus.CONFLICT, "현재 참가자 수보다 적게 정원을 줄일 수 없습니다."
+)
+
+class TicketAlreadyUsedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 사용된 티켓은 취소할 수 없습니다."
 )
 
 // --- Post ---
@@ -125,10 +168,48 @@ class ReportNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "존재하지 않는 신고입니다."
 )
 
+class ReportAlreadyProcessedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 처리된 신고입니다."
+)
+
 class AlreadyBannedException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 처리된 대상입니다."
 )
 
 class BannedChannelException : ContENIDOException(
     HttpStatus.FORBIDDEN, "비활성화된 채널입니다."
+)
+
+// --- Channel member ---
+class ChannelMemberNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "존재하지 않는 채널 멤버입니다."
+)
+
+class AlreadyChannelMemberException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 채널 멤버입니다."
+)
+
+class CannotRemoveOwnerException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "채널 소유자는 멤버에서 제외할 수 없습니다."
+)
+
+class CannotAddAdminAsStaffException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "관리자 계정은 채널 스태프로 추가할 수 없습니다."
+)
+
+// --- Ticket ---
+class TicketNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "존재하지 않는 티켓입니다."
+)
+
+class TicketNotPaidException : ContENIDOException(
+    HttpStatus.CONFLICT, "체크인할 수 있는 상태의 티켓이 아닙니다."
+)
+
+class BuyerCannotCheckInException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "본인 티켓을 직접 체크인할 수 없습니다."
+)
+
+class InvalidCheckInCodeException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "유효하지 않은 체크인 코드입니다."
 )

@@ -1,5 +1,6 @@
 package com.contenido.domain.user.service
 
+import com.contenido.domain.auth.service.AuthService
 import com.contenido.domain.user.dto.ChangePasswordRequest
 import com.contenido.domain.user.dto.UpdateProfileRequest
 import com.contenido.domain.user.dto.UserProfileResponse
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional
 class UserService(
     private val userRepository: UserRepository,
     private val passwordEncoder: PasswordEncoder,
+    private val authService: AuthService,
 ) {
 
     fun getMyProfile(userId: Long): UserProfileResponse {
@@ -70,6 +72,11 @@ class UserService(
         }
 
         user.password = passwordEncoder.encode(request.newPassword)
+
+        // 보안상 비밀번호 변경 직후 저장된 refresh token 을 무효화한다.
+        // access token 은 만료 시까지 유효하지만 reissue 가 막혀 자연 종료된다.
+        // 프론트는 성공 응답을 받으면 로그아웃 + 로그인 화면 이동을 수행한다.
+        authService.logout(userId)
     }
 
     @Transactional

@@ -9,8 +9,8 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.data.elasticsearch.client.elc.NativeQuery
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations
-import org.springframework.data.elasticsearch.core.query.NativeQuery
 import org.springframework.stereotype.Service
 
 @Service

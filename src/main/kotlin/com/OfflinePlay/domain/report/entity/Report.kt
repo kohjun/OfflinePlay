@@ -8,7 +8,7 @@ import java.time.LocalDateTime
 
 enum class ReportTargetType { CHANNEL, POST, EVENT, COMMENT }
 
-enum class ReportStatus { PENDING, RESOLVED }
+enum class ReportStatus { PENDING, RESOLVED, DISMISSED }
 
 @Entity
 @Table(name = "reports")
@@ -46,4 +46,11 @@ class Report(
     fun resolve() {
         status = ReportStatus.RESOLVED
     }
+
+    fun dismiss() {
+        status = ReportStatus.DISMISSED
+    }
+
+    val isPending: Boolean
+        get() = status == ReportStatus.PENDING
 }

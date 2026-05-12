@@ -7,8 +7,6 @@ import com.contenido.domain.search.service.SearchSyncService
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.ninjasquad.springmockk.MockkBean
 import io.mockk.every
-import io.mockk.just
-import io.mockk.Runs
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -36,8 +34,10 @@ class AuthControllerIntegrationTest {
     @Autowired lateinit var passwordEncoder: PasswordEncoder
 
     @MockkBean lateinit var redisTemplate: RedisTemplate<String, String>
-    @MockkBean lateinit var searchSyncService: SearchSyncService
-    @MockkBean lateinit var elasticsearchOperations: ElasticsearchOperations
+    // SearchSyncService methods are private and invoked via @TransactionalEventListener;
+    // relaxed mock silently no-ops listener invocations without exposing private API to tests.
+    @MockkBean(relaxed = true) lateinit var searchSyncService: SearchSyncService
+    @MockkBean(relaxed = true) lateinit var elasticsearchOperations: ElasticsearchOperations
 
     private lateinit var valueOps: ValueOperations<String, String>
     private val redisStore = mutableMapOf<String, String>()
@@ -55,9 +55,6 @@ class AuthControllerIntegrationTest {
             redisStore.remove(firstArg<String>())
             true
         }
-        every { searchSyncService.syncChannel(any()) } just Runs
-        every { searchSyncService.syncEvent(any()) } just Runs
-        every { searchSyncService.syncPost(any()) } just Runs
     }
 
     @AfterEach
@@ -200,6 +197,6 @@ class AuthControllerIntegrationTest {
             email: String = "test@test.com",
             password: String,
             role: UserRole = UserRole.PARTICIPANT,
-        ) = User(email, password, "testUser", role, "01012345678")
+        ) = User(email, password, "testUser", "01012345678").apply { updateRole(role) }
     }
 }

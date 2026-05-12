@@ -26,17 +26,29 @@ class Event(
     @Column(nullable = false, columnDefinition = "TEXT")
     var description: String,
 
-    @Column(name = "thumbnail_url")
-    var thumbnailUrl: String? = null,
+    @Column(nullable = false)
+    var location: String,
+
+    @Column(name = "main_image_url", nullable = false)
+    var mainImageUrl: String,
 
     @Column(name = "start_at", nullable = false)
-    val startAt: LocalDateTime,
+    var startAt: LocalDateTime,
 
     @Column(name = "end_at", nullable = false)
-    val endAt: LocalDateTime,
+    var endAt: LocalDateTime,
 
-    @Column(name = "max_participants")
-    val maxParticipants: Int? = null,
+    @Column(name = "max_participants", nullable = false)
+    var maxParticipants: Int,
+
+    @Column(name = "participation_fee", nullable = false)
+    var participationFee: Long,
+
+    @Column(name = "refund_policy", nullable = false, columnDefinition = "TEXT")
+    var refundPolicy: String,
+
+    @Column(name = "detail_content", nullable = false, columnDefinition = "TEXT")
+    var detailContent: String,
 
     @Column(name = "current_participants", nullable = false)
     var currentParticipants: Int = 0,
@@ -47,6 +59,14 @@ class Event(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     var status: EventStatus = EventStatus.UPCOMING,
+
+    /**
+     * 홈 화면 콘텐츠 유형 섹션(Original/Classic/Special)과 매핑된다.
+     * 기존 데이터 호환을 위해 nullable. 신규 이벤트는 생성 시 반드시 지정한다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "content_type", length = 20)
+    var contentType: ContentType? = null,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -69,5 +89,9 @@ class Event(
         currentParticipants++
     }
 
-    fun isFull(): Boolean = maxParticipants != null && currentParticipants >= maxParticipants
+    fun decreaseParticipant() {
+        if (currentParticipants > 0) currentParticipants--
+    }
+
+    fun isFull(): Boolean = currentParticipants >= maxParticipants
 }

@@ -6,6 +6,7 @@ import io.github.bucket4j.Refill
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.core.annotation.Order
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -16,6 +17,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 @Component
 @Order(1)
+@ConditionalOnProperty(
+    name = ["woya.rate-limit.enabled"],
+    havingValue = "true",
+    matchIfMissing = true,
+)
 class RateLimitFilter : OncePerRequestFilter() {
 
     // 로그인: IP당 분당 10회

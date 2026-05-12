@@ -11,6 +11,8 @@ import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.AlreadyBannedException
 import com.contenido.global.exception.ChannelNotFoundException
+import com.contenido.global.exception.ReportAlreadyProcessedException
+import com.contenido.global.exception.ReportNotFoundException
 import com.contenido.global.exception.UserNotFoundException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
@@ -56,7 +58,27 @@ class AdminService(
         reportRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
             .map { it.toResponse() }
 
+    @Transactional
+    fun resolveReport(reportId: Long): ReportResponse {
+        val report = findPendingReport(reportId)
+        report.resolve()
+        return report.toResponse()
+    }
+
+    @Transactional
+    fun dismissReport(reportId: Long): ReportResponse {
+        val report = findPendingReport(reportId)
+        report.dismiss()
+        return report.toResponse()
+    }
+
     // ── private ──────────────────────────────────────────────────────────────
+
+    private fun findPendingReport(reportId: Long): Report {
+        val report = reportRepository.findById(reportId).orElseThrow { ReportNotFoundException() }
+        if (!report.isPending) throw ReportAlreadyProcessedException()
+        return report
+    }
 
     private fun User.toAdminResponse() = AdminUserResponse(
         id = id,

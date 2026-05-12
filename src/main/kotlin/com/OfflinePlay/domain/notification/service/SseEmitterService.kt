@@ -7,29 +7,40 @@ import org.springframework.stereotype.Service
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * In-memory SSE emitter registry.
+ *
+ * One emitter per user. On reconnect, the previous emitter is completed and replaced.
+ *
+ * TODO(multi-instance): this implementation only fans out to users connected to *this*
+ * JVM. In a horizontally scaled deployment, swap [emitters] for a Redis Pub/Sub channel
+ * (or message broker topic) so that any instance can receive a notification and forward
+ * it to whichever instance currently holds the user's emitter.
+ */
 @Service
 class SseEmitterService(
     private val objectMapper: ObjectMapper,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    // userId → SseEmitter
     private val emitters = ConcurrentHashMap<Long, SseEmitter>()
 
     companion object {
-        private const val TIMEOUT_MS = 30 * 60 * 1000L  // 30분
+        private const val TIMEOUT_MS = 30 * 60 * 1000L  // 30 min
         private const val EVENT_NAME = "notification"
         private const val CONNECT_EVENT = "connect"
     }
 
     fun connect(userId: Long): SseEmitter {
-        // 기존 연결 정리
+        // Drop any previous connection for this user so we never keep two emitters open.
         emitters[userId]?.complete()
 
         val emitter = SseEmitter(TIMEOUT_MS)
         emitters[userId] = emitter
 
-        // 연결 수립 확인용 초기 이벤트 (빈 데이터 전송 없으면 일부 클라이언트가 연결 인식 못함)
+        // Initial event: confirms the connection to the client and helps proxies/browsers
+        // recognize the stream as open. Without an immediate write some clients block on
+        // first byte and never fire `onopen`.
         runCatching {
             emitter.send(
                 SseEmitter.event()
@@ -45,13 +56,13 @@ class SseEmitterService(
         emitter.onTimeout { emitters.remove(userId) }
         emitter.onError { emitters.remove(userId) }
 
-        log.debug("[SSE] User $userId connected (active: ${emitters.size})")
+        log.debug("[SSE] User {} connected (active: {})", userId, emitters.size)
         return emitter
     }
 
     fun disconnect(userId: Long) {
         emitters.remove(userId)?.complete()
-        log.debug("[SSE] User $userId disconnected")
+        log.debug("[SSE] User {} disconnected", userId)
     }
 
     fun sendToUser(userId: Long, notification: NotificationResponse) {
@@ -63,9 +74,15 @@ class SseEmitterService(
                     .data(objectMapper.writeValueAsString(notification))
             )
         }.onFailure { e ->
-            log.debug("[SSE] Failed to send to user $userId, removing emitter: ${e.message}")
+            log.debug("[SSE] Failed to send to user {}, removing emitter: {}", userId, e.message)
             emitters.remove(userId)
             emitter.completeWithError(e)
         }
     }
+
+    /** Number of currently active emitters. Exposed for monitoring / tests. */
+    fun activeCount(): Int = emitters.size
+
+    /** Returns true if the given user currently has an active emitter on this instance. */
+    fun isConnected(userId: Long): Boolean = emitters.containsKey(userId)
 }

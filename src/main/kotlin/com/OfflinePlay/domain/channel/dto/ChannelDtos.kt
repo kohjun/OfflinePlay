@@ -31,6 +31,7 @@ data class UpdateChannelRequest(
 
 data class ChannelResponse(
     val id: Long,
+    val ownerId: Long,
     val ownerNickname: String,
     val name: String,
     val description: String,
@@ -43,6 +44,7 @@ data class ChannelResponse(
 
 data class ChannelDetailResponse(
     val id: Long,
+    val ownerId: Long,
     val ownerNickname: String,
     val name: String,
     val description: String,

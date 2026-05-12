@@ -6,6 +6,8 @@ import com.contenido.domain.user.entity.User
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.util.Optional
 
 interface ChannelRepository : JpaRepository<Channel, Long> {
@@ -14,5 +16,28 @@ interface ChannelRepository : JpaRepository<Channel, Long> {
 
     fun existsByOwner(owner: User): Boolean
 
+    fun countByOwner(owner: User): Long
+
+    @Query("select sum(c.subscriberCount) from Channel c where c.owner = :owner")
+    fun sumSubscriberCountByOwner(@Param("owner") owner: User): Long?
+
     fun findByCategoryOrderBySubscriberCountDesc(category: ChannelCategory, pageable: Pageable): Page<Channel>
+
+    /**
+     * Explore 페이지용 LIKE 검색. 셋 다 null/blank 면 전체를 반환한다.
+     * Elasticsearch 의존 없이 항상 동작한다.
+     */
+    @Query("""
+        SELECT c FROM Channel c
+        WHERE (:keyword IS NULL OR :keyword = ''
+               OR LOWER(c.name) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(c.description) LIKE LOWER(CONCAT('%', :keyword, '%')))
+          AND (:category IS NULL OR c.category = :category)
+        ORDER BY c.subscriberCount DESC, c.id DESC
+    """)
+    fun searchForExplore(
+        @Param("keyword") keyword: String?,
+        @Param("category") category: ChannelCategory?,
+        pageable: Pageable,
+    ): Page<Channel>
 }

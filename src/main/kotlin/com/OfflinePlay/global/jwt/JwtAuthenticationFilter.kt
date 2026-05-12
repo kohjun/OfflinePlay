@@ -48,9 +48,16 @@ class JwtAuthenticationFilter(
     }
 
     private fun extractBearerToken(request: HttpServletRequest): String? {
-        val header = request.getHeader(HttpHeaders.AUTHORIZATION) ?: return null
-        if (!header.startsWith("Bearer ")) return null
-        return header.removePrefix("Bearer ").trim()
+        val header = request.getHeader(HttpHeaders.AUTHORIZATION)
+        if (header?.startsWith("Bearer ") == true) {
+            return header.removePrefix("Bearer ").trim()
+        }
+
+        if (request.requestURI == "/api/v1/notifications/connect") {
+            return request.getParameter("token")?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
+        return null
     }
 
     private fun sendErrorResponse(response: HttpServletResponse, e: ContENIDOException) {
