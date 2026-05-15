@@ -4,6 +4,8 @@ import com.contenido.domain.payment.dto.PaymentConfirmRequest
 import com.contenido.domain.payment.dto.PaymentConfirmResponse
 import com.contenido.domain.payment.dto.PaymentPrepareResponse
 import com.contenido.domain.payment.dto.PaymentWebhookRequest
+import com.contenido.domain.payment.dto.RefundTicketRequest
+import com.contenido.domain.payment.dto.RefundTicketResponse
 import com.contenido.domain.payment.service.PaymentService
 import com.contenido.domain.payment.webhook.PaymentWebhookSignatureVerifier
 import com.contenido.domain.payment.webhook.PaymentWebhookSignatureVerifier.VerificationResult
@@ -58,6 +60,26 @@ class PaymentController(
     ): ApiResponse<PaymentConfirmResponse> {
         val response = paymentService.confirmPayment(userId, paymentAttemptId, request)
         return ApiResponse.ok(response, "결제가 완료되었습니다.")
+    }
+
+    /**
+     * 환불 요청 — buyer 본인 / 채널 owner / ADMIN 만 가능. STAFF 는 환불 권한 없음.
+     *
+     * 멱등: 이미 REFUNDED 인 티켓은 gateway 재호출 없이 기존 정보로 응답.
+     * USED 인 티켓은 거부 (체크인 후 환불은 운영 도구로 별도).
+     */
+    @PostMapping("/tickets/{ticketId}/refund")
+    fun refundTicket(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable ticketId: Long,
+        @RequestBody(required = false) request: RefundTicketRequest?,
+    ): ApiResponse<RefundTicketResponse> {
+        val response = paymentService.refundPaymentByTicket(
+            actorId = userId,
+            ticketId = ticketId,
+            request = request ?: RefundTicketRequest(),
+        )
+        return ApiResponse.ok(response, "환불이 완료되었습니다.")
     }
 
     /**

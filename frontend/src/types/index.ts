@@ -389,3 +389,19 @@ export interface PaymentConfirmResponse {
   providerPaymentKey: string | null
   approvedAt: string | null
 }
+
+/** Mirrors backend RefundTicketRequest. reason 은 빈 값일 수 있으며 서버가 USER_REQUEST 로 대체. */
+export interface RefundTicketRequest {
+  reason?: string | null
+}
+
+/** Mirrors backend RefundTicketResponse. */
+export interface RefundTicketResponse {
+  ticketId: number
+  ticketStatus: TicketStatus
+  paymentAttemptId: number
+  provider: PaymentProvider
+  amount: number
+  refundedAt: string
+  providerPaymentKey: string | null
+}

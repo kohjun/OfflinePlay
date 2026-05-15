@@ -17,6 +17,8 @@ interface PaymentGateway {
     fun provider(): PaymentProvider
 
     fun confirm(request: PaymentGatewayConfirmRequest): PaymentGatewayConfirmResult
+
+    fun refund(request: PaymentGatewayRefundRequest): PaymentGatewayRefundResult
 }
 
 /**
@@ -51,4 +53,40 @@ sealed class PaymentGatewayConfirmResult {
         val code: String,
         val message: String,
     ) : PaymentGatewayConfirmResult()
+}
+
+/**
+ * PG refund 호출에 필요한 정보.
+ *
+ *  - [providerPaymentKey] : PaymentAttempt.providerPaymentKey 가 보관해 둔 PG 측 결제 키.
+ *                            confirm 시점에 채워졌으므로 refund 단계에서 그대로 사용한다.
+ *  - [amount]             : 환불 금액. 본 PR42 단계는 전액 환불만 — Ticket.price 와 동일.
+ *  - [reason]             : 운영 로그용 사유. PG 별로 길이 제한이 있을 수 있어 service 단에서 trim.
+ */
+data class PaymentGatewayRefundRequest(
+    val providerPaymentKey: String,
+    val amount: Long,
+    val reason: String,
+)
+
+/**
+ * PG refund 결과.
+ *
+ *  - [Success] : PG 가 환불 승인. providerPaymentKey 는 동일 값을 echo 하거나 별도 환불 키를
+ *                돌려준다. canceledAt 은 PG 가 알려주는 환불 처리 시각.
+ *  - [Failure] : PG 가 거절. PaymentService 는 PaymentAttempt 를 PAID 유지하고
+ *                [com.contenido.global.exception.RefundFailedException] 을 던진다.
+ */
+sealed class PaymentGatewayRefundResult {
+    data class Success(
+        val provider: PaymentProvider,
+        val providerPaymentKey: String,
+        val canceledAt: String? = null,
+    ) : PaymentGatewayRefundResult()
+
+    data class Failure(
+        val provider: PaymentProvider,
+        val code: String,
+        val message: String,
+    ) : PaymentGatewayRefundResult()
 }

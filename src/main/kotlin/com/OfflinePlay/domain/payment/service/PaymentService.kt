@@ -10,16 +10,22 @@ import com.contenido.domain.payment.dto.PaymentConfirmRequest
 import com.contenido.domain.payment.dto.PaymentConfirmResponse
 import com.contenido.domain.payment.dto.PaymentPrepareResponse
 import com.contenido.domain.payment.dto.PaymentWebhookRequest
+import com.contenido.domain.payment.dto.RefundTicketRequest
+import com.contenido.domain.payment.dto.RefundTicketResponse
 import com.contenido.domain.payment.entity.PaymentAttempt
 import com.contenido.domain.payment.entity.PaymentStatus
 import com.contenido.domain.payment.gateway.PaymentGateway
 import com.contenido.domain.payment.gateway.PaymentGatewayConfirmRequest
 import com.contenido.domain.payment.gateway.PaymentGatewayConfirmResult
+import com.contenido.domain.payment.gateway.PaymentGatewayRefundRequest
+import com.contenido.domain.payment.gateway.PaymentGatewayRefundResult
 import com.contenido.domain.payment.repository.PaymentAttemptRepository
+import com.contenido.domain.ticket.entity.Ticket
 import com.contenido.domain.ticket.entity.TicketStatus
 import com.contenido.domain.ticket.repository.TicketRepository
 import com.contenido.domain.ticket.service.TicketService
 import com.contenido.domain.user.entity.User
+import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.AlreadyJoinedException
 import com.contenido.global.exception.EventAlreadyStartedException
@@ -33,6 +39,11 @@ import com.contenido.global.exception.InvalidPaymentStateException
 import com.contenido.global.exception.OwnerCannotApplyException
 import com.contenido.global.exception.PaymentAttemptNotFoundException
 import com.contenido.global.exception.PaymentConfirmFailedException
+import com.contenido.global.exception.PaymentNotRefundableException
+import com.contenido.global.exception.RefundFailedException
+import com.contenido.global.exception.TicketAlreadyRefundedException
+import com.contenido.global.exception.TicketAlreadyUsedException
+import com.contenido.global.exception.TicketNotFoundException
 import com.contenido.global.exception.UnauthorizedException
 import com.contenido.global.exception.UserNotFoundException
 import org.slf4j.LoggerFactory
@@ -139,7 +150,13 @@ class PaymentService(
         val attempt = paymentAttemptRepository.findByIdempotencyKey(request.idempotencyKey)
             .orElseThrow { PaymentAttemptNotFoundException() }
 
-        // 이미 처리된 시도면 멱등으로 종료.
+        // REFUNDED webhook 은 PAID 상태에서만 의미가 있다 — 별도 분기로 처리.
+        if (request.status == PaymentStatus.REFUNDED) {
+            handleRefundedWebhook(attempt)
+            return
+        }
+
+        // 이미 처리된 시도면 멱등으로 종료 (PAID/FAILED/CANCELED 모두 재처리 X).
         if (attempt.status != PaymentStatus.READY) {
             log.info("[handleWebhook] already processed attemptId={} status={} — skip",
                 attempt.id, attempt.status)
@@ -159,10 +176,169 @@ class PaymentService(
             }
             PaymentStatus.FAILED -> attempt.markFailed(request.provider)
             PaymentStatus.CANCELED -> attempt.markCanceled()
+            PaymentStatus.REFUNDED -> { /* handled above */ }
             PaymentStatus.READY -> {
                 log.warn("[handleWebhook] webhook with READY status — ignoring, attemptId={}", attempt.id)
             }
         }
+    }
+
+    /**
+     * REFUNDED webhook 처리. PaymentAttempt.status 는 PAID 그대로 유지하고
+     * `refundedAt` 으로 환불 시점을 기록한다 — Ticket 의 REFUNDED 가 권위 있는 상태.
+     *
+     * 멱등 가드:
+     *  - attempt.status != PAID → 환불 webhook 은 결제 안 된 attempt 에 의미 없음. skip.
+     *  - attempt.refundedAt != null → 이미 환불 처리됨. skip.
+     *  - ticket 이 null → confirm 이 끝나지 않은 비정상 상태. 운영 알람만 남기고 skip.
+     */
+    private fun handleRefundedWebhook(attempt: PaymentAttempt) {
+        if (attempt.status != PaymentStatus.PAID) {
+            log.warn(
+                "[handleWebhook] REFUNDED for non-PAID attemptId={} status={} — skip",
+                attempt.id, attempt.status,
+            )
+            return
+        }
+        if (attempt.refundedAt != null) {
+            log.info("[handleWebhook] REFUNDED already processed attemptId={}, skip", attempt.id)
+            return
+        }
+        val ticket = attempt.ticket
+        if (ticket == null) {
+            log.warn(
+                "[handleWebhook] REFUNDED webhook but ticket is null attemptId={} — operations alert",
+                attempt.id,
+            )
+            return
+        }
+        if (ticket.status != TicketStatus.PAID) {
+            // 이미 USED 면 webhook 으로 강제 환불하면 안 됨 — 운영 도구 개입 필요.
+            log.warn(
+                "[handleWebhook] REFUNDED webhook but ticketStatus={} attemptId={} — skip",
+                ticket.status, attempt.id,
+            )
+            return
+        }
+        markRefundedInternal(attempt, ticket, reason = "PG_WEBHOOK")
+    }
+
+    /**
+     * 사용자/owner/ADMIN 환불 요청. PG refund 호출 + Ticket REFUNDED 전환 +
+     * 정원 -- + EventParticipation CANCELED 전환.
+     *
+     * 권한:
+     *  - ticket.buyer 본인 — 본인이 셀프 환불 요청
+     *  - 채널 owner — 환불 정책상 owner 가 환불 허용 (예: 이벤트 자체 취소)
+     *  - ADMIN     — 운영 개입
+     *  - 그 외 (STAFF 포함) → [UnauthorizedException]
+     *
+     * 상태 분기:
+     *  - PAID  : 정상 환불 진행
+     *  - USED  : [TicketAlreadyUsedException] (체크인 후 환불은 운영 도구로 별도)
+     *  - REFUNDED : 이미 환불됨 — gateway 재호출 없이 기존 정보로 멱등 응답
+     *  - CANCELED : [PaymentNotRefundableException] (참가 취소된 티켓은 환불 대상 아님)
+     *
+     * PaymentAttempt 가 PAID 가 아니거나 providerPaymentKey 가 비어 있으면 환불 불가
+     * ([PaymentNotRefundableException]) — 결제 완료 시점 정보 없이는 PG 에 환불 요청 못함.
+     */
+    @Transactional
+    fun refundPaymentByTicket(
+        actorId: Long,
+        ticketId: Long,
+        request: RefundTicketRequest,
+    ): RefundTicketResponse {
+        val actor = userRepository.findById(actorId).orElseThrow { UserNotFoundException() }
+        val ticket = ticketRepository.findById(ticketId).orElseThrow { TicketNotFoundException() }
+
+        if (!canRequestRefund(actor, ticket)) throw UnauthorizedException()
+
+        when (ticket.status) {
+            TicketStatus.USED -> throw TicketAlreadyUsedException()
+            TicketStatus.CANCELED -> throw PaymentNotRefundableException("취소된 티켓은 환불 대상이 아닙니다.")
+            TicketStatus.REFUNDED -> {
+                // 멱등: 기존 PaymentAttempt 정보로 응답한다.
+                val attempt = paymentAttemptRepository.findByTicket(ticket)
+                    .orElseThrow { PaymentNotRefundableException("연결된 결제 시도를 찾을 수 없습니다.") }
+                return attempt.toRefundResponse(ticket)
+            }
+            TicketStatus.PAID -> { /* 진행 */ }
+        }
+
+        val attempt = paymentAttemptRepository.findByTicket(ticket)
+            .orElseThrow { PaymentNotRefundableException("연결된 결제 시도를 찾을 수 없습니다.") }
+        if (attempt.status != PaymentStatus.PAID) {
+            throw PaymentNotRefundableException("PAID 상태인 결제만 환불 가능합니다.")
+        }
+        // 이미 환불 처리된 attempt 면 멱등 응답 (ticket.status 가 정상이라면 데이터 불일치이지만 안전 우선).
+        if (attempt.refundedAt != null) {
+            throw TicketAlreadyRefundedException()
+        }
+        val providerKey = attempt.providerPaymentKey?.takeIf { it.isNotBlank() }
+            ?: throw PaymentNotRefundableException("PG 결제 키가 없어 환불할 수 없습니다.")
+
+        val reason = request.reason?.trim().orEmpty().ifBlank { "USER_REQUEST" }
+        val result = paymentGateway.refund(
+            PaymentGatewayRefundRequest(
+                providerPaymentKey = providerKey,
+                amount = attempt.amount,
+                reason = reason,
+            )
+        )
+
+        return when (result) {
+            is PaymentGatewayRefundResult.Success -> {
+                markRefundedInternal(attempt, ticket, reason)
+                attempt.toRefundResponse(ticket)
+            }
+            is PaymentGatewayRefundResult.Failure -> {
+                log.warn(
+                    "[refund] gateway rejected ticketId={} code={} msg={}",
+                    ticket.id, result.code, result.message,
+                )
+                throw RefundFailedException(result.code, result.message)
+            }
+        }
+    }
+
+    private fun canRequestRefund(actor: User, ticket: Ticket): Boolean {
+        if (actor.role == UserRole.ADMIN) return true
+        if (ticket.buyer.id == actor.id) return true
+        if (ticket.event.channel.owner.id == actor.id) return true
+        return false
+    }
+
+    /**
+     * 환불 후 상태 정리:
+     *  - PaymentAttempt.refundedAt + refundReason 기록 (status 는 PAID 유지)
+     *  - Ticket.status PAID → REFUNDED
+     *  - Event.currentParticipants --
+     *  - EventParticipation 이 있으면 CANCELED 로 전환 (이미 CANCELED 면 no-op)
+     *
+     * 한 attempt 에 한 번만 호출되도록 호출처가 `refundedAt == null` 가드.
+     */
+    private fun markRefundedInternal(attempt: PaymentAttempt, ticket: Ticket, reason: String) {
+        attempt.markRefunded(reason)
+        ticket.refund()
+        attempt.event.decreaseParticipant()
+        eventParticipationRepository.findByEventAndParticipant(attempt.event, attempt.buyer)
+            .ifPresent { p ->
+                if (p.status != ParticipationStatus.CANCELED) {
+                    p.cancel()
+                }
+            }
+    }
+
+    private fun PaymentAttempt.toRefundResponse(ticket: Ticket): RefundTicketResponse {
+        return RefundTicketResponse(
+            ticketId = ticket.id,
+            ticketStatus = ticket.status,
+            paymentAttemptId = id,
+            provider = provider,
+            amount = amount,
+            refundedAt = (refundedAt ?: LocalDateTime.now()).toString(),
+            providerPaymentKey = providerPaymentKey,
+        )
     }
 
     /**

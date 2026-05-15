@@ -403,3 +403,82 @@ payment:
 - **정원 race condition lock** — DB row lock(`SELECT ... FOR UPDATE`) 또는 Redisson 분산락 도입.
 - **Webhook + confirm 충돌 정책** — 두 진입점 동시 도착 시 멱등은 보장되지만, 한 쪽으로 일원화하는 방향 평가.
 - **PortOne 어댑터** — interface 만 열려 있고 구현체는 후속 PR.
+
+---
+
+## 11. PR42 — 환불 흐름
+
+전액 환불 1차. Toss 의 `POST /v1/payments/{paymentKey}/cancel` 를 어댑터로 추상화하고
+사용자/owner/ADMIN 환불 API 와 `refund.completed` webhook 분기를 함께 도입했다.
+부분 환불, 환불 정산 batch, USED 후 강제 환불은 후속 PR.
+
+### 11.1 PaymentGateway 확장
+
+```kotlin
+interface PaymentGateway {
+    fun provider(): PaymentProvider
+    fun confirm(request: PaymentGatewayConfirmRequest): PaymentGatewayConfirmResult
+    fun refund(request: PaymentGatewayRefundRequest): PaymentGatewayRefundResult  // NEW
+}
+```
+
+- `TossPaymentGateway.refund`: `POST {api-base-url}/v1/payments/{paymentKey}/cancel`, body `{cancelReason, cancelAmount}`, 응답의 `cancels[].canceledAt` 추출.
+- `MockPaymentGateway.refund`: 항상 Success — sandbox 키 없는 dev/CI 에서도 환불 흐름 검증 가능.
+
+### 11.2 새 API
+
+| 메서드/경로 | 인증 | 책임 |
+|---|---|---|
+| `POST /api/v1/tickets/{ticketId}/refund` | buyer 본인 / 채널 owner / ADMIN | PG refund 호출 → Ticket PAID → REFUNDED, PaymentAttempt.refundedAt 기록, Event.currentParticipants --, EventParticipation CANCELED. 멱등(이미 REFUNDED → gateway 재호출 없이 기존 정보 반환). |
+
+요청 (`RefundTicketRequest`): `{ reason?: string }` (빈 값은 서버가 `USER_REQUEST` 로 대체, 500자 trim).
+응답 (`RefundTicketResponse`): `ticketId / ticketStatus / paymentAttemptId / provider / amount / refundedAt / providerPaymentKey`.
+
+### 11.3 거부 조건
+
+| 케이스 | Exception | HTTP |
+|---|---|---|
+| actor 가 buyer / owner / ADMIN 아님 (STAFF 포함) | `UnauthorizedException` | 403 |
+| Ticket 미존재 | `TicketNotFoundException` | 404 |
+| Ticket USED (체크인 완료) | `TicketAlreadyUsedException` | 409 |
+| Ticket CANCELED | `PaymentNotRefundableException` | 409 |
+| 이미 REFUNDED + attempt.refundedAt 세팅 | 멱등 응답 (no throw) | 200 |
+| PaymentAttempt 미존재 / status≠PAID | `PaymentNotRefundableException` | 409 |
+| providerPaymentKey 누락 | `PaymentNotRefundableException` | 409 |
+| PG gateway 거절 | `RefundFailedException(code, detail)` | 502 |
+
+### 11.4 webhook `refund.completed` 분기
+
+`PaymentService.handleWebhook` 에 `PaymentStatus.REFUNDED` 케이스 추가:
+- attempt.status != PAID → skip (운영 알람)
+- attempt.refundedAt 이미 있음 → skip (멱등)
+- ticket 없음 또는 ticket.status != PAID → skip (USED 등 비정상은 운영 도구로 별도)
+- 정상 케이스: `markRefundedInternal` 로 ticket REFUNDED + 정원 -- + EventParticipation CANCELED
+
+`PaymentStatus.REFUNDED` enum 값은 **webhook payload 전용 입력값**으로 추가됨. PaymentAttempt.status 는 PAID 그대로 유지하고 `refundedAt` 으로 환불 여부를 판단한다 — TicketStatus.REFUNDED 가 권위 있는 환불 상태.
+
+### 11.5 PaymentAttempt 컬럼 추가
+
+| 컬럼 | 타입 | 용도 |
+|---|---|---|
+| `refunded_at` | `LocalDateTime?` | 환불 처리 시각. null 이면 미환불. 멱등 가드의 기준. |
+| `refund_reason` | `VARCHAR(500)?` | 운영 로그. `markRefunded` 가 500자 trim. |
+
+`markRefunded(reason, at)` 새 helper. PaymentAttempt.status 는 그대로 PAID — 환불 자체는 Ticket REFUNDED 가 권위 있는 상태이며 PaymentAttempt 는 "결제까지 갔다" 는 사실을 보존.
+
+### 11.6 Frontend
+
+`TicketDetailPage` 의 기존 "환불·취소 (준비 중)" 비활성 버튼이 실제 환불 CTA 로 교체됨:
+- 노출 조건: `ticket.ticketStatus === 'PAID'` + `!isStaffViewer`
+- 클릭 → confirm dialog + `window.prompt` 사유 → `refundTicket(ticketId, { reason })` 호출
+- 응답으로 받은 status 로 즉시 UI 갱신, 토스트로 결과 안내
+
+권한은 백엔드가 최종 판정. UI 는 PAID 상태만 가드하고 owner/ADMIN 케이스에서도 같은 버튼 사용.
+
+### 11.7 PR43+ 의도적 제외
+
+- **부분 환불** — 현재는 전액만 (`cancelAmount = attempt.amount`). 부분 환불 도입 시 Ticket 모델/UI/PG body 모두 확장 필요.
+- **USED 후 강제 환불** — 노쇼/행사 취소 보상 등 운영 케이스. 별도 ADMIN 전용 endpoint 와 추적 컬럼 필요.
+- **환불 정산 reconciliation batch** — 일별 PG 정산 데이터와 REFUNDED 카운트 일치 검증.
+- **환불 실패 큐** — PG `refund.failed` 처리 + 운영자 알림 + 자동 재시도 정책 (Toss 5xx 한정).
+- **정원 race condition lock** (PR41 잔재) + **PortOne 어댑터** (PR40 잔재) — 별도 PR.

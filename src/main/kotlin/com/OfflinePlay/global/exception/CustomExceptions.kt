@@ -252,3 +252,16 @@ class WebhookMisconfiguredException : ContENIDOException(
 class MalformedWebhookBodyException : ContENIDOException(
     HttpStatus.BAD_REQUEST, "결제 webhook body 를 해석할 수 없습니다."
 )
+
+// --- Refund ---
+class TicketAlreadyRefundedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 환불 처리된 티켓입니다."
+)
+
+class PaymentNotRefundableException(detail: String = "현재 상태에서는 환불할 수 없습니다.") :
+    ContENIDOException(HttpStatus.CONFLICT, detail)
+
+class RefundFailedException(
+    val code: String,
+    detail: String,
+) : ContENIDOException(HttpStatus.BAD_GATEWAY, "환불 처리에 실패했습니다: $detail")

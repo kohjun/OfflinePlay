@@ -80,6 +80,63 @@ class TossPaymentGateway(
         }
     }
 
+    /**
+     * Toss 환불 API. `POST {api-base-url}/v1/payments/{paymentKey}/cancel`
+     *
+     *  - 본 PR42 는 전액 환불만 지원 — body 의 cancelAmount 는 전체 결제 금액.
+     *  - Toss 응답의 `cancels[]` 배열에서 가장 최근 취소의 `canceledAt` 을 채택.
+     *  - 부분 환불, 다단 환불, 환불 reason 은 운영 도구 도입 PR 에서 확장.
+     */
+    override fun refund(request: PaymentGatewayRefundRequest): PaymentGatewayRefundResult {
+        val auth = "Basic " + Base64.getEncoder()
+            .encodeToString("${properties.secretKey}:".toByteArray())
+
+        return try {
+            val body = mapOf(
+                "cancelReason" to request.reason,
+                "cancelAmount" to request.amount,
+            )
+            val response: Map<String, Any?>? = restClient.post()
+                .uri("${properties.apiBaseUrl}/v1/payments/${request.providerPaymentKey}/cancel")
+                .header("Authorization", auth)
+                .header("Content-Type", "application/json")
+                .body(body)
+                .retrieve()
+                .body(Map::class.java) as Map<String, Any?>?
+
+            val providerPaymentKey = response?.get("paymentKey") as? String
+                ?: request.providerPaymentKey
+            val canceledAt = (response?.get("cancels") as? List<*>)
+                ?.lastOrNull()
+                ?.let { (it as? Map<*, *>)?.get("canceledAt") as? String }
+
+            PaymentGatewayRefundResult.Success(
+                provider = PaymentProvider.TOSS,
+                providerPaymentKey = providerPaymentKey,
+                canceledAt = canceledAt,
+            )
+        } catch (e: RestClientResponseException) {
+            val errorBody = runCatching { e.responseBodyAsString }.getOrNull()
+            log.warn(
+                "[TossPaymentGateway] refund rejected status={} body={}",
+                e.statusCode, errorBody,
+            )
+            val (code, message) = parseTossError(e.statusCode, errorBody)
+            PaymentGatewayRefundResult.Failure(
+                provider = PaymentProvider.TOSS,
+                code = code,
+                message = message,
+            )
+        } catch (e: Exception) {
+            log.error("[TossPaymentGateway] refund IO error", e)
+            PaymentGatewayRefundResult.Failure(
+                provider = PaymentProvider.TOSS,
+                code = "PG_IO_ERROR",
+                message = e.message ?: "환불 게이트웨이 통신 오류",
+            )
+        }
+    }
+
     private fun parseTossError(status: HttpStatusCode, body: String?): Pair<String, String> {
         // Toss error body 형식: { "code": "...", "message": "..." }
         if (body.isNullOrBlank()) return "PG_HTTP_${status.value()}" to "PG 가 결제를 거절했습니다."

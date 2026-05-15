@@ -70,6 +70,12 @@ class PaymentAttempt(
 
     @Column(name = "provider_payment_key", length = 128)
     var providerPaymentKey: String? = null,
+
+    @Column(name = "refunded_at")
+    var refundedAt: LocalDateTime? = null,
+
+    @Column(name = "refund_reason", length = 500)
+    var refundReason: String? = null,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -99,5 +105,17 @@ class PaymentAttempt(
 
     fun markCanceled() {
         this.status = PaymentStatus.CANCELED
+    }
+
+    /**
+     * 환불 완료 처리. status 전이는 따로 두지 않고 (PaymentStatus.PAID 유지) [refundedAt] 으로
+     * 환불 시점을 기록한다 — PaymentAttempt 는 "이 시도가 결제까지 갔는가" 의 단일 사실을
+     * 보존하고, 환불 자체는 Ticket 의 REFUNDED 가 권위 있는 상태가 된다.
+     *
+     * 한 PaymentAttempt 에 두 번 호출되지 않도록 호출자가 [refundedAt] null 체크 (멱등 보장).
+     */
+    fun markRefunded(reason: String, at: LocalDateTime = LocalDateTime.now()) {
+        this.refundedAt = at
+        this.refundReason = reason.take(500)
     }
 }

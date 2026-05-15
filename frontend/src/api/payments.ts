@@ -3,6 +3,8 @@ import type {
   PaymentConfirmRequest,
   PaymentConfirmResponse,
   PaymentPrepareResponse,
+  RefundTicketRequest,
+  RefundTicketResponse,
 } from '../types'
 
 /**
@@ -46,4 +48,22 @@ export function confirmPayment(
     `/payments/${paymentAttemptId}/confirm`,
     request,
   )
+}
+
+/**
+ * POST /api/v1/tickets/{ticketId}/refund
+ *
+ * 환불 요청. buyer 본인 / 채널 owner / ADMIN 만 가능. STAFF 는 권한 없음.
+ *
+ * 거부 케이스 (백엔드 throw):
+ *  - 인증 부재 / 권한 없음: 403 UnauthorizedException
+ *  - USED ticket: 409 TicketAlreadyUsedException
+ *  - CANCELED ticket: 409 PaymentNotRefundableException
+ *  - PaymentAttempt 부재 또는 providerPaymentKey 부재: 409 PaymentNotRefundableException
+ *  - PG gateway 거절: 502 RefundFailedException
+ *
+ * 멱등: 이미 REFUNDED 인 ticket 은 gateway 재호출 없이 기존 정보로 응답.
+ */
+export function refundTicket(ticketId: number, request: RefundTicketRequest = {}) {
+  return apiClient.post<RefundTicketResponse>(`/tickets/${ticketId}/refund`, request)
 }

@@ -27,4 +27,15 @@ class MockPaymentGateway : PaymentGateway {
             providerPaymentKey = "mock-${request.paymentKey}",
         )
     }
+
+    override fun refund(request: PaymentGatewayRefundRequest): PaymentGatewayRefundResult {
+        log.info(
+            "[MockPaymentGateway] refund providerPaymentKey={} amount={} reason='{}' — mock success",
+            request.providerPaymentKey, request.amount, request.reason,
+        )
+        return PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.NONE,
+            providerPaymentKey = request.providerPaymentKey,
+        )
+    }
 }

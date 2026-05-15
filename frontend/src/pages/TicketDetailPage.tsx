@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { checkInTicket, getTicket } from '../api/tickets'
+import { refundTicket } from '../api/payments'
 import { Badge } from '../components/Badge'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
@@ -71,6 +72,7 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
   const [checkingIn, setCheckingIn] = useState(false)
+  const [refunding, setRefunding] = useState(false)
 
   const refreshTicket = useCallback(async () => {
     try {
@@ -134,6 +136,39 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
       showToast({ title: '체크인 코드를 복사했어요', tone: 'success' })
     } catch {
       showToast({ title: '복사에 실패했어요', message: '수기로 입력해주세요.', tone: 'warning' })
+    }
+  }
+
+  /**
+   * 환불 요청. PAID + (buyer 본인 or owner or ADMIN) 일 때만 버튼이 활성화되지만
+   * 권한은 백엔드가 최종 판정하므로 UI 는 PAID 상태만 가드한다.
+   *
+   * 사유 입력은 `window.prompt` 로 간단히 받음. 빈 값이어도 백엔드가 "USER_REQUEST" 로 대체.
+   * 백엔드 응답은 멱등(이미 REFUNDED 면 기존 정보 반환)이라 더블 클릭으로도 안전.
+   */
+  async function handleRefund() {
+    if (!ticket || refunding) return
+    if (!window.confirm('정말 환불을 진행할까요? 발급된 티켓이 환불 상태로 전환됩니다.')) return
+    const reason = window.prompt('환불 사유 (선택)', '') ?? ''
+    setRefunding(true)
+    try {
+      const result = await refundTicket(ticket.ticketId, { reason: reason || null })
+      setTicket({ ...ticket, ticketStatus: result.ticketStatus })
+      showToast({
+        title: '환불이 완료되었어요',
+        message: `${result.amount.toLocaleString()}원이 환불 처리되었습니다.`,
+        tone: 'success',
+      })
+    } catch (err) {
+      const status = (err as { status?: number } | null)?.status
+      const msg = err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.'
+      showToast({
+        title: status === 403 ? '환불 권한이 없습니다' : '환불 처리에 실패했어요',
+        message: msg,
+        tone: 'danger',
+      })
+    } finally {
+      setRefunding(false)
     }
   }
 
@@ -302,15 +337,16 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
         >
           이벤트 상세 보기
         </button>
-        {!isStaffViewer ? (
+        {!isStaffViewer && ticket.ticketStatus === 'PAID' ? (
           <button
             type="button"
             className="button button-secondary is-block"
-            disabled
-            aria-disabled="true"
-            title="환불은 곧 만나요"
+            onClick={handleRefund}
+            disabled={refunding}
+            aria-busy={refunding}
           >
-            환불·취소 (준비 중)
+            {refunding ? <span className="button-spinner" aria-hidden="true" /> : null}
+            {refunding ? '환불 처리 중...' : '환불 요청'}
           </button>
         ) : null}
       </section>
