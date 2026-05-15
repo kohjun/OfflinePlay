@@ -239,3 +239,16 @@ class PaymentConfirmFailedException(
     val code: String,
     detail: String,
 ) : ContENIDOException(HttpStatus.BAD_GATEWAY, "결제 승인에 실패했습니다: $detail")
+
+class InvalidWebhookSignatureException(
+    reason: String = "잘못된 웹훅 서명입니다.",
+) : ContENIDOException(HttpStatus.UNAUTHORIZED, reason)
+
+class WebhookMisconfiguredException : ContENIDOException(
+    HttpStatus.INTERNAL_SERVER_ERROR,
+    "결제 webhook 검증이 활성화됐지만 secret 이 설정되지 않았습니다.",
+)
+
+class MalformedWebhookBodyException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "결제 webhook body 를 해석할 수 없습니다."
+)

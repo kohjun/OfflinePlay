@@ -5,11 +5,20 @@ import com.contenido.domain.payment.dto.PaymentConfirmResponse
 import com.contenido.domain.payment.dto.PaymentPrepareResponse
 import com.contenido.domain.payment.dto.PaymentWebhookRequest
 import com.contenido.domain.payment.service.PaymentService
+import com.contenido.domain.payment.webhook.PaymentWebhookSignatureVerifier
+import com.contenido.domain.payment.webhook.PaymentWebhookSignatureVerifier.VerificationResult
+import com.contenido.global.exception.InvalidWebhookSignatureException
+import com.contenido.global.exception.MalformedWebhookBodyException
+import com.contenido.global.exception.WebhookMisconfiguredException
 import com.contenido.global.response.ApiResponse
+import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.databind.ObjectMapper
+import org.slf4j.LoggerFactory
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
@@ -17,7 +26,10 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/v1")
 class PaymentController(
     private val paymentService: PaymentService,
+    private val signatureVerifier: PaymentWebhookSignatureVerifier,
+    private val objectMapper: ObjectMapper,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
 
     /**
      * 결제 준비. 유료 이벤트 결제 페이지로 진입하기 직전 호출한다.
@@ -49,13 +61,43 @@ class PaymentController(
     }
 
     /**
-     * PG webhook. provider 별 signature/HMAC 검증은 후속 PR 에서 진입 전 필터로 추가.
-     * 현재는 idempotencyKey 기반 매핑 + 멱등 처리만 수행한다.
+     * PG webhook.
+     *
+     *  - rawBody 를 그대로 받아서 [signatureVerifier] 가 HMAC 검증한 뒤
+     *    [ObjectMapper] 로 [PaymentWebhookRequest] 로 파싱한다.
+     *  - signature 검증 실패: 401 ([InvalidWebhookSignatureException]).
+     *  - signature 설정 오류 (required=true 인데 secret 미설정): 500 ([WebhookMisconfiguredException]).
+     *  - 파싱 실패: 400 ([MalformedWebhookBodyException]).
+     *  - 정상 진입 후 처리는 [PaymentService.handleWebhook] 의 멱등 로직에 위임.
+     *
+     * SIGNATURE_HEADER 이름은 [PaymentWebhookSignatureVerifier.SIGNATURE_HEADER] 가 단일 source of truth.
      */
     @PostMapping("/payments/webhook")
     fun handleWebhook(
-        @RequestBody request: PaymentWebhookRequest,
+        @RequestBody rawBody: String,
+        @RequestHeader(
+            name = PaymentWebhookSignatureVerifier.SIGNATURE_HEADER,
+            required = false,
+        )
+        signatureHeader: String?,
     ): ApiResponse<Nothing> {
+        when (signatureVerifier.verify(rawBody, signatureHeader)) {
+            VerificationResult.Bypassed, VerificationResult.Valid -> Unit
+            VerificationResult.Missing ->
+                throw InvalidWebhookSignatureException("결제 webhook 서명 헤더가 없습니다.")
+            VerificationResult.Invalid ->
+                throw InvalidWebhookSignatureException("결제 webhook 서명이 일치하지 않습니다.")
+            VerificationResult.Misconfigured ->
+                throw WebhookMisconfiguredException()
+        }
+
+        val request = try {
+            objectMapper.readValue(rawBody, PaymentWebhookRequest::class.java)
+        } catch (e: JsonProcessingException) {
+            log.warn("[webhook] malformed body: {}", e.originalMessage)
+            throw MalformedWebhookBodyException()
+        }
+
         paymentService.handleWebhook(request)
         return ApiResponse.ok("결제 webhook 처리 완료")
     }

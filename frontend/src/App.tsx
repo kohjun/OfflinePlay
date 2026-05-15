@@ -17,6 +17,7 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { MyPage } from './pages/MyPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { PaymentFailPage, PaymentSuccessPage } from './pages/PaymentResultPages'
 import { PlayPage } from './pages/PlayPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { TicketCheckInPage } from './pages/TicketCheckInPage'
@@ -84,6 +85,11 @@ export default function App() {
 
     // /check-in — 스태프 체크인 코드 입력 화면
     if (path === '/check-in') return <TicketCheckInPage onNavigate={navigate} />
+
+    // /payments/success — Toss SDK 결제 성공 콜백 (paymentAttemptId/paymentKey/orderId/amount query)
+    if (path === '/payments/success') return <PaymentSuccessPage onNavigate={navigate} />
+    // /payments/fail — Toss SDK 결제 실패/취소 콜백 (code/message query)
+    if (path === '/payments/fail') return <PaymentFailPage onNavigate={navigate} />
 
     if (path.startsWith('/channels/')) {
       const id = parseId(path, '/channels/')

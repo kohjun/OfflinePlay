@@ -336,3 +336,70 @@ PR41 에서 이 두 단계 사이에 **실제 Toss JS SDK 호출** 이 끼어든
 - **정원 race condition** — confirm 시점 재검증으로 일부 완화됐지만, 둘 이상의 READY 가 동시에 confirm 으로 진입하면 여전히 초과 가능. DB row lock 또는 Redisson 분산락 도입 검토.
 - **Webhook 과 confirm 의 충돌** — 클라이언트 confirm 과 PG webhook 이 같은 PaymentAttempt 에 거의 동시에 도착할 때 멱등은 보장되지만, 두 진입점 중 하나만 살리는 방향(웹훅 단일화)도 PR41 에서 평가.
 - **PortOne 어댑터** — interface 만 열려 있고 구현체는 후속 PR.
+
+---
+
+## 10. PR41 — Toss webhook signature 검증 + 결제 UI sandbox 연결
+
+PR40 의 confirm 흐름 위에 운영 전 cut-line 인 webhook signature 검증과 실제 Toss SDK 연결을 얹는다. sandbox 키 / signature secret 이 없는 환경에서도 흐름 자체는 회귀 없이 동작한다.
+
+### 10.1 Webhook signature 검증
+
+| 컴포넌트 | 책임 |
+|---|---|
+| `PaymentWebhookSignatureVerifier` (`@Component`) | rawBody + `Toss-Signature` 헤더 → HMAC-SHA256(secretKey) hex 비교. `MessageDigest.isEqual` 로 timing-safe. |
+| `TossPaymentProperties.webhookSignatureRequired` | true 면 검증 강제. 디폴트 false (local/CI). |
+| `PaymentController.handleWebhook` | `@RequestBody String rawBody` + `@RequestHeader("Toss-Signature")` 받아서 verifier 통과 후 ObjectMapper 로 파싱. |
+
+`VerificationResult` 5 분류:
+- `Bypassed` (required=false) → 통과
+- `Valid` (HMAC 일치) → 통과
+- `Missing` (헤더 없음) → 401 `InvalidWebhookSignatureException`
+- `Invalid` (HMAC 불일치) → 401 `InvalidWebhookSignatureException`
+- `Misconfigured` (required=true 인데 secret 비어 있음) → 500 `WebhookMisconfiguredException`
+
+JSON 파싱 실패 → 400 `MalformedWebhookBodyException`.
+
+**TODO (운영 hardening)**: Toss 공식 webhook 문서 기준으로 (a) 헤더 이름(`Toss-Signature` 가정 중), (b) 인코딩(hex vs base64), (c) prefix 형식(`t=...,v1=...` 등) 재확인. `PaymentWebhookSignatureVerifier.SIGNATURE_HEADER` 와 `computeHmacHex` 두 곳만 갱신하면 됨.
+
+### 10.2 새 설정
+
+```yaml
+payment:
+  toss:
+    ...
+    webhook-signature-required: ${TOSS_WEBHOOK_SIGNATURE_REQUIRED:false}
+```
+
+운영은 반드시 `TOSS_WEBHOOK_SIGNATURE_REQUIRED=true` + 유효한 `TOSS_SECRET_KEY` 조합.
+
+### 10.3 Frontend — Toss SDK 연결
+
+| 구성요소 | 역할 |
+|---|---|
+| `utils/toss.ts` — `loadTossPayments(clientKey)` | `https://js.tosspayments.com/v1/payment` script 동적 로드, 캐시. `window.TossPayments(clientKey)` 인스턴스 반환. |
+| `utils/toss.ts` — `tossClientKey()` | `import.meta.env.VITE_TOSS_CLIENT_KEY` 읽기. 빈 값이면 mock fallback 트리거. |
+| `pages/PaymentResultPages.tsx` — `PaymentSuccessPage` | `/payments/success` 라우트. URL query (`paymentAttemptId/paymentKey/orderId/amount`) → confirmPayment → `/tickets/{id}` 이동. |
+| `pages/PaymentResultPages.tsx` — `PaymentFailPage` | `/payments/fail` 라우트. URL query (`code/message`) 표시 + 뒤로가기. |
+| `pages/EventDetailPage.tsx` — `handlePaidApply` | clientKey 있으면 `tossPayments.requestPayment('카드', ...)` → 결제창 redirect. 없으면 기존 mock confirm fallback. |
+
+### 10.4 새 라우트
+
+| 경로 | 페이지 | 진입 |
+|---|---|---|
+| `/payments/success` | `PaymentSuccessPage` | Toss `successUrl` redirect — query: paymentAttemptId, paymentKey, orderId, amount |
+| `/payments/fail` | `PaymentFailPage` | Toss `failUrl` redirect — query: code, message |
+
+### 10.5 mock fallback 정책
+
+`VITE_TOSS_CLIENT_KEY` 가 비어 있으면 → SDK 호출 단계를 건너뛰고 `sandbox-mock-{idempotencyKey}` paymentKey 로 즉시 confirm. 백엔드의 MockPaymentGateway 가 Success 응답 → ticket 발급. 이 흐름은 sandbox 키 도착 전까지 유지된다.
+
+`VITE_TOSS_CLIENT_KEY` 가 있지만 SDK 로드/호출 실패 → "결제창을 열 수 없습니다" 토스트만 띄우고 PaymentAttempt 는 READY 그대로 (다음 시도에서 같은 row 멱등 재사용).
+
+### 10.6 PR42 의도적 제외
+
+- **환불 흐름** — `refund.completed` webhook + `Ticket.refund()` + 운영 도구 + 환불 정산 batch.
+- **Toss 공식 signature format hardening** — 본 PR 의 TODO 그대로. 운영 키 받은 후 문서로 재검증.
+- **정원 race condition lock** — DB row lock(`SELECT ... FOR UPDATE`) 또는 Redisson 분산락 도입.
+- **Webhook + confirm 충돌 정책** — 두 진입점 동시 도착 시 멱등은 보장되지만, 한 쪽으로 일원화하는 방향 평가.
+- **PortOne 어댑터** — interface 만 열려 있고 구현체는 후속 PR.

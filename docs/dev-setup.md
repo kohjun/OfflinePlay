@@ -90,20 +90,26 @@ JWT secret, S3 자격증명 같은 값은 운영 배포 시 환경변수 (`JWT_S
 
 sandbox 키가 아직 없다면 아무것도 설정할 필요가 없습니다 — 기본값(`TOSS_PAYMENTS_ENABLED=false`)이면 `MockPaymentGateway` 빈이 등록되어 결제 confirm 이 항상 mock-success 로 응답합니다 (`docs/payment-refund-policy.md` §9 참고).
 
-키가 발급된 후 실제 Toss sandbox 를 붙이려면:
+키가 발급된 후 실제 Toss sandbox 를 붙이려면 다음 env var 를 셋업합니다 (절대 commit 금지):
 
 ```
-# bash / PowerShell 환경변수 또는 application-local.yml override
+# 백엔드 (Spring Boot)
 export TOSS_PAYMENTS_ENABLED=true
-export TOSS_SECRET_KEY=test_sk_...          # Toss 가 발급한 secret key (절대 commit 금지)
-export TOSS_CLIENT_KEY=test_ck_...          # frontend SDK 가 사용
-# TOSS_API_BASE_URL 은 sandbox/production 동일 (https://api.tosspayments.com) — 키로 환경 구분
+export TOSS_SECRET_KEY=test_sk_...            # Toss 가 발급한 secret key
+export TOSS_API_BASE_URL=https://api.tosspayments.com   # sandbox/prod 동일, 키로 환경 구분
+# 운영(prod): webhook signature 검증을 반드시 켤 것
+export TOSS_WEBHOOK_SIGNATURE_REQUIRED=true   # PR41 — local/CI 는 false 디폴트
+
+# 프론트엔드 (Vite). frontend/.env.local 에 두거나 빌드 시점에 주입.
+VITE_TOSS_CLIENT_KEY=test_ck_...              # JS SDK 가 사용. window.TossPayments(clientKey)
 ```
 
-운영 전 필수 작업 (현재 미구현, PR41+ 예정):
-- webhook signature/HMAC 검증 (Toss `Toss-Signature` 헤더)
+`VITE_TOSS_CLIENT_KEY` 가 비어 있으면 EventDetailPage 의 유료 CTA 가 mock confirm fallback 으로 동작합니다 — sandbox 키가 도착하기 전에도 결제 흐름 자체는 검증할 수 있습니다.
+
+운영 전 남은 필수 작업 (PR42+ 예정):
 - 환불 (`refund.completed` webhook → `Ticket.refund()`)
-- 정원 race condition 보강 (READY 다중 confirm 충돌)
+- 정원 race condition 보강 (READY 다중 confirm 충돌 시 DB row lock 또는 분산락)
+- Toss 공식 문서 기준 webhook header name / signature 인코딩 재확인 (현재 `Toss-Signature` + HMAC-SHA256 hex)
 
 ## 백엔드
 

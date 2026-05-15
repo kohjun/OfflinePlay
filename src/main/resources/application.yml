@@ -66,5 +66,8 @@ payment:
     secret-key: ${TOSS_SECRET_KEY:}
     client-key: ${TOSS_CLIENT_KEY:}
     api-base-url: ${TOSS_API_BASE_URL:https://api.tosspayments.com}
+    # PR41: webhook signature 검증. 운영은 반드시 true + 위 secret-key 설정.
+    # local/CI 는 false 디폴트 — verifier 가 Bypassed 로 반환해 모든 webhook 이 통과한다.
+    webhook-signature-required: ${TOSS_WEBHOOK_SIGNATURE_REQUIRED:false}
 
 
