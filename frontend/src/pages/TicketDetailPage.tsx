@@ -74,6 +74,20 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
   const [checkingIn, setCheckingIn] = useState(false)
   const [refunding, setRefunding] = useState(false)
 
+  // QR 시각 회전용 — 30 초마다 1 씩 증가하는 epoch. 실제 server token (checkInCode) 은
+  // 동일하지만, cell 패턴을 epoch + checkInCode 로 다시 계산해서 "살아있다" 는 인상을 준다.
+  // 진짜 토큰 회전 (`ticket.qr.rotate` SSE) 은 백엔드 추가 필요 — 별도 PR.
+  const [qrEpoch, setQrEpoch] = useState(() => Math.floor(Date.now() / 30000))
+  const [qrSecondsLeft, setQrSecondsLeft] = useState(() => 30 - Math.floor(Date.now() / 1000) % 30)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now()
+      setQrEpoch(Math.floor(now / 30000))
+      setQrSecondsLeft(30 - Math.floor(now / 1000) % 30)
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
   const refreshTicket = useCallback(async () => {
     try {
       const data = await getTicket(ticketId)
@@ -299,12 +313,13 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
           </span>
         ) : null}
         <div className="ct-ticket-qr" aria-hidden="true">
-          <div className="ct-ticket-qr-grid">
+          <div className="ct-ticket-qr-grid" key={qrEpoch}>
             {Array.from({ length: 9 * 9 }).map((_, i) => {
-              // checkInCode 의 byte 값을 9x9 셀의 채움 여부로 매핑한다 — 실제 QR 이 아니라 시각용.
+              // checkInCode + qrEpoch 으로 9x9 cell 채움 여부 결정 — 30s 마다 패턴이 바뀐다.
+              // 실제 QR 이 아니라 "라이브 토큰" 시각용. server token 은 동일.
               const code = ticket.checkInCode
               const ch = code.charCodeAt(i % code.length)
-              const filled = (ch + i) % 3 !== 0
+              const filled = (ch + i + qrEpoch) % 3 !== 0
               return (
                 <span
                   key={i}
@@ -314,6 +329,19 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
             })}
           </div>
         </div>
+        {isUsable ? (
+          <div className="ct-ticket-qr-meter" aria-hidden="true">
+            <span className="ct-ticket-qr-meter__label">
+              {qrSecondsLeft}s 후 새로고침
+            </span>
+            <span className="ct-ticket-qr-meter__track">
+              <span
+                className="ct-ticket-qr-meter__fill"
+                style={{ width: `${(qrSecondsLeft / 30) * 100}%` }}
+              />
+            </span>
+          </div>
+        ) : null}
         <div className="ct-ticket-code">
           <span className="ct-ticket-code-label">체크인 코드</span>
           <code className="ct-ticket-code-value">{ticket.checkInCode}</code>

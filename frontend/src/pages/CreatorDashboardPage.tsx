@@ -4,6 +4,7 @@ import { getCreatorStudio } from '../api/creator'
 import { Badge } from '../components/Badge'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
+import { notificationStore } from '../stores/notificationStore'
 import type {
   ChannelCategory,
   CreatorStudioEvent,
@@ -90,6 +91,24 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
       // ignore — page will retain stale state
     }
   }
+
+  // 참가 신청/취소/티켓 발급 알림이 오면 studio 를 다시 받아와 summary tile 의
+  // pendingApplicants / approvedParticipants 카운트를 즉시 반영. 이벤트별로 따로
+  // 받지 않고 묶음 갱신 — 대시보드는 본인 채널 전체 합계라 부분 patch 가 의미 없다.
+  useEffect(() => {
+    if (role !== 'CREATOR' && role !== 'ADMIN') return
+    const RELEVANT = new Set([
+      'PARTICIPATION_REQUESTED',
+      'PARTICIPATION_CANCELED',
+      'PARTICIPATION_APPROVED',
+      'PARTICIPATION_REJECTED',
+      'TICKET_ISSUED',
+      'TICKET_CHECKED_IN',
+    ])
+    return notificationStore.onIncoming((n) => {
+      if (RELEVANT.has(n.type)) refreshStudio()
+    })
+  }, [role])
 
   async function handleCreateChannel(event: FormEvent) {
     event.preventDefault()
@@ -301,6 +320,7 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
             points="0,90 50,80 100,72 150,68 200,50 250,42 320,26 320,120 0,120"
           />
           <polyline
+            className="ct-studio-growth-line"
             fill="none"
             stroke="#FA5252"
             strokeWidth="2"
@@ -311,10 +331,12 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
           {[0, 50, 100, 150, 200, 250, 320].map((x, i) => (
             <circle
               key={x}
+              className="ct-studio-growth-dot"
               cx={x}
               cy={[90, 80, 72, 68, 50, 42, 26][i]}
               r="3"
               fill="#FA5252"
+              style={{ animationDelay: `${280 + i * 80}ms` }}
             />
           ))}
         </svg>

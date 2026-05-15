@@ -3891,6 +3891,40 @@ textarea {
   width: 100%;
 }
 
+/* polyline 길이가 viewBox 기준 약 340 — pathLength 도 명시 가능하지만 dashoffset
+   감소만으로 stroke 가 좌→우로 그려지는 entry 가 충분히 자연스럽다. */
+.ct-studio-growth-line {
+  animation: ct-studio-growth-draw 900ms var(--ease-out) both;
+  stroke-dasharray: 360;
+  stroke-dashoffset: 360;
+}
+
+@keyframes ct-studio-growth-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ct-studio-growth-dot {
+  animation: ct-studio-growth-dot-pop 220ms var(--ease-spring) both;
+  transform-origin: center;
+}
+
+@keyframes ct-studio-growth-dot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .ct-studio-growth-foot {
   color: var(--text-tertiary);
   display: grid;
@@ -4223,12 +4257,24 @@ textarea {
 }
 
 .ct-ticket-qr-grid {
+  animation: ct-ticket-qr-fade var(--dur-slow) var(--ease-out);
   display: grid;
   gap: 2px;
   grid-template-columns: repeat(9, 1fr);
   grid-template-rows: repeat(9, 1fr);
   height: 100%;
   width: 100%;
+}
+
+@keyframes ct-ticket-qr-fade {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .ct-ticket-qr-cell {
@@ -4238,6 +4284,38 @@ textarea {
 
 .ct-ticket-qr-cell.is-filled {
   background: var(--text-primary);
+}
+
+.ct-ticket-qr-meter {
+  align-items: center;
+  display: grid;
+  gap: 4px;
+  margin: 0 auto;
+  max-width: 200px;
+}
+
+.ct-ticket-qr-meter__label {
+  color: var(--text-tertiary);
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.ct-ticket-qr-meter__track {
+  background: var(--surface-muted);
+  border-radius: 999px;
+  height: 3px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.ct-ticket-qr-meter__fill {
+  background: var(--c-primary);
+  display: block;
+  height: 100%;
+  transition: width 1s linear;
 }
 
 .ct-ticket-code {
@@ -5218,6 +5296,24 @@ textarea {
   color: var(--c-primary);
   font-weight: 700;
   font-size: 13px;
+}
+.rp__num {
+  display: inline-block;
+  animation: rp-num-pop var(--dur-base) var(--ease-out);
+}
+@keyframes rp-num-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.9);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .rp__bar {
   display: block;
