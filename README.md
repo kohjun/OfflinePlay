@@ -31,6 +31,7 @@ cd frontend; npm run build  # 프론트 typecheck + 빌드
 ## 문서
 
 - [docs/dev-setup.md](docs/dev-setup.md) — 로컬 개발 환경
+- [docs/seed-data.md](docs/seed-data.md) — 수동 QA 용 seed 데이터 만드는 절차
 - [docs/manual-qa-checklist.md](docs/manual-qa-checklist.md) — 릴리스 전 수동 QA 동선
 - [docs/payment-refund-policy.md](docs/payment-refund-policy.md) — 결제/환불 정책 (PG 도입 전)
 - [docs/kafka-outbox-plan.md](docs/kafka-outbox-plan.md) — Kafka outbox 도입 설계 (예정)
