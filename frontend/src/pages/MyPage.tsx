@@ -299,6 +299,9 @@ export function MyPage({ onNavigate }: MyPageProps) {
 
   const sectionTitle = '내 신청 / 티켓'
 
+  // 통계 카드용 — 백엔드가 노출하는 값만 채우고 나머지는 dash 로 둔다.
+  const approvedCount = items.filter((it) => it.status === 'APPROVED').length
+
   return (
     <main className="page ct-my-page">
       <section className="ct-my-hero">
@@ -308,6 +311,21 @@ export function MyPage({ onNavigate }: MyPageProps) {
         <div className="ct-my-meta">
           <strong>{user?.nickname ?? 'CONTENIDO'}</strong>
           <span className="muted">{roleLabel}</span>
+        </div>
+      </section>
+
+      <section className="ct-my-stats" aria-label="활동 요약">
+        <div className="ct-my-stat">
+          <strong>{loadingItems ? '—' : approvedCount}</strong>
+          <span>참여한 이벤트</span>
+        </div>
+        <div className="ct-my-stat">
+          <strong>—</strong>
+          <span>구독 채널</span>
+        </div>
+        <div className="ct-my-stat">
+          <strong>—</strong>
+          <span>후기</span>
         </div>
       </section>
 

@@ -277,6 +277,58 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
         </button>
       </section>
 
+      <section className="ct-studio-growth" aria-label="구독자 성장">
+        <div className="ct-studio-growth-head">
+          <span className="ct-studio-growth-eyebrow">구독자 성장</span>
+          <strong>최근 7일</strong>
+        </div>
+        <svg
+          className="ct-studio-growth-chart"
+          viewBox="0 0 320 120"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id="ct-studio-growth-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#FA5252" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#FA5252" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {/* 정적 폴리라인 — 실데이터 연결은 PR50. */}
+          <polyline
+            fill="url(#ct-studio-growth-fill)"
+            stroke="none"
+            points="0,90 50,80 100,72 150,68 200,50 250,42 320,26 320,120 0,120"
+          />
+          <polyline
+            fill="none"
+            stroke="#FA5252"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            points="0,90 50,80 100,72 150,68 200,50 250,42 320,26"
+          />
+          {[0, 50, 100, 150, 200, 250, 320].map((x, i) => (
+            <circle
+              key={x}
+              cx={x}
+              cy={[90, 80, 72, 68, 50, 42, 26][i]}
+              r="3"
+              fill="#FA5252"
+            />
+          ))}
+        </svg>
+        <div className="ct-studio-growth-foot">
+          <span>월</span>
+          <span>화</span>
+          <span>수</span>
+          <span>목</span>
+          <span>금</span>
+          <span>토</span>
+          <span>일</span>
+        </div>
+      </section>
+
       <section className="ct-studio-summary">
         <div className="ct-studio-tile">
           <span>이벤트</span>

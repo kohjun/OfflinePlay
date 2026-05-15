@@ -255,6 +255,24 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
       </section>
 
       <section className={`ct-ticket-pass ${isUsable ? '' : 'is-unusable'}`} aria-label="체크인 코드">
+        {!isUsable ? (
+          <span
+            className={`ct-ticket-stamp${
+              ticket.ticketStatus === 'REFUNDED'
+                ? ' is-refunded'
+                : ticket.ticketStatus === 'CANCELED'
+                  ? ' is-canceled'
+                  : ''
+            }`}
+            aria-hidden="true"
+          >
+            {ticket.ticketStatus === 'REFUNDED'
+              ? 'REFUNDED'
+              : ticket.ticketStatus === 'CANCELED'
+                ? 'VOID'
+                : 'USED'}
+          </span>
+        ) : null}
         <div className="ct-ticket-qr" aria-hidden="true">
           <div className="ct-ticket-qr-grid">
             {Array.from({ length: 9 * 9 }).map((_, i) => {

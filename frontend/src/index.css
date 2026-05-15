@@ -313,7 +313,7 @@ img {
 }
 
 .app-loading strong {
-  background: linear-gradient(120deg, var(--primary), #8c5bff);
+  background: linear-gradient(120deg, var(--c-primary), var(--c-accent));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -452,7 +452,7 @@ img {
 }
 
 .media-button {
-  background: linear-gradient(135deg, var(--primary-soft), #f4ecff);
+  background: linear-gradient(135deg, var(--c-primary-soft), var(--c-primary-tint));
   border: 0;
   cursor: pointer;
   display: block;
@@ -475,7 +475,7 @@ img {
 .media-placeholder,
 .content-thumb-empty {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary-soft), #f4ecff);
+  background: linear-gradient(135deg, var(--c-primary-soft), var(--c-primary-tint));
   color: var(--primary-text);
   display: flex;
   font-size: 28px;
@@ -712,7 +712,7 @@ input:focus,
 textarea:focus,
 select:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(91, 91, 246, 0.18);
+  box-shadow: 0 0 0 3px rgba(250, 82, 82, 0.18);
   outline: 0;
 }
 
@@ -868,8 +868,8 @@ textarea {
 }
 
 .notification-item.is-unread {
-  background: linear-gradient(180deg, rgba(91, 91, 246, 0.04), rgba(91, 91, 246, 0));
-  border-color: rgba(91, 91, 246, 0.35);
+  background: linear-gradient(180deg, rgba(250, 82, 82, 0.06), rgba(250, 82, 82, 0));
+  border-color: rgba(250, 82, 82, 0.32);
 }
 
 .notification-item.is-navigable {
@@ -968,7 +968,7 @@ textarea {
    Auth
    ========================================================================= */
 .auth-shell {
-  background: radial-gradient(circle at top, rgba(91, 91, 246, 0.08), var(--surface) 60%);
+  background: radial-gradient(circle at top, rgba(250, 82, 82, 0.08), var(--surface) 60%);
 }
 
 .auth-panel {
@@ -1456,10 +1456,10 @@ textarea {
 
 .ct-tab-play {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary) 0%, #8c5bff 100%);
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
   border: 0;
   border-radius: 50%;
-  box-shadow: 0 10px 22px rgba(91, 91, 246, 0.45), 0 2px 6px rgba(91, 91, 246, 0.18);
+  box-shadow: 0 10px 22px rgba(250, 82, 82, 0.45), 0 2px 6px rgba(250, 82, 82, 0.18);
   color: white;
   display: inline-flex;
   height: 60px;
@@ -1470,12 +1470,12 @@ textarea {
 }
 
 .ct-tab-play:hover {
-  box-shadow: 0 14px 28px rgba(91, 91, 246, 0.5), 0 2px 6px rgba(91, 91, 246, 0.2);
+  box-shadow: 0 14px 28px rgba(250, 82, 82, 0.5), 0 2px 6px rgba(250, 82, 82, 0.2);
   transform: translateY(-2px);
 }
 
 .ct-tab-play.is-active {
-  background: linear-gradient(135deg, #4848e0 0%, #7a3eff 100%);
+  background: linear-gradient(135deg, var(--c-primary-press) 0%, var(--c-primary) 100%);
 }
 
 .ct-tab-play svg {
@@ -1509,7 +1509,7 @@ textarea {
 }
 
 .ct-brand {
-  background: linear-gradient(120deg, var(--primary), #8c5bff);
+  background: linear-gradient(120deg, var(--c-primary), var(--c-accent));
   -webkit-background-clip: text;
   background-clip: text;
   border: 0;
@@ -1686,7 +1686,7 @@ textarea {
 
 .ct-ad-hero {
   border-radius: var(--radius-xl);
-  box-shadow: 0 14px 30px rgba(91, 91, 246, 0.22);
+  box-shadow: 0 14px 30px rgba(250, 82, 82, 0.22);
   color: white;
   display: grid;
   grid-template-columns: 1fr 96px;
@@ -1867,7 +1867,7 @@ textarea {
 
 .ct-category-icon {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   border-radius: var(--radius-md);
   color: var(--primary);
   display: inline-flex;
@@ -1905,7 +1905,7 @@ textarea {
 
 .ct-my-hero {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   border-radius: var(--radius-lg);
   display: flex;
   gap: 14px;
@@ -1914,7 +1914,7 @@ textarea {
 
 .ct-my-avatar {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary) 0%, #8c5bff 100%);
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
   border-radius: 50%;
   color: white;
   display: inline-flex;
@@ -1933,6 +1933,37 @@ textarea {
 .ct-my-meta strong {
   font-size: 16px;
   font-weight: 700;
+}
+
+.ct-my-stats {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 12px;
+}
+
+.ct-my-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 4px;
+  padding: 14px 8px;
+  text-align: center;
+}
+
+.ct-my-stat strong {
+  color: var(--c-primary);
+  font-family: var(--font-en);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.ct-my-stat span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .ct-profile-page .form-section {
@@ -2126,7 +2157,7 @@ textarea {
 }
 
 .button-secondary .button-spinner {
-  border-color: rgba(91, 91, 246, 0.25);
+  border-color: rgba(250, 82, 82, 0.25);
   border-top-color: var(--primary);
 }
 
@@ -2217,7 +2248,7 @@ textarea {
 
 .ct-placeholder-hero {
   align-items: center;
-  background: linear-gradient(160deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(160deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   border-radius: var(--radius-xl);
   display: grid;
   gap: 8px;
@@ -2349,7 +2380,7 @@ textarea {
 .ct-event-card-placeholder {
   align-items: center;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   color: var(--primary-text);
   display: flex;
   font-size: 32px;
@@ -2498,7 +2529,7 @@ textarea {
 
 .ct-event-hero-placeholder {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   color: var(--primary-text);
   display: flex;
   font-size: 56px;
@@ -2669,7 +2700,7 @@ textarea {
 .ct-channel-hero-cover {
   align-items: center;
   aspect-ratio: 16 / 8;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   display: flex;
   justify-content: center;
   overflow: hidden;
@@ -2762,7 +2793,7 @@ textarea {
 
 .ct-channel-team-avatar {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary) 0%, #8c5bff 100%);
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
   border-radius: 50%;
   color: white;
   display: inline-flex;
@@ -3247,7 +3278,7 @@ textarea {
 
 .ct-my-app-card-thumb {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   border-radius: var(--radius-md);
   color: var(--primary-text);
   display: flex;
@@ -3454,7 +3485,7 @@ textarea {
 
 .ct-applicant-avatar {
   align-items: center;
-  background: linear-gradient(135deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   border-radius: 50%;
   color: var(--primary-text);
   display: inline-flex;
@@ -3533,7 +3564,7 @@ textarea {
 
 /* ── Apply hero (PARTICIPANT) ──────────────────────────────────────────── */
 .ct-studio-apply-hero {
-  background: linear-gradient(160deg, var(--primary-soft) 0%, #f4ecff 100%);
+  background: linear-gradient(160deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
   border-radius: var(--radius-xl);
   display: grid;
   gap: 10px;
@@ -3710,11 +3741,58 @@ textarea {
 
 .ct-studio-tile.is-attention {
   background: linear-gradient(180deg, var(--surface) 0%, var(--primary-soft) 300%);
-  border-color: rgba(91, 91, 246, 0.32);
+  border-color: rgba(250, 82, 82, 0.32);
 }
 
 .ct-studio-tile.is-attention strong {
   color: var(--primary-text);
+}
+
+/* ── Growth chart (static) ────────────────────────────────────────────── */
+.ct-studio-growth {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.ct-studio-growth-head {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.ct-studio-growth-eyebrow {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ct-studio-growth-head strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ct-studio-growth-chart {
+  display: block;
+  height: 96px;
+  width: 100%;
+}
+
+.ct-studio-growth-foot {
+  color: var(--text-tertiary);
+  display: grid;
+  font-size: 10px;
+  font-weight: 600;
+  grid-template-columns: repeat(7, 1fr);
+  letter-spacing: 0.02em;
+  text-align: center;
 }
 
 /* ── Admin note (ADMIN without channel) ───────────────────────────────── */
@@ -3899,7 +3977,7 @@ textarea {
 }
 
 .ct-ticket-hero {
-  background: linear-gradient(135deg, var(--primary) 0%, #8c5bff 100%);
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
   border-radius: var(--radius-xl);
   color: #fff;
   display: grid;
@@ -3948,11 +4026,12 @@ textarea {
 /* perforation 효과 — pass 카드 사이 살짝 끊긴 느낌 */
 .ct-ticket-pass {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--c-primary);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 6px 18px rgba(250, 82, 82, 0.08);
   display: grid;
   gap: 14px;
+  overflow: hidden;
   padding: 24px 20px;
   position: relative;
 }
@@ -3960,24 +4039,68 @@ textarea {
 .ct-ticket-pass::before,
 .ct-ticket-pass::after {
   background: var(--background-outside);
+  border: 1.5px solid var(--c-primary);
   border-radius: 50%;
   content: '';
-  height: 18px;
+  height: 20px;
   position: absolute;
-  top: -10px;
-  width: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  z-index: 1;
 }
 
 .ct-ticket-pass::before {
-  left: -10px;
+  left: -11px;
 }
 
 .ct-ticket-pass::after {
-  right: -10px;
+  right: -11px;
 }
 
 .ct-ticket-pass.is-unusable {
-  opacity: 0.6;
+  border-color: var(--c-text-tertiary);
+  box-shadow: var(--shadow-sm);
+  filter: grayscale(0.4);
+  opacity: 0.7;
+}
+
+.ct-ticket-pass.is-unusable::before,
+.ct-ticket-pass.is-unusable::after {
+  border-color: var(--c-text-tertiary);
+}
+
+.ct-ticket-stamp {
+  align-items: center;
+  border: 3px solid currentColor;
+  border-radius: 8px;
+  color: var(--c-status-used);
+  font-family: var(--font-en);
+  font-size: 28px;
+  font-weight: 800;
+  inset: 0;
+  justify-content: center;
+  letter-spacing: 0.12em;
+  margin: auto;
+  opacity: 0.85;
+  padding: 6px 18px;
+  pointer-events: none;
+  position: absolute;
+  text-transform: uppercase;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  height: max-content;
+  left: 50%;
+  top: 50%;
+  width: max-content;
+  z-index: 2;
+}
+
+.ct-ticket-stamp.is-refunded {
+  color: var(--c-status-refunded);
+}
+
+.ct-ticket-stamp.is-canceled {
+  color: var(--c-status-canceled);
 }
 
 .ct-ticket-qr {
@@ -4015,10 +4138,16 @@ textarea {
   align-items: center;
   background: var(--surface-muted);
   border-radius: var(--radius-md);
+  border-top: 1.5px dashed var(--c-primary);
   display: grid;
   gap: 6px;
   grid-template-columns: 1fr auto;
-  padding: 12px 14px;
+  padding: 14px 14px 12px;
+  position: relative;
+}
+
+.ct-ticket-pass.is-unusable .ct-ticket-code {
+  border-top-color: var(--c-text-tertiary);
 }
 
 .ct-ticket-code-label {
