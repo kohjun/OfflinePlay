@@ -88,6 +88,8 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.GET, "/api/v1/search/**").permitAll()
                     // 헬스체크 / actuator
                     .requestMatchers("/actuator/health").permitAll()
+                    // 결제 webhook — PG 가 외부에서 호출. signature/HMAC 검증은 후속 PR 에서.
+                    .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                     // 어드민 (ADMIN 권한 필요 - 메서드 시큐리티로 추가 검증)
                     .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                     // 그 외 모든 요청 인증 필요

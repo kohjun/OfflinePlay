@@ -77,6 +77,45 @@ class TicketService(
         return ticket.id
     }
 
+    /**
+     * 결제 webhook PAID 처리 시 유료 티켓 발급.
+     *
+     * 호출 시점은 `PaymentService.handleWebhook(PAID)` 한 곳뿐 — PaymentAttempt 의
+     * 멱등성/중복 검증을 그쪽에서 끝낸 뒤 진입한다고 가정한다 (정원/owner 검증 불필요).
+     *
+     * paidAmount 는 PaymentAttempt 가 prepare 시점에 스냅샷한 금액. event.participationFee
+     * 가 그 사이에 바뀌어도 스냅샷 금액으로 발급한다.
+     */
+    @Transactional
+    fun issuePaidTicket(userId: Long, eventId: Long, paidAmount: Long): Ticket {
+        val buyer = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
+        val event = eventRepository.findById(eventId).orElseThrow { EventNotFoundException() }
+
+        val ticket = ticketRepository.save(
+            Ticket(
+                event = event,
+                buyer = buyer,
+                price = paidAmount,
+                status = TicketStatus.PAID,
+            )
+        )
+
+        runCatching {
+            notificationService.notify(
+                receiverIds = listOf(buyer.id),
+                type = NotificationType.TICKET_ISSUED,
+                title = "결제가 완료되었어요",
+                message = "${event.title} 티켓이 발급되었어요. 입장 시 사용해주세요.",
+                targetType = "tickets",
+                targetId = ticket.id,
+            )
+        }.onFailure { e ->
+            log.warn("[issuePaidTicket] buyer notify failed: {}", e.message)
+        }
+
+        return ticket
+    }
+
     fun myTickets(userId: Long): List<Ticket> {
         val buyer = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
         return ticketRepository.findByBuyer(buyer)

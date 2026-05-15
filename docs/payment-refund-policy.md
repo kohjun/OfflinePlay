@@ -165,3 +165,86 @@ PG webhook 은 네트워크 재시도로 중복 도착 가능. 처리 패턴:
 | 운영 대응 | — | 환불 실패 큐 + 정산 batch |
 
 이 정책에 변경이 생기면 본 문서를 먼저 갱신하고, 코드를 따라간다.
+
+---
+
+## 8. PR39 — 실제 도입된 모델 / API (외부 PG 미연동)
+
+PR39 부터 위 정책을 바탕으로 도메인 뼈대를 도입했다. 외부 PG SDK 호출과 결제 UI 분기는 아직 들어가지 않았고, 본 단계는 상태 모델 + API 경계 + webhook 멱등성까지다.
+
+### 8.1 새 엔티티 `PaymentAttempt`
+
+```
+payment_attempts
+├─ id                     (PK)
+├─ event_id               (FK Event)
+├─ buyer_id               (FK User)
+├─ ticket_id              (FK Ticket, nullable — webhook PAID 후 채움)
+├─ idempotency_key        (VARCHAR(64) UNIQUE NOT NULL — PG 의 orderId 로 사용)
+├─ amount                 (BIGINT — prepare 시점 event.participationFee 스냅샷)
+├─ status                 (ENUM READY / PAID / FAILED / CANCELED)
+├─ provider               (ENUM NONE / TOSS / PORTONE — webhook 도착 시 갱신)
+├─ provider_payment_key   (VARCHAR(128), nullable — PG 가 부여한 결제 키)
+├─ created_at / updated_at
+```
+
+전이:
+
+```
+prepare API   ┌────────┐  webhook PAID 멱등 처리 + Ticket(PAID) 발급
+─────────────▶│ READY  │ ─────────────────────────────────────────────▶ PAID
+              └───┬────┘
+       webhook   │              webhook CANCELED / 사용자 취소
+       FAILED    ▼              ▼
+              ┌────────┐    ┌──────────┐
+              │ FAILED │    │ CANCELED │
+              └────────┘    └──────────┘
+```
+
+### 8.2 TicketStatus 변경 — 추가하지 않음
+
+`PENDING_PAYMENT` 같은 enum 값을 검토했으나 **추가하지 않기로 결정**했다. 근거:
+- Ticket row 는 webhook PAID 가 도착한 시점에만 생성한다 (§5 정책과 일치).
+- 결제 진행 중인 상태는 `PaymentAttempt(READY)` 가 단독으로 보유한다. Ticket 과 정보 중복이 없다.
+- 결과적으로 `TicketStatus` 는 발급 완료 이후 상태 (`PAID/USED/CANCELED/REFUNDED`) 만 다룬다 — 의미가 깔끔.
+
+### 8.3 새 API
+
+| 메서드/경로 | 인증 | 책임 |
+|---|---|---|
+| `POST /api/v1/events/{eventId}/payments/prepare` | 인증 사용자 | PaymentAttempt(READY) 생성 또는 멱등 반환. 응답의 `idempotencyKey` 가 PG 의 orderId 가 된다. |
+| `POST /api/v1/payments/webhook` | **permitAll** (signature 검증은 TODO) | PG 가 결제 결과를 통지. idempotencyKey 로 attempt 를 찾고 PAID/FAILED/CANCELED 분기. 중복 호출 멱등. |
+
+응답 (`PaymentPrepareResponse`): `paymentAttemptId / eventId / amount / orderName / idempotencyKey / status`.
+
+webhook 요청 (`PaymentWebhookRequest`): `idempotencyKey / providerPaymentKey? / amount / status / provider`.
+
+### 8.4 0원 이벤트 정책
+
+`participationFee == 0` 인 이벤트에 prepare 를 호출하면 `FreeEventCannotPreparePaymentException`(400) 으로 거부한다. 무료 이벤트는 기존 흐름(신청 → 기획자 승인 → `TicketService.issueFreeTicket`) 그대로 유지한다.
+
+### 8.5 prepare 거부 조건 (모두 검증됨)
+
+- 이벤트/사용자 미존재 (404)
+- 이벤트 CLOSED (`EventClosedException`)
+- 이벤트 시작 시각이 현재 ≤ (`EventAlreadyStartedException`)
+- 채널 owner 본인 시도 (`OwnerCannotApplyException`)
+- 무료 이벤트 (`FreeEventCannotPreparePaymentException`)
+- 이미 PAID/USED 티켓 보유 (`AlreadyJoinedException`)
+- 정원 가득 (`EventFullException`)
+- 같은 (event, buyer) 에 READY PaymentAttempt 가 살아있으면 **새 row 를 만들지 않고 그대로 반환** (멱등).
+
+### 8.6 webhook 멱등 + 금액 검증
+
+- 같은 `idempotencyKey` 가 다시 도착하면 → 이미 PAID/FAILED/CANCELED 인 attempt 는 아무 일 하지 않고 200 응답.
+- PAID webhook 의 `amount` 가 attempt 의 prepare 시점 `amount` 와 다르면 `InvalidPaymentAmountException`(409).
+- 모르는 `idempotencyKey` 는 `PaymentAttemptNotFoundException`(404).
+
+### 8.7 본 PR 의 의도적 제외 (PR40+ 후속)
+
+- 실제 Toss/PortOne SDK 호출. 현재 `provider = NONE` 으로 도메인만 검증 가능.
+- provider 별 webhook signature / HMAC 검증.
+- 유료 이벤트가 EventParticipation row 를 만들지 않는 점 — 신청자 관리 페이지/통계 일관성을 위해 후속 PR 에서 (a) PAID 시 EventParticipation(APPROVED) 동기 생성 또는 (b) Ticket 기반 신청자 목록 재구성 중 결정.
+- 정원 race condition — prepare 시점에만 정원 검증한다. READY 다수가 동시에 떠 있고 모두 PAID 가 되면 초과 가능. (1) READY 카운트를 정원 검증에 합치거나 (2) webhook 시점에서도 정원 재확인 + 초과 시 자동 환불 큐로 보낼지 결정 필요.
+- 환불 흐름 (`refund.completed`) — Ticket.refund() 호출처 신설은 별도 PR.
+- 유료 이벤트의 EventDetailPage CTA 분기 — frontend 는 PR39 단계에선 helper/타입만 추가하고 기존 신청 흐름을 유지한다.

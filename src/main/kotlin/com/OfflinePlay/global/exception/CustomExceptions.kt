@@ -213,3 +213,16 @@ class BuyerCannotCheckInException : ContENIDOException(
 class InvalidCheckInCodeException : ContENIDOException(
     HttpStatus.BAD_REQUEST, "유효하지 않은 체크인 코드입니다."
 )
+
+// --- Payment ---
+class FreeEventCannotPreparePaymentException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "무료 이벤트는 결제 준비를 호출할 수 없습니다."
+)
+
+class PaymentAttemptNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "존재하지 않는 결제 시도입니다."
+)
+
+class InvalidPaymentAmountException : ContENIDOException(
+    HttpStatus.CONFLICT, "결제 금액이 예상과 다릅니다."
+)

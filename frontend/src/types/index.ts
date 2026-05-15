@@ -345,3 +345,22 @@ export interface Report {
   status: 'PENDING' | 'RESOLVED' | 'DISMISSED'
   createdAt: string
 }
+
+/** Mirrors backend PaymentStatus. */
+export type PaymentStatus = 'READY' | 'PAID' | 'FAILED' | 'CANCELED'
+
+/** Mirrors backend PaymentProvider. NONE = PR39 단계 (실제 PG 미연동). */
+export type PaymentProvider = 'NONE' | 'TOSS' | 'PORTONE'
+
+/**
+ * Mirrors backend PaymentPrepareResponse.
+ * idempotencyKey 를 PG SDK 호출 시 orderId 로 그대로 전달한다.
+ */
+export interface PaymentPrepareResponse {
+  paymentAttemptId: number
+  eventId: number
+  amount: number
+  orderName: string
+  idempotencyKey: string
+  status: PaymentStatus
+}
