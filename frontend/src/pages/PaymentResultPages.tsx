@@ -98,22 +98,51 @@ interface PaymentFailPageProps {
  * PaymentAttempt 자체는 백엔드의 webhook FAILED 또는 별도 cleanup 으로 정리된다.
  * 본 페이지는 사용자에게 사유를 보여주고 다시 시도/뒤로가기 옵션을 제공한다.
  */
+/**
+ * Toss SDK 가 successUrl/failUrl 로 돌려보낼 때 다는 code 값을 사용자가 이해할 수 있게
+ * 번역. 화이트리스트에 없으면 code 그대로 보조 문구로 노출.
+ */
+const FAIL_COPY: Record<string, { title: string; hint: string }> = {
+  USER_CANCEL: {
+    title: '결제를 취소하셨어요',
+    hint: '결제 창에서 닫기를 눌러서 결제가 진행되지 않았어요. 다시 시도해볼 수 있어요.',
+  },
+  PAY_PROCESS_CANCELED: {
+    title: '결제가 취소되었어요',
+    hint: '결제 진행이 중간에 멈췄어요. 같은 이벤트로 돌아가서 다시 시도해주세요.',
+  },
+  INVALID_CARD_INFO: {
+    title: '카드 정보를 확인해주세요',
+    hint: '카드번호나 유효기간이 일치하지 않아요. 다시 입력하면 결제가 가능합니다.',
+  },
+  EXCEED_MAX_AMOUNT: {
+    title: '한도 초과로 결제할 수 없어요',
+    hint: '카드 한도를 초과한 결제예요. 다른 카드로 다시 시도해주세요.',
+  },
+  REJECT_CARD_PAYMENT: {
+    title: '카드사가 결제를 거절했어요',
+    hint: '카드사 정책에 따라 결제가 거절됐어요. 다른 결제 수단으로 시도해주세요.',
+  },
+}
+
 export function PaymentFailPage({ onNavigate }: PaymentFailPageProps) {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code') ?? 'PAY_FAILED'
   const message = params.get('message') ?? '결제가 완료되지 않았어요.'
+  const copy = FAIL_COPY[code]
 
   return (
-    <main className="page empty-state">
-      <h1>결제가 완료되지 않았어요</h1>
-      <p className="muted">{message}</p>
-      <p className="muted" style={{ fontSize: '0.85em' }}>code: {code}</p>
+    <main className="page empty-state ct-pay-fail">
+      <span className="ct-pay-fail__icon" aria-hidden="true">🪙</span>
+      <h1>{copy?.title ?? '결제가 완료되지 않았어요'}</h1>
+      <p className="muted">{copy?.hint ?? message}</p>
+      <p className="muted ct-pay-fail__code">사유 코드 · {code}</p>
       <button
         type="button"
         className="button button-primary is-block"
         onClick={() => window.history.back()}
       >
-        이전 이벤트로 돌아가기
+        다시 결제하기
       </button>
       <button
         type="button"

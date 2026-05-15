@@ -491,7 +491,7 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         </svg>
       </button>
 
-      <section className="ct-event-hero">
+      <section className={`ct-event-hero${isFull && !isClosed ? ' is-soldout' : ''}`}>
         {event.mainImageUrl ? (
           <img src={event.mainImageUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
         ) : (
@@ -499,6 +499,9 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
             {event.title.slice(0, 1).toUpperCase()}
           </div>
         )}
+        {isFull && !isClosed ? (
+          <span className="ct-event-soldout" aria-label="정원 마감">SOLD OUT</span>
+        ) : null}
       </section>
 
       <header className="ct-event-head">

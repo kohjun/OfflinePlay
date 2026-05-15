@@ -220,6 +220,21 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
       </section>
       {loading ? (
         <Skeleton lines={5} />
+      ) : items.length === 0 ? (
+        <div className="ct-notif-empty">
+          <span className="ct-notif-empty__icon" aria-hidden="true">🔔</span>
+          <strong>받은 알림이 없어요</strong>
+          <span className="muted">
+            관심 채널을 구독하면 새 이벤트와 공지가 도착했을 때 바로 알려드려요.
+          </span>
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => onNavigate('/explore')}
+          >
+            채널 둘러보기
+          </button>
+        </div>
       ) : (
         <>
           <section className="stack">

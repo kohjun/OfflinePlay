@@ -911,6 +911,40 @@ textarea {
   font-weight: 600;
 }
 
+.ct-notif-empty {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 36px 24px;
+  text-align: center;
+}
+
+.ct-notif-empty__icon {
+  font-size: 36px;
+  margin-bottom: 6px;
+}
+
+.ct-notif-empty strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ct-notif-empty .muted {
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+.ct-notif-empty .button {
+  margin-top: 8px;
+  min-width: 160px;
+}
+
 .notification-item.is-navigable:hover .notification-cta-hint {
   color: var(--primary-text);
 }
@@ -1214,6 +1248,22 @@ textarea {
   font-size: 40px;
 }
 
+.ct-pay-fail__icon {
+  font-size: 48px;
+  margin-bottom: 4px;
+}
+
+.ct-pay-fail__code {
+  background: var(--surface-muted);
+  border-radius: var(--radius-pill);
+  color: var(--text-tertiary);
+  font-family: var(--font-en);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  margin: 4px 0 12px;
+  padding: 4px 12px;
+}
+
 .ct-empty-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1236,6 +1286,16 @@ textarea {
 .error-boundary h1 {
   font-size: 20px;
   margin: 0;
+}
+
+.error-boundary__icon {
+  background: var(--c-primary-soft);
+  border-radius: 50%;
+  font-size: 32px;
+  height: 64px;
+  line-height: 64px;
+  margin-bottom: 4px;
+  width: 64px;
 }
 
 /* =========================================================================
@@ -2545,6 +2605,31 @@ textarea {
   background-size: 200% 100%;
 }
 
+.ct-event-hero.is-soldout::before {
+  background: rgba(20, 20, 22, 0.45);
+  content: '';
+  inset: 0;
+  position: absolute;
+  z-index: 1;
+}
+
+.ct-event-soldout {
+  border: 3px solid currentColor;
+  border-radius: 8px;
+  color: #FFFFFF;
+  font-family: var(--font-en);
+  font-size: 32px;
+  font-weight: 800;
+  left: 50%;
+  letter-spacing: 0.12em;
+  padding: 8px 22px;
+  position: absolute;
+  text-transform: uppercase;
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(-8deg);
+  z-index: 2;
+}
+
 .ct-event-head {
   display: grid;
   gap: 10px;
@@ -3106,6 +3191,27 @@ textarea {
   gap: 8px;
   justify-content: center;
   margin-top: 8px;
+}
+
+.ct-explore-empty-suggestions {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  margin-top: 4px;
+}
+
+.ct-explore-empty-suggestions .muted {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ct-explore-empty-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
 }
 
 .ct-explore-types {
@@ -4260,6 +4366,37 @@ textarea {
 .ct-ticket-hero-skeleton {
   background: var(--surface-muted);
   height: 120px;
+}
+
+.ct-ticket-deadline {
+  align-items: center;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: var(--radius-md);
+  color: var(--c-status-refunded);
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.ct-ticket-deadline__dot {
+  background: var(--c-status-refunded);
+  border-radius: 50%;
+  flex: 0 0 8px;
+  height: 8px;
+  width: 8px;
+}
+
+.ct-ticket-deadline__label {
+  color: var(--text-secondary);
+}
+
+.ct-ticket-deadline__value {
+  color: var(--c-status-refunded);
+  font-weight: 700;
+  margin-left: auto;
 }
 
 /* =========================================================================

@@ -237,6 +237,23 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
   )
   const canCheckIn = isStaffViewer && isUsable
 
+  // 환불 마감 카운트다운 — 정책 (docs/payment-refund-policy.md): 시작 24h 전까지 전액 환불.
+  // 유료 + PAID + 본인 + 24h 이내일 때만 chip 노출. 자정 단위 회전이 아니라 라이브 카운트가 아니므로
+  // 매 분 변경을 보여주진 않는다.
+  const hoursToStart = isUsable
+    ? Math.max(0, (new Date(ticket.startAt).getTime() - Date.now()) / 36e5)
+    : null
+  const showRefundCountdown =
+    isUsable && !isStaffViewer && ticket.participationFee > 0 && hoursToStart != null && hoursToStart < 24
+  const refundDeadlineLabel =
+    hoursToStart == null
+      ? ''
+      : hoursToStart <= 0
+        ? '환불 마감'
+        : hoursToStart < 1
+          ? `${Math.ceil(hoursToStart * 60)}분 후 마감`
+          : `${Math.floor(hoursToStart)}시간 ${Math.round((hoursToStart % 1) * 60)}분 후 마감`
+
   return (
     <main className="page ct-ticket-page">
       <button type="button" className="ct-back-btn" onClick={handleBack} aria-label="뒤로">
@@ -253,6 +270,14 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
         <h1 className="ct-ticket-title">{ticket.eventTitle}</h1>
         <p className="ct-ticket-channel">{ticket.channelName}</p>
       </section>
+
+      {showRefundCountdown ? (
+        <div className="ct-ticket-deadline" role="status">
+          <span className="ct-ticket-deadline__dot" aria-hidden="true" />
+          <span className="ct-ticket-deadline__label">환불 가능 시간</span>
+          <strong className="ct-ticket-deadline__value">{refundDeadlineLabel}</strong>
+        </div>
+      ) : null}
 
       <section className={`ct-ticket-pass ${isUsable ? '' : 'is-unusable'}`} aria-label="체크인 코드">
         {!isUsable ? (

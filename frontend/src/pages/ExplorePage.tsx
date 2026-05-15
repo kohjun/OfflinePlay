@@ -466,6 +466,26 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
             <span className="muted">
               {hasAnyFilter ? '다른 키워드나 카테고리를 시도해보세요.' : '관심 카테고리를 선택해보세요.'}
             </span>
+            {hasAnyFilter ? (
+              <div className="ct-explore-empty-suggestions" aria-label="추천 검색어">
+                <span className="muted">함께 찾아본 검색어</span>
+                <div className="ct-explore-empty-chips">
+                  {['주말 모임', '러닝 크루', '와인 클래스', '보드게임'].map((kw) => (
+                    <button
+                      key={kw}
+                      type="button"
+                      className="chip"
+                      onClick={() => {
+                        setKeywordInput(kw)
+                        setActiveKeyword(kw)
+                      }}
+                    >
+                      {kw}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="ct-explore-empty-actions">
               {hasAnyFilter ? (
                 <button type="button" className="button button-secondary" onClick={handleResetFilters}>

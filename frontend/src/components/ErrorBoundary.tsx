@@ -36,12 +36,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!this.state.hasError) return this.props.children
 
     return (
-      <main className="page error-boundary">
-        <h1>화면을 불러오지 못했습니다</h1>
+      <main className="page empty-state error-boundary">
+        <span className="error-boundary__icon" aria-hidden="true">⚡️</span>
+        <h1>잠깐만요, 화면이 멈췄어요</h1>
         <p className="muted">
-          예상치 못한 오류가 발생했습니다. 잠시 후 다시 시도해주세요.
+          예상치 못한 오류로 이 화면을 그릴 수 없었어요. 다시 시도해도 같은 화면이 나오면
+          홈으로 돌아가서 다른 메뉴를 열어보세요.
         </p>
-        <button className="button button-primary" onClick={this.handleReload} type="button">
+        <button className="button button-primary is-block" onClick={this.handleReload} type="button">
           다시 시도
         </button>
       </main>
