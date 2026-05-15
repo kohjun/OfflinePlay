@@ -1,68 +1,175 @@
 /* =========================================================================
-   CONTENIDO — mobile-app design tokens
+   CONTENIDO — design tokens
+   ─────────────────────────────────────────────────────────────────────────
+   1) 핸드오프 토큰 (--c-/--t-/--s-/--r-/--e-/--dur-/--ease-) — source of truth.
+      디자인 핸드오프 design_handoff_contenido/tokens.css 와 1:1 일치.
+   2) 기존 토큰 (--primary/--text-primary/--shadow-md/--radius-md 등) 은
+      새 토큰의 alias 로만 유지 — utility class 호출처 코드를 건드리지 않고도
+      색·간격·라디우스가 핸드오프 톤으로 자동 전환된다 (점진 마이그레이션).
+   3) 화면별 wireframe 정밀 매핑은 PR44+ 에서 새 prefix 토큰 / 신규 utility 직접 참조.
    ========================================================================= */
 :root {
-  --primary: #5b5bf6;
-  --primary-hover: #4848e0;
-  --primary-active: #3a39c7;
-  --primary-soft: #eef0ff;
-  --primary-soft-hover: #e0e3ff;
-  --primary-text: #3a36c0;
+  /* ===== Handoff: Color · Brand ===== */
+  --c-primary:        #FA5252;
+  --c-primary-press:  #E04545;
+  --c-primary-soft:   #FFE5E5;
+  --c-primary-tint:   #FFF5F5;
+  --c-accent:         #FF8585;
 
-  --accent: #ff5b88;
-  --accent-soft: #ffe5ed;
+  /* ===== Handoff: Color · Surface ===== */
+  --c-bg:             #FAFAFA;
+  --c-surface:        #FFFFFF;
+  --c-surface-2:      #F4F4F5;
+  --c-overlay:        rgba(20, 20, 22, .45);
 
-  --success: #16a371;
-  --success-soft: #dcf5eb;
-  --success-text: #0a6a48;
+  /* ===== Handoff: Color · Border / Divider ===== */
+  --c-border:         #EEEEEE;
+  --c-border-strong:  #DDDDDD;
+  --c-divider:        #F2F2F2;
 
-  --warning: #d97706;
-  --warning-soft: #fef3e2;
-  --warning-text: #92400e;
+  /* ===== Handoff: Color · Text ===== */
+  --c-text:           #1A1A1A;
+  --c-text-secondary: #6B6B6B;
+  --c-text-tertiary:  #9CA3AF;
+  --c-text-disabled:  #C6C6C8;
+  --c-text-inverse:   #FFFFFF;
 
-  --danger: #dc2626;
-  --danger-soft: #fde7e7;
-  --danger-text: #9b1c1c;
+  /* ===== Handoff: Color · Ticket / Event lifecycle ===== */
+  --c-status-paid:      #FA5252;
+  --c-status-used:      #9CA3AF;
+  --c-status-refunded:  #F59E0B;
+  --c-status-canceled:  #6B7280;
+  --c-status-upcoming:  #10B981;
+  --c-status-ongoing:   #FA5252;
+  --c-status-closed:    #9CA3AF;
 
-  --info: #0ea5e9;
-  --info-soft: #e0f2fe;
-  --info-text: #0369a1;
+  /* ===== Handoff: Semantic ===== */
+  --c-success: #10B981;
+  --c-warning: #F59E0B;
+  --c-danger:  #EF4444;
+  --c-info:    #3B82F6;
 
-  /** App shell background (white) — true mobile-app feel */
-  --surface: #ffffff;
-  --surface-muted: #f3f4f8;
-  --surface-hover: #f5f6fb;
-  --background-outside: #e9eaf2;
+  /* ===== Handoff: Typography family ===== */
+  --font-ko: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont,
+             'Apple SD Gothic Neo', system-ui, sans-serif;
+  --font-en: 'Pretendard Variable', 'Pretendard', 'Inter', system-ui, sans-serif;
 
-  --text-primary: #0f1115;
-  --text-secondary: #4a4d57;
-  --text-tertiary: #7a7e88;
-  --text-quaternary: #aeb2bc;
+  /* ===== Handoff: Type scale ===== */
+  --t-display:    700 28px/1.30 var(--font-ko);
+  --t-h1:         700 22px/1.35 var(--font-ko);
+  --t-h2:         700 18px/1.40 var(--font-ko);
+  --t-h3:         600 16px/1.45 var(--font-ko);
+  --t-body:       400 14px/1.55 var(--font-ko);
+  --t-body-em:    500 14px/1.55 var(--font-ko);
+  --t-caption:    400 12px/1.45 var(--font-ko);
+  --t-micro:      500 11px/1.20 var(--font-ko);
+  --t-button-l:   600 16px/1    var(--font-ko);
+  --t-button-m:   600 14px/1    var(--font-ko);
+  --t-button-s:   500 13px/1    var(--font-ko);
+  --t-num-display: 700 28px/1.10 var(--font-en);
+  --t-num-l:      700 20px/1.10 var(--font-en);
 
-  --border: #eaecf2;
-  --border-strong: #d6d9e1;
+  /* ===== Handoff: Spacing (4 base) ===== */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 17, 22, 0.04);
-  --shadow-md: 0 6px 16px rgba(15, 17, 22, 0.06);
-  --shadow-lg: 0 16px 40px rgba(15, 17, 22, 0.09);
-  --shadow-xl: 0 24px 60px rgba(15, 17, 22, 0.12);
-  --shadow-frame: 0 30px 80px rgba(28, 30, 60, 0.18);
+  /* ===== Handoff: Radius ===== */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 20px;
+  --r-2xl: 24px;
+  --r-pill: 999px;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --radius-pill: 999px;
+  /* ===== Handoff: Elevation ===== */
+  --e-0: none;
+  --e-1: 0 1px 2px rgba(0, 0, 0, .04), 0 1px 1px rgba(0, 0, 0, .03);
+  --e-2: 0 4px 12px rgba(20, 20, 22, .06), 0 1px 3px rgba(20, 20, 22, .04);
+  --e-3: 0 8px 24px rgba(20, 20, 22, .10), 0 2px 6px rgba(20, 20, 22, .04);
+  --e-modal: 0 24px 48px rgba(20, 20, 22, .18);
 
+  /* ===== Handoff: Motion ===== */
+  --dur-instant: 80ms;
+  --dur-fast:    140ms;
+  --dur-base:    220ms;
+  --dur-slow:    320ms;
+  --ease-std:    cubic-bezier(.2, .0, .2, 1);
+  --ease-in:     cubic-bezier(.4, .0, 1, 1);
+  --ease-out:    cubic-bezier(.0, .0, .2, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  /* ===== Legacy aliases (기존 utility 호출처가 var(--xxx) 그대로 쓰는 동안 유지) ===== */
+  /* 브랜드 */
+  --primary:            var(--c-primary);
+  --primary-hover:      var(--c-primary-press);
+  --primary-active:     var(--c-primary-press);
+  --primary-soft:       var(--c-primary-soft);
+  --primary-soft-hover: var(--c-primary-tint);
+  --primary-text:       var(--c-primary);
+
+  --accent:      var(--c-accent);
+  --accent-soft: var(--c-primary-soft);
+
+  /* 상태 */
+  --success:       var(--c-success);
+  --success-soft:  #DCF5EB;
+  --success-text:  #0A6A48;
+  --warning:       var(--c-warning);
+  --warning-soft:  #FEF3E2;
+  --warning-text:  #92400E;
+  --danger:        var(--c-danger);
+  --danger-soft:   #FDE7E7;
+  --danger-text:   #9B1C1C;
+  --info:          var(--c-info);
+  --info-soft:     #E0F2FE;
+  --info-text:     #0369A1;
+
+  /* 표면 */
+  --surface:            var(--c-surface);
+  --surface-muted:      var(--c-surface-2);
+  --surface-hover:      var(--c-primary-tint);
+  --background-outside: var(--c-bg);
+
+  /* 텍스트 */
+  --text-primary:    var(--c-text);
+  --text-secondary:  var(--c-text-secondary);
+  --text-tertiary:   var(--c-text-tertiary);
+  --text-quaternary: var(--c-text-disabled);
+
+  /* 보더 */
+  --border:        var(--c-border);
+  --border-strong: var(--c-border-strong);
+
+  /* 그림자 */
+  --shadow-sm:    var(--e-1);
+  --shadow-md:    var(--e-2);
+  --shadow-lg:    var(--e-3);
+  --shadow-xl:    var(--e-modal);
+  --shadow-frame: 0 30px 80px rgba(20, 20, 22, .18);
+
+  /* 라디우스 — 기존 코드가 var(--radius-md) 쓰면 핸드오프 --r-md(12px) 가 적용된다 */
+  --radius-sm:   var(--r-sm);
+  --radius-md:   var(--r-md);
+  --radius-lg:   var(--r-lg);
+  --radius-xl:   var(--r-xl);
+  --radius-pill: var(--r-pill);
+
+  /* 레이아웃 (기존 값 유지) */
   --app-max-width: 420px;
   --tab-bar-height: 76px;
   --top-nav-height: 56px;
 
   color-scheme: light;
-  color: var(--text-primary);
-  font-family: 'Pretendard Variable', 'Pretendard', 'Inter',
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, 'Noto Sans KR', sans-serif;
+  color: var(--c-text);
+  font-family: var(--font-ko);
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   font-synthesis: none;
   text-rendering: optimizeLegibility;
