@@ -17,11 +17,14 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { MyPage } from './pages/MyPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { OnboardingPage } from './pages/OnboardingPage'
 import { PaymentFailPage, PaymentSuccessPage } from './pages/PaymentResultPages'
 import { PlayPage } from './pages/PlayPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { TicketCheckInPage } from './pages/TicketCheckInPage'
 import { TicketDetailPage } from './pages/TicketDetailPage'
+
+const ONBOARDED_FLAG = 'contenido-onboarded'
 
 function parseId(pathname: string, prefix: string) {
   const value = pathname.replace(prefix, '').split('/')[0]
@@ -119,6 +122,30 @@ export default function App() {
   }
 
   if (!isAuthenticated) {
+    // 비인증 사용자는 항상 onboarding 또는 login 만 노출.
+    // localStorage 의 ONBOARDED_FLAG 가 없고 사용자가 명시적으로 /login 으로 가지 않은
+    // 첫 방문이면 onboarding 부터.
+    const hasSeenOnboarding =
+      typeof window !== 'undefined' && window.localStorage.getItem(ONBOARDED_FLAG) === '1'
+    const wantsLogin = path === '/login'
+
+    if (!hasSeenOnboarding && !wantsLogin) {
+      return (
+        <>
+          <OnboardingPage
+            onStart={() => {
+              window.localStorage.setItem(ONBOARDED_FLAG, '1')
+              navigate('/login')
+            }}
+            onLogin={() => {
+              window.localStorage.setItem(ONBOARDED_FLAG, '1')
+              navigate('/login')
+            }}
+          />
+          <Toast />
+        </>
+      )
+    }
     return (
       <>
         <LoginPage onDone={() => navigate('/')} />

@@ -52,6 +52,15 @@ const ROLE_OPTIONS: RoleOption[] = [
   },
 ]
 
+/**
+ * 화면 02 — 로그인 / 회원가입 (핸드오프 README §02).
+ *
+ * wireframe 은 "로그인" 만 다루지만 백엔드 가입 흐름이 필요하므로 segmented control 로
+ * 로그인/회원가입 모드를 그대로 유지한다. 톤·간격·소셜 버튼은 wireframe 02 그대로.
+ *
+ * 소셜 로그인 3종(카카오/네이버/애플) 은 시각적으로 노출하되 클릭 시 "준비 중" 토스트 —
+ * 실제 OAuth 연동은 별도 PR.
+ */
 export function LoginPage({ onDone }: LoginPageProps) {
   const { login, signup } = useAuth()
   const { showToast } = useToast()
@@ -72,7 +81,6 @@ export function LoginPage({ onDone }: LoginPageProps) {
       if (mode === 'login') {
         await login({ email, password })
       } else {
-        // signup auto-logs in via useAuth → authApi.signup → login
         await signup({ email, password, nickname, phoneNumber, role })
       }
       showToast({ title: 'CONTENIDO에 오신 것을 환영합니다', tone: 'success' })
@@ -88,136 +96,202 @@ export function LoginPage({ onDone }: LoginPageProps) {
     }
   }
 
+  function notReady(provider: string) {
+    showToast({
+      title: `${provider} 로그인은 준비 중이에요`,
+      message: '곧 만나요. 이메일로 먼저 시작해주세요.',
+      tone: 'info',
+    })
+  }
+
   const submitLabel = submitting ? '처리 중...' : mode === 'login' ? '로그인' : '계정 만들기'
 
   return (
-    <main className="auth-shell">
-      <section className="auth-panel">
-        <div>
-          <p className="eyebrow">CONTENIDO</p>
-          <h1>{mode === 'login' ? '로그인' : '회원가입'}</h1>
-          <p className="subtle">
-            기획자가 만든 이벤트에 참여하고, 채널을 구독해 새 콘텐츠 알림을 받아보세요.
-          </p>
-        </div>
-        <div className="segmented" role="tablist" aria-label="인증 모드">
-          <button
-            className={mode === 'login' ? 'is-active' : ''}
-            onClick={() => setMode('login')}
-            type="button"
-            role="tab"
-            aria-selected={mode === 'login'}
-          >
-            로그인
-          </button>
-          <button
-            className={mode === 'signup' ? 'is-active' : ''}
-            onClick={() => setMode('signup')}
-            type="button"
-            role="tab"
-            aria-selected={mode === 'signup'}
-          >
-            회원가입
-          </button>
-        </div>
-        <form className="form-stack auth-form" onSubmit={handleSubmit}>
-          {mode === 'signup' ? (
-            <>
-              <fieldset className="role-picker">
-                <legend className="role-picker-legend">어떤 모드로 시작할까요?</legend>
-                <div className="role-picker-grid">
-                  {ROLE_OPTIONS.map((opt) => (
-                    <label
-                      key={opt.value}
-                      className={`role-option ${role === opt.value ? 'is-active' : ''}`}
-                    >
-                      <input
-                        type="radio"
-                        name="signup-role"
-                        value={opt.value}
-                        checked={role === opt.value}
-                        onChange={() => setRole(opt.value)}
-                      />
-                      <span className="role-option-icon" aria-hidden="true">{opt.icon}</span>
-                      <strong>{opt.label}</strong>
-                      <span>{opt.description}</span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-              <label>
-                닉네임
-                <input
-                  value={nickname}
-                  onChange={(event) => setNickname(event.target.value)}
-                  minLength={2}
-                  maxLength={20}
-                  required
-                  autoComplete="nickname"
-                  placeholder="2~20자"
-                />
-              </label>
-              <label>
-                전화번호
-                <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(event) => setPhoneNumber(event.target.value)}
-                  placeholder="010-1234-5678"
-                  pattern={PHONE_PATTERN}
-                  required
-                  autoComplete="tel"
-                  inputMode="tel"
-                />
-              </label>
-            </>
-          ) : null}
-          <label>
-            이메일
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              autoComplete={mode === 'login' ? 'username' : 'email'}
-              inputMode="email"
-              placeholder="you@example.com"
-            />
-          </label>
-          <label>
-            비밀번호
-            <div className="password-field">
+    <main className="auth-page">
+      <header className="auth-page__head">
+        <h1 className="auth-page__title">{mode === 'login' ? '반가워요 👋' : '환영해요 👋'}</h1>
+        <p className="auth-page__subtitle">
+          {mode === 'login'
+            ? '이메일로 로그인하거나, 소셜 계정으로 빠르게 시작해보세요.'
+            : '닉네임과 이메일만 있으면 바로 시작할 수 있어요.'}
+        </p>
+      </header>
+
+      <div className="segmented" role="tablist" aria-label="인증 모드">
+        <button
+          className={mode === 'login' ? 'is-active' : ''}
+          onClick={() => setMode('login')}
+          type="button"
+          role="tab"
+          aria-selected={mode === 'login'}
+        >
+          로그인
+        </button>
+        <button
+          className={mode === 'signup' ? 'is-active' : ''}
+          onClick={() => setMode('signup')}
+          type="button"
+          role="tab"
+          aria-selected={mode === 'signup'}
+        >
+          회원가입
+        </button>
+      </div>
+
+      <form className="auth-form" onSubmit={handleSubmit}>
+        {mode === 'signup' ? (
+          <>
+            <fieldset className="role-picker">
+              <legend className="role-picker-legend">어떤 모드로 시작할까요?</legend>
+              <div className="role-picker-grid">
+                {ROLE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`role-option ${role === opt.value ? 'is-active' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="signup-role"
+                      value={opt.value}
+                      checked={role === opt.value}
+                      onChange={() => setRole(opt.value)}
+                    />
+                    <span className="role-option-icon" aria-hidden="true">
+                      {opt.icon}
+                    </span>
+                    <strong>{opt.label}</strong>
+                    <span>{opt.description}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="auth-form__field">
+              <span>닉네임</span>
               <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                minLength={8}
+                value={nickname}
+                onChange={(event) => setNickname(event.target.value)}
+                minLength={2}
                 maxLength={20}
                 required
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                placeholder="8~20자"
+                autoComplete="nickname"
+                placeholder="2~20자"
               />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword((prev) => !prev)}
-                aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
-              >
-                {showPassword ? '숨김' : '표시'}
-              </button>
-            </div>
-          </label>
-          <button
-            className="button button-primary is-block"
-            disabled={submitting}
-            type="submit"
-            aria-busy={submitting}
-          >
-            {submitting ? <span className="button-spinner" aria-hidden="true" /> : null}
-            {submitLabel}
-          </button>
-        </form>
-      </section>
+            </label>
+            <label className="auth-form__field">
+              <span>전화번호</span>
+              <input
+                type="tel"
+                value={phoneNumber}
+                onChange={(event) => setPhoneNumber(event.target.value)}
+                placeholder="010-1234-5678"
+                pattern={PHONE_PATTERN}
+                required
+                autoComplete="tel"
+                inputMode="tel"
+              />
+            </label>
+          </>
+        ) : null}
+
+        <label className="auth-form__field">
+          <span>이메일</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoComplete={mode === 'login' ? 'username' : 'email'}
+            inputMode="email"
+            placeholder="you@example.com"
+          />
+        </label>
+
+        <label className="auth-form__field">
+          <span>비밀번호</span>
+          <div className="password-field">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              minLength={8}
+              maxLength={20}
+              required
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              placeholder="8~20자"
+            />
+            <button
+              type="button"
+              className="password-toggle"
+              onClick={() => setShowPassword((prev) => !prev)}
+              aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
+            >
+              {showPassword ? '숨김' : '표시'}
+            </button>
+          </div>
+        </label>
+
+        {mode === 'login' ? (
+          <div className="auth-form__options">
+            <label className="auth-form__check">
+              <input type="checkbox" defaultChecked />
+              <span>자동 로그인</span>
+            </label>
+            <button
+              type="button"
+              className="auth-form__link"
+              onClick={() => notReady('비밀번호 찾기')}
+            >
+              비밀번호 찾기 ›
+            </button>
+          </div>
+        ) : null}
+
+        <button
+          className="button button-primary is-block auth-form__submit"
+          disabled={submitting}
+          type="submit"
+          aria-busy={submitting}
+        >
+          {submitting ? <span className="button-spinner" aria-hidden="true" /> : null}
+          {submitLabel}
+        </button>
+      </form>
+
+      <div className="auth-divider" aria-hidden="true">
+        <span>또는 소셜 계정으로</span>
+      </div>
+
+      <div className="auth-social">
+        <button
+          type="button"
+          className="auth-social__btn auth-social__btn--kakao"
+          onClick={() => notReady('카카오')}
+        >
+          <span aria-hidden="true">💬</span>
+          카카오로 계속하기
+        </button>
+        <button
+          type="button"
+          className="auth-social__btn auth-social__btn--naver"
+          onClick={() => notReady('네이버')}
+        >
+          <span aria-hidden="true">N</span>
+          네이버로 계속하기
+        </button>
+        <button
+          type="button"
+          className="auth-social__btn auth-social__btn--apple"
+          onClick={() => notReady('Apple')}
+        >
+          <span aria-hidden="true"></span>
+          Apple로 계속하기
+        </button>
+      </div>
+
+      <p className="auth-page__terms">
+        계속하면 <a href="#terms">이용약관</a> · <a href="#privacy">개인정보 처리방침</a>에 동의한
+        것으로 간주합니다.
+      </p>
     </main>
   )
 }
