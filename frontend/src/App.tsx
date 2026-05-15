@@ -18,6 +18,7 @@ import { LoginPage } from './pages/LoginPage'
 import { MyPage } from './pages/MyPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { OnboardingPage } from './pages/OnboardingPage'
+import { PaymentPage } from './pages/PaymentPage'
 import { PaymentFailPage, PaymentSuccessPage } from './pages/PaymentResultPages'
 import { PlayPage } from './pages/PlayPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -72,6 +73,12 @@ export default function App() {
     const editEvent = path.match(/^\/events\/(\d+)\/edit/)
     if (editEvent) {
       return <EventEditPage eventId={Number(editEvent[1])} onNavigate={navigate} />
+    }
+
+    // /events/{eid}/payment — 결제 페이지 (PR47, 화면 08)
+    const payEvent = path.match(/^\/events\/(\d+)\/payment/)
+    if (payEvent) {
+      return <PaymentPage eventId={Number(payEvent[1])} onNavigate={navigate} />
     }
 
     // /events/{eid} — 알림/Studio 진입용 flat 라우트. channelId 는 응답에서 채운다.

@@ -12,9 +12,7 @@ import {
   rejectParticipation,
 } from '../api/events'
 import { getEventCheckIns, type EventCheckInSummary } from '../api/tickets'
-import { confirmPayment, preparePayment } from '../api/payments'
 import { RemainingProgress } from '../components/RemainingProgress'
-import { loadTossPayments, tossClientKey } from '../utils/toss'
 import { notificationStore } from '../stores/notificationStore'
 import { Badge } from '../components/Badge'
 import { CommentForm } from '../components/CommentForm'
@@ -354,72 +352,12 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
   /**
    * 유료 이벤트 결제 흐름.
    *
-   *  - `VITE_TOSS_CLIENT_KEY` 가 빌드 시 주입돼 있으면 → 실제 Toss SDK `requestPayment` 호출.
-   *    PG 결제창으로 페이지가 전환되고, 결과는 `/payments/success` / `/payments/fail` 로 redirect 된다.
-   *    success 페이지가 confirmPayment 를 호출해 ticket 발급 흐름을 마무리.
-   *  - clientKey 가 비어 있거나 SDK 로드 실패 → mock fallback. `preparePayment` 직후
-   *    `sandbox-mock-{idempotencyKey}` 로 confirm 을 즉시 호출해 같은 페이지에서 ticket 으로 이동.
-   *    백엔드 PaymentConfig 가 sandbox 키 없는 환경에선 MockPaymentGateway 를 빈으로 등록해
-   *    항상 성공 응답한다.
+   * PR47 부터: 결제 페이지(`/events/{eventId}/payment`) 로 라우팅. 결제 페이지가
+   * 참가자 정보 폼 + 결제 수단 선택 + 환불정책 동의를 받고 prepare → confirm 호출.
+   * 기존 EventDetailPage 내부의 mock confirm fallback 은 결제 페이지로 이관됨.
    */
-  async function handlePaidApply() {
-    if (submittingJoin) return
-    setSubmittingJoin(true)
-    try {
-      const prep = await preparePayment(eventId)
-      const clientKey = tossClientKey()
-
-      if (clientKey) {
-        try {
-          const tossPayments = await loadTossPayments(clientKey)
-          // requestPayment 는 페이지 전환이 일어나므로 await 가 resolve 되기 전에 unload 되는 경우가 보통.
-          await tossPayments.requestPayment('카드', {
-            amount: prep.amount,
-            orderId: prep.idempotencyKey,
-            orderName: prep.orderName,
-            successUrl:
-              `${window.location.origin}/payments/success` +
-              `?paymentAttemptId=${prep.paymentAttemptId}`,
-            failUrl:
-              `${window.location.origin}/payments/fail` +
-              `?paymentAttemptId=${prep.paymentAttemptId}`,
-          })
-          return // redirect 발생, 이후 코드는 실행 안 됨
-        } catch (sdkErr) {
-          // SDK 로드/호출 실패 — 사용자가 PG 창을 닫은 경우와 네트워크 실패가 섞임. 일단 토스트만.
-          showToast({
-            title: '결제창을 열 수 없습니다',
-            message: sdkErr instanceof Error ? sdkErr.message : '잠시 후 다시 시도해주세요.',
-            tone: 'danger',
-          })
-          return
-        }
-      }
-
-      // clientKey 미설정 — mock fallback (sandbox 키 없는 환경용)
-      const mockPaymentKey = `sandbox-mock-${prep.idempotencyKey}`
-      const confirm = await confirmPayment(prep.paymentAttemptId, {
-        paymentKey: mockPaymentKey,
-        orderId: prep.idempotencyKey,
-        amount: prep.amount,
-      })
-      showToast({
-        title: '결제가 완료되었어요',
-        message: `티켓이 발급되었습니다 (${prep.amount.toLocaleString()}원)`,
-        tone: 'success',
-      })
-      if (confirm.ticketId) {
-        onNavigate(`/tickets/${confirm.ticketId}`)
-      }
-    } catch (error) {
-      showToast({
-        title: '결제에 실패했어요',
-        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
-        tone: 'danger',
-      })
-    } finally {
-      setSubmittingJoin(false)
-    }
+  function handlePaidApply() {
+    onNavigate(`/events/${eventId}/payment`)
   }
 
   async function handleCancel() {
