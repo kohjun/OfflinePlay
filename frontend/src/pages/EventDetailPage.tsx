@@ -13,6 +13,7 @@ import {
 } from '../api/events'
 import { getEventCheckIns, type EventCheckInSummary } from '../api/tickets'
 import { confirmPayment, preparePayment } from '../api/payments'
+import { RemainingProgress } from '../components/RemainingProgress'
 import { loadTossPayments, tossClientKey } from '../utils/toss'
 import { notificationStore } from '../stores/notificationStore'
 import { Badge } from '../components/Badge'
@@ -646,6 +647,23 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
           }
         />
       </section>
+
+      {/* 잔여 자리 강조 row (wireframe 07 §남은 자리 row 특별 처리). */}
+      {event.status !== 'CLOSED' ? (
+        <section className="ed-remaining" aria-label="잔여 자리">
+          <div className="ed-remaining__head">
+            <span className="ed-remaining__label">남은 자리</span>
+            <span className="ed-remaining__live" aria-hidden="true">
+              <span className="ed-remaining__live-dot" />
+              실시간
+            </span>
+          </div>
+          <RemainingProgress
+            remaining={event.maxParticipants - event.currentParticipants}
+            capacity={event.maxParticipants}
+          />
+        </section>
+      ) : null}
 
       <section className="ct-event-section">
         <h2 className="ct-event-section-title">이벤트 소개</h2>

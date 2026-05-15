@@ -4933,3 +4933,101 @@ textarea {
   font: 600 13px/1 var(--font-ko);
   color: var(--c-text);
 }
+
+/* =========================================================================
+   PR46 Handoff utilities — RemainingProgress / BottomCtaDock / EventDetail extras
+   ========================================================================= */
+
+/* ===== RemainingProgress (잔여 자리 + 3px progress bar) ===== */
+.rp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rp__label {
+  font: 700 12px/1.2 var(--font-ko);
+  color: var(--c-text);
+}
+.rp__label b {
+  color: var(--c-primary);
+  font-weight: 700;
+  font-size: 13px;
+}
+.rp__bar {
+  display: block;
+  height: 3px;
+  background: var(--c-surface-2);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+.rp__bar__fill {
+  display: block;
+  height: 100%;
+  background: var(--c-primary);
+  border-radius: 2px;
+  transition: width var(--dur-base) var(--ease-std);
+}
+
+/* ===== BottomCtaDock (thumb zone full-bleed) ===== */
+.cta-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 12px 16px calc(env(safe-area-inset-bottom, 16px) + 16px);
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ===== EventDetail 잔여 자리 강조 row (wireframe 07) ===== */
+.ed-remaining {
+  margin: 16px 20px 24px;
+  padding: 14px 16px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ed-remaining__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ed-remaining__label {
+  font: 600 13px/1.4 var(--font-ko);
+  color: var(--c-text);
+}
+.ed-remaining__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+  font: 500 11px/1 var(--font-ko);
+  border-radius: var(--r-pill);
+}
+.ed-remaining__live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--c-primary);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0 0 0 var(--c-primary-soft);
+  animation: ed-remaining-pulse 1.6s ease-out infinite;
+}
+@keyframes ed-remaining-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(250, 82, 82, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(250, 82, 82, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(250, 82, 82, 0);
+  }
+}
