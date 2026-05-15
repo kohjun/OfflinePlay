@@ -364,3 +364,28 @@ export interface PaymentPrepareResponse {
   idempotencyKey: string
   status: PaymentStatus
 }
+
+/**
+ * Mirrors backend PaymentConfirmRequest. PG SDK 콜백으로 받은 paymentKey 와
+ * orderId/amount 를 그대로 전달해 백엔드가 PG 에 confirm 호출하게 한다.
+ */
+export interface PaymentConfirmRequest {
+  paymentKey: string
+  orderId: string
+  amount: number
+}
+
+/**
+ * Mirrors backend PaymentConfirmResponse.
+ *  - ticketId 는 PAID 가 아니면 null.
+ *  - approvedAt 은 PG 가 알려준 승인 시각(ISO-8601), MockPaymentGateway 환경에선 null.
+ */
+export interface PaymentConfirmResponse {
+  paymentAttemptId: number
+  status: PaymentStatus
+  provider: PaymentProvider
+  amount: number
+  ticketId: number | null
+  providerPaymentKey: string | null
+  approvedAt: string | null
+}

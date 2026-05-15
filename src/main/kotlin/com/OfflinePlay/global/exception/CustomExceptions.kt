@@ -226,3 +226,16 @@ class PaymentAttemptNotFoundException : ContENIDOException(
 class InvalidPaymentAmountException : ContENIDOException(
     HttpStatus.CONFLICT, "결제 금액이 예상과 다릅니다."
 )
+
+class InvalidPaymentOrderIdException : ContENIDOException(
+    HttpStatus.CONFLICT, "결제 주문 식별자가 일치하지 않습니다."
+)
+
+class InvalidPaymentStateException : ContENIDOException(
+    HttpStatus.CONFLICT, "현재 상태에서는 결제를 확정할 수 없습니다."
+)
+
+class PaymentConfirmFailedException(
+    val code: String,
+    detail: String,
+) : ContENIDOException(HttpStatus.BAD_GATEWAY, "결제 승인에 실패했습니다: $detail")

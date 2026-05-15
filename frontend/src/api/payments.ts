@@ -1,5 +1,9 @@
 import { apiClient } from './client'
-import type { PaymentPrepareResponse } from '../types'
+import type {
+  PaymentConfirmRequest,
+  PaymentConfirmResponse,
+  PaymentPrepareResponse,
+} from '../types'
 
 /**
  * POST /api/v1/events/{eventId}/payments/prepare
@@ -22,4 +26,24 @@ import type { PaymentPrepareResponse } from '../types'
  */
 export function preparePayment(eventId: number) {
   return apiClient.post<PaymentPrepareResponse>(`/events/${eventId}/payments/prepare`)
+}
+
+/**
+ * POST /api/v1/payments/{paymentAttemptId}/confirm
+ *
+ * PG SDK 결제창 콜백으로 받은 paymentKey 를 백엔드에 전달해 PG 측 confirm 을
+ * 트리거한다. 성공 시 Ticket(PAID) 이 발급되고 EventParticipation 이 APPROVED 로 보장된다.
+ *
+ * sandbox 키가 아직 없는 PR40 단계에선 백엔드의 MockPaymentGateway 가 항상 성공으로
+ * 응답한다. EventDetailPage 의 유료 CTA 는 `mock-${idempotencyKey}` 형식의 더미
+ * paymentKey 를 생성해 호출한다 — PR41 에서 실제 Toss SDK 연동으로 교체.
+ */
+export function confirmPayment(
+  paymentAttemptId: number,
+  request: PaymentConfirmRequest,
+) {
+  return apiClient.post<PaymentConfirmResponse>(
+    `/payments/${paymentAttemptId}/confirm`,
+    request,
+  )
 }

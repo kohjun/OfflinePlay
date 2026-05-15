@@ -3,12 +3,19 @@ package com.contenido.domain.payment.service
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
 import com.contenido.domain.event.entity.Event
+import com.contenido.domain.event.entity.EventParticipation
 import com.contenido.domain.event.entity.EventStatus
+import com.contenido.domain.event.entity.ParticipationStatus
+import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
+import com.contenido.domain.payment.dto.PaymentConfirmRequest
 import com.contenido.domain.payment.dto.PaymentWebhookRequest
 import com.contenido.domain.payment.entity.PaymentAttempt
 import com.contenido.domain.payment.entity.PaymentProvider
 import com.contenido.domain.payment.entity.PaymentStatus
+import com.contenido.domain.payment.gateway.PaymentGateway
+import com.contenido.domain.payment.gateway.PaymentGatewayConfirmRequest
+import com.contenido.domain.payment.gateway.PaymentGatewayConfirmResult
 import com.contenido.domain.payment.repository.PaymentAttemptRepository
 import com.contenido.domain.ticket.entity.Ticket
 import com.contenido.domain.ticket.entity.TicketStatus
@@ -22,8 +29,12 @@ import com.contenido.global.exception.EventAlreadyStartedException
 import com.contenido.global.exception.EventFullException
 import com.contenido.global.exception.FreeEventCannotPreparePaymentException
 import com.contenido.global.exception.InvalidPaymentAmountException
+import com.contenido.global.exception.InvalidPaymentOrderIdException
+import com.contenido.global.exception.InvalidPaymentStateException
 import com.contenido.global.exception.OwnerCannotApplyException
 import com.contenido.global.exception.PaymentAttemptNotFoundException
+import com.contenido.global.exception.PaymentConfirmFailedException
+import com.contenido.global.exception.UnauthorizedException
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
@@ -46,6 +57,8 @@ class PaymentServiceTest {
     @MockK lateinit var userRepository: UserRepository
     @MockK lateinit var ticketRepository: TicketRepository
     @MockK lateinit var ticketService: TicketService
+    @MockK lateinit var paymentGateway: PaymentGateway
+    @MockK lateinit var eventParticipationRepository: EventParticipationRepository
 
     private lateinit var service: PaymentService
 
@@ -57,6 +70,8 @@ class PaymentServiceTest {
             userRepository,
             ticketRepository,
             ticketService,
+            paymentGateway,
+            eventParticipationRepository,
         )
     }
 
@@ -360,6 +375,266 @@ class PaymentServiceTest {
 
         assertThat(attempt.status).isEqualTo(PaymentStatus.CANCELED)
         verify(exactly = 0) { ticketService.issuePaidTicket(any(), any(), any()) }
+    }
+
+    // ── confirmPayment ───────────────────────────────────────────────────────────
+
+    @Test
+    fun `confirmPayment 성공 시 Ticket 발급 + PaymentAttempt PAID + 정원 ++ + EventParticipation APPROVED`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 3)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-1", amount = 30_000L, status = PaymentStatus.READY,
+        )
+        val issuedTicket = createTicket(id = 999L, event = event, buyer = buyer)
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+        every {
+            paymentGateway.confirm(any())
+        } returns PaymentGatewayConfirmResult.Success(
+            provider = PaymentProvider.TOSS,
+            providerPaymentKey = "toss_real_key_xyz",
+            approvedAt = "2026-05-16T00:00:00+09:00",
+        )
+        every { ticketService.issuePaidTicket(2L, 100L, 30_000L) } returns issuedTicket
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+        val savedParticipationSlot = slot<EventParticipation>()
+        every { eventParticipationRepository.save(capture(savedParticipationSlot)) } answers {
+            savedParticipationSlot.captured
+        }
+
+        val response = service.confirmPayment(
+            userId = 2L,
+            paymentAttemptId = 555L,
+            request = PaymentConfirmRequest(
+                paymentKey = "client-side-key",
+                orderId = "order-1",
+                amount = 30_000L,
+            ),
+        )
+
+        assertThat(response.status).isEqualTo(PaymentStatus.PAID)
+        assertThat(response.ticketId).isEqualTo(999L)
+        assertThat(response.providerPaymentKey).isEqualTo("toss_real_key_xyz")
+        assertThat(response.approvedAt).isEqualTo("2026-05-16T00:00:00+09:00")
+        assertThat(attempt.status).isEqualTo(PaymentStatus.PAID)
+        assertThat(attempt.provider).isEqualTo(PaymentProvider.TOSS)
+        assertThat(event.currentParticipants).isEqualTo(4)
+        assertThat(savedParticipationSlot.captured.status).isEqualTo(ParticipationStatus.APPROVED)
+    }
+
+    @Test
+    fun `confirmPayment Gateway Failure 시 PaymentAttempt FAILED + PaymentConfirmFailedException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-fail", amount = 30_000L, status = PaymentStatus.READY,
+        )
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+        every { paymentGateway.confirm(any()) } returns PaymentGatewayConfirmResult.Failure(
+            provider = PaymentProvider.TOSS,
+            code = "PAY_INVALID_CARD",
+            message = "유효하지 않은 카드입니다.",
+        )
+
+        val ex = assertThrows<PaymentConfirmFailedException> {
+            service.confirmPayment(
+                userId = 2L, paymentAttemptId = 555L,
+                request = PaymentConfirmRequest("k", "order-fail", 30_000L),
+            )
+        }
+        assertThat(ex.code).isEqualTo("PAY_INVALID_CARD")
+        assertThat(attempt.status).isEqualTo(PaymentStatus.FAILED)
+        verify(exactly = 0) { ticketService.issuePaidTicket(any(), any(), any()) }
+        verify(exactly = 0) { eventParticipationRepository.save(any()) }
+    }
+
+    @Test
+    fun `confirmPayment amount 불일치는 InvalidPaymentAmountException (gateway 호출 X)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-1", amount = 30_000L, status = PaymentStatus.READY,
+        )
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+
+        assertThrows<InvalidPaymentAmountException> {
+            service.confirmPayment(
+                userId = 2L, paymentAttemptId = 555L,
+                request = PaymentConfirmRequest("k", "order-1", 99_999L),
+            )
+        }
+
+        verify(exactly = 0) { paymentGateway.confirm(any()) }
+        assertThat(attempt.status).isEqualTo(PaymentStatus.READY)
+    }
+
+    @Test
+    fun `confirmPayment orderId 불일치는 InvalidPaymentOrderIdException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-real", amount = 30_000L, status = PaymentStatus.READY,
+        )
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+
+        assertThrows<InvalidPaymentOrderIdException> {
+            service.confirmPayment(
+                userId = 2L, paymentAttemptId = 555L,
+                request = PaymentConfirmRequest("k", "order-fake", 30_000L),
+            )
+        }
+        verify(exactly = 0) { paymentGateway.confirm(any()) }
+    }
+
+    @Test
+    fun `confirmPayment 이미 PAID 면 gateway 재호출 없이 멱등 응답`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val alreadyTicket = createTicket(id = 888L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-dup", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", alreadyTicket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_existing")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+        }
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+
+        val response = service.confirmPayment(
+            userId = 2L, paymentAttemptId = 555L,
+            request = PaymentConfirmRequest("any-key", "order-dup", 30_000L),
+        )
+
+        assertThat(response.status).isEqualTo(PaymentStatus.PAID)
+        assertThat(response.ticketId).isEqualTo(888L)
+        assertThat(response.providerPaymentKey).isEqualTo("toss_existing")
+        verify(exactly = 0) { paymentGateway.confirm(any()) }
+        verify(exactly = 0) { ticketService.issuePaidTicket(any(), any(), any()) }
+    }
+
+    @Test
+    fun `confirmPayment FAILED 상태에서는 InvalidPaymentStateException (재시도 X)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-x", amount = 30_000L, status = PaymentStatus.FAILED,
+        )
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+
+        assertThrows<InvalidPaymentStateException> {
+            service.confirmPayment(
+                userId = 2L, paymentAttemptId = 555L,
+                request = PaymentConfirmRequest("k", "order-x", 30_000L),
+            )
+        }
+    }
+
+    @Test
+    fun `confirmPayment buyer 본인이 아니면 UnauthorizedException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val intruder = createUser(id = 3L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-1", amount = 30_000L, status = PaymentStatus.READY,
+        )
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+
+        assertThrows<UnauthorizedException> {
+            service.confirmPayment(
+                userId = intruder.id, paymentAttemptId = 555L,
+                request = PaymentConfirmRequest("k", "order-1", 30_000L),
+            )
+        }
+        verify(exactly = 0) { paymentGateway.confirm(any()) }
+    }
+
+    @Test
+    fun `confirmPayment 정원이 prepare 이후 가득 차면 EventFullException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, maxParticipants = 1, currentParticipants = 1,
+        )
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-1", amount = 30_000L, status = PaymentStatus.READY,
+        )
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+
+        assertThrows<EventFullException> {
+            service.confirmPayment(
+                userId = 2L, paymentAttemptId = 555L,
+                request = PaymentConfirmRequest("k", "order-1", 30_000L),
+            )
+        }
+        verify(exactly = 0) { paymentGateway.confirm(any()) }
+    }
+
+    @Test
+    fun `confirmPayment 기존 PENDING EventParticipation 이 있으면 APPROVED 로 전환`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-1", amount = 30_000L, status = PaymentStatus.READY,
+        )
+        val existingParticipation = EventParticipation(event = event, participant = buyer).apply {
+            status = ParticipationStatus.PENDING
+        }
+
+        every { paymentAttemptRepository.findById(555L) } returns Optional.of(attempt)
+        every { paymentGateway.confirm(any()) } returns PaymentGatewayConfirmResult.Success(
+            provider = PaymentProvider.NONE, providerPaymentKey = "mock-k",
+        )
+        every { ticketService.issuePaidTicket(2L, 100L, 30_000L) } returns
+            createTicket(id = 999L, event = event, buyer = buyer)
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(existingParticipation)
+
+        service.confirmPayment(
+            userId = 2L, paymentAttemptId = 555L,
+            request = PaymentConfirmRequest("k", "order-1", 30_000L),
+        )
+
+        // 기존 row 가 APPROVED 로 전환, 새 row save 호출 없음.
+        assertThat(existingParticipation.status).isEqualTo(ParticipationStatus.APPROVED)
+        verify(exactly = 0) { eventParticipationRepository.save(any()) }
+    }
+
+    @Test
+    fun `confirmPayment PaymentAttempt 없으면 PaymentAttemptNotFoundException`() {
+        every { paymentAttemptRepository.findById(404L) } returns Optional.empty()
+
+        assertThrows<PaymentAttemptNotFoundException> {
+            service.confirmPayment(
+                userId = 2L, paymentAttemptId = 404L,
+                request = PaymentConfirmRequest("k", "anything", 30_000L),
+            )
+        }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────

@@ -248,3 +248,91 @@ webhook 요청 (`PaymentWebhookRequest`): `idempotencyKey / providerPaymentKey? 
 - 정원 race condition — prepare 시점에만 정원 검증한다. READY 다수가 동시에 떠 있고 모두 PAID 가 되면 초과 가능. (1) READY 카운트를 정원 검증에 합치거나 (2) webhook 시점에서도 정원 재확인 + 초과 시 자동 환불 큐로 보낼지 결정 필요.
 - 환불 흐름 (`refund.completed`) — Ticket.refund() 호출처 신설은 별도 PR.
 - 유료 이벤트의 EventDetailPage CTA 분기 — frontend 는 PR39 단계에선 helper/타입만 추가하고 기존 신청 흐름을 유지한다.
+
+---
+
+## 9. PR40 — Gateway 어댑터 + confirm API + EventParticipation 정합성
+
+PR40 부터 실제 PG sandbox 연결이 가능한 구조를 얹는다. sandbox secret/client key 가 아직 없는 환경에서도 전체 흐름이 검증되도록 `MockPaymentGateway` 가 빈으로 등록된다.
+
+### 9.1 PaymentGateway 어댑터
+
+`PaymentGateway` interface 가 PG 추상화의 단일 진입점:
+
+```kotlin
+interface PaymentGateway {
+    fun provider(): PaymentProvider
+    fun confirm(request: PaymentGatewayConfirmRequest): PaymentGatewayConfirmResult
+}
+```
+
+빈 선정 (`PaymentConfig`):
+- `payment.toss.enabled=true` → `TossPaymentGateway` (Toss `POST /v1/payments/confirm` 직접 호출, `Authorization: Basic Base64(secretKey:)`)
+- 그 외 (기본값) → `MockPaymentGateway` (항상 Success 응답, sandbox 키 없는 dev/CI 용)
+
+PortOne 어댑터는 동일 인터페이스 구현으로 추후 추가. PaymentService 는 인터페이스만 의존하므로 빈 교체로 PG 전환이 끝난다.
+
+### 9.2 새 API — confirm
+
+| 메서드/경로 | 인증 | 책임 |
+|---|---|---|
+| `POST /api/v1/payments/{paymentAttemptId}/confirm` | 인증 사용자 (buyer 본인) | PG SDK 콜백으로 받은 paymentKey 를 백엔드가 PG 에 confirm 호출. 성공 시 Ticket 발급 + PaymentAttempt PAID + 정원 ++ + EventParticipation(APPROVED) 보장. 멱등(이미 PAID 면 gateway 재호출 X). |
+
+요청 (`PaymentConfirmRequest`): `paymentKey / orderId / amount` — orderId 는 prepare 응답의 idempotencyKey 와 동일해야 함.
+응답 (`PaymentConfirmResponse`): `paymentAttemptId / status / provider / amount / ticketId / providerPaymentKey / approvedAt`.
+
+### 9.3 confirm 거부 조건
+
+| 케이스 | Exception | HTTP |
+|---|---|---|
+| buyer 본인이 아님 | `UnauthorizedException` | 403 |
+| PaymentAttempt 없음 | `PaymentAttemptNotFoundException` | 404 |
+| READY 가 아닌데 PAID 도 아님 (FAILED/CANCELED) | `InvalidPaymentStateException` | 409 |
+| orderId 불일치 | `InvalidPaymentOrderIdException` | 409 |
+| amount 불일치 | `InvalidPaymentAmountException` | 409 |
+| 이벤트 CLOSED / 시작 후 / owner 본인 / 정원 가득 | 기존 exception 재사용 | 409 |
+| PG gateway Failure | `PaymentConfirmFailedException(code, detail)` | 502 |
+
+이미 PAID 인 attempt 에 다시 confirm 이 도착하면 → gateway 재호출 없이 기존 응답 멱등 반환 (200 OK).
+
+### 9.4 EventParticipation 정합성
+
+confirm 성공 시 `PaymentService.ensureApprovedParticipation` 가 실행:
+- (event, buyer) 의 EventParticipation row 가 있으면 → APPROVED 가 아닌 경우 `approveByPayment()` 로 전환 (system approval; `reviewedBy = null`)
+- row 가 없으면 → 새로 만들고 APPROVED 로 저장
+
+이로써 무료 흐름(approve → issueFreeTicket)과 유료 흐름(confirm → issuePaidTicket) 모두 동일한 EventParticipation 모델 위에서 신청자 관리/통계가 동작한다.
+
+`EventParticipation.approveByPayment()` 가 새로 추가됨. `reviewedBy` 가 null 인 row 를 신청자 관리 UI 가 "결제 자동 승인" 으로 표시할지는 후속 UX 결정.
+
+### 9.5 설정
+
+`application.yml` (공통):
+
+```yaml
+payment:
+  toss:
+    enabled: ${TOSS_PAYMENTS_ENABLED:false}
+    secret-key: ${TOSS_SECRET_KEY:}
+    client-key: ${TOSS_CLIENT_KEY:}
+    api-base-url: ${TOSS_API_BASE_URL:https://api.tosspayments.com}
+```
+
+운영 배포는 반드시 `TOSS_PAYMENTS_ENABLED=true` + 유효한 `TOSS_SECRET_KEY`. **secret-key 는 절대 리포지토리에 commit 하지 말 것**.
+
+### 9.6 Frontend (sandbox 단계)
+
+`EventDetailPage` 가 `event.participationFee > 0` 이면 CTA 라벨이 `{금액}원 결제하고 참가하기` 로 바뀌고, 클릭 시 `handlePaidApply` 가 호출된다. 현재 단계는 sandbox 키 없이도 동작하도록 다음 두 단계를 자동 실행:
+
+1. `preparePayment(eventId)` → PaymentAttempt(READY) 받음
+2. `confirmPayment(paymentAttemptId, { paymentKey: "sandbox-mock-${idempotencyKey}", orderId, amount })` → 백엔드 MockPaymentGateway 가 Success 응답 → Ticket 발급 → `/tickets/{id}` 로 이동
+
+PR41 에서 이 두 단계 사이에 **실제 Toss JS SDK 호출** 이 끼어든다 (clientKey + requestPayment + success/fail URL). frontend 코드에 PR41 전환 메모를 주석으로 남겨 둠.
+
+### 9.7 PR40 의도적 제외 (PR41+ 후속)
+
+- **Webhook signature 검증** — 운영 전 필수. PortOne/Toss 별 HMAC-SHA256 검증 필터. 현재는 webhook 엔드포인트가 idempotencyKey 매핑만 함.
+- **환불 흐름** — `refund.completed` webhook + `Ticket.refund()` 호출처 + 운영 도구. PR41 또는 PR42 로 분리.
+- **정원 race condition** — confirm 시점 재검증으로 일부 완화됐지만, 둘 이상의 READY 가 동시에 confirm 으로 진입하면 여전히 초과 가능. DB row lock 또는 Redisson 분산락 도입 검토.
+- **Webhook 과 confirm 의 충돌** — 클라이언트 confirm 과 PG webhook 이 같은 PaymentAttempt 에 거의 동시에 도착할 때 멱등은 보장되지만, 두 진입점 중 하나만 살리는 방향(웹훅 단일화)도 PR41 에서 평가.
+- **PortOne 어댑터** — interface 만 열려 있고 구현체는 후속 PR.

@@ -39,3 +39,33 @@ data class PaymentWebhookRequest(
     val status: PaymentStatus,
     val provider: PaymentProvider = PaymentProvider.NONE,
 )
+
+/**
+ * `POST /api/v1/payments/{paymentAttemptId}/confirm` 요청 body.
+ *
+ * 클라이언트가 PG SDK 콜백으로 받은 paymentKey 와, 검증용으로 orderId/amount 를 그대로 전달한다.
+ * orderId 는 prepare 응답의 idempotencyKey 와 동일한 값이어야 한다.
+ */
+data class PaymentConfirmRequest(
+    val paymentKey: String,
+    val orderId: String,
+    val amount: Long,
+)
+
+/**
+ * `POST /api/v1/payments/{paymentAttemptId}/confirm` 응답.
+ *
+ *  - [paymentAttemptId] / [status] : 갱신된 PaymentAttempt 상태 (성공 시 PAID).
+ *  - [ticketId]                    : 발급된 Ticket. PAID 가 아니면 null.
+ *  - [providerPaymentKey]          : PG 가 부여한 결제 키 — 환불 호출에 다시 사용.
+ *  - [approvedAt]                  : PG 가 알려준 승인 시각 (있을 때).
+ */
+data class PaymentConfirmResponse(
+    val paymentAttemptId: Long,
+    val status: PaymentStatus,
+    val provider: PaymentProvider,
+    val amount: Long,
+    val ticketId: Long?,
+    val providerPaymentKey: String?,
+    val approvedAt: String?,
+)

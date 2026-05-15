@@ -1,5 +1,7 @@
 package com.contenido.domain.payment.controller
 
+import com.contenido.domain.payment.dto.PaymentConfirmRequest
+import com.contenido.domain.payment.dto.PaymentConfirmResponse
 import com.contenido.domain.payment.dto.PaymentPrepareResponse
 import com.contenido.domain.payment.dto.PaymentWebhookRequest
 import com.contenido.domain.payment.service.PaymentService
@@ -28,6 +30,22 @@ class PaymentController(
     ): ApiResponse<PaymentPrepareResponse> {
         val response = paymentService.preparePayment(userId, eventId)
         return ApiResponse.ok(response, "결제 정보가 준비되었습니다.")
+    }
+
+    /**
+     * 클라이언트 confirm. PG SDK 결제창 콜백 → 백엔드가 PG 에 confirm 호출 → 성공 시 티켓 발급.
+     *
+     * webhook 과 함께 PAID 처리 진입점이 두 개가 되지만 양쪽 모두 멱등(같은 PaymentAttempt 가
+     * 이미 PAID 면 no-op).
+     */
+    @PostMapping("/payments/{paymentAttemptId}/confirm")
+    fun confirmPayment(
+        @AuthenticationPrincipal userId: Long,
+        @PathVariable paymentAttemptId: Long,
+        @RequestBody request: PaymentConfirmRequest,
+    ): ApiResponse<PaymentConfirmResponse> {
+        val response = paymentService.confirmPayment(userId, paymentAttemptId, request)
+        return ApiResponse.ok(response, "결제가 완료되었습니다.")
     }
 
     /**

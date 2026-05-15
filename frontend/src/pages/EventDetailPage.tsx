@@ -12,6 +12,7 @@ import {
   rejectParticipation,
 } from '../api/events'
 import { getEventCheckIns, type EventCheckInSummary } from '../api/tickets'
+import { confirmPayment, preparePayment } from '../api/payments'
 import { notificationStore } from '../stores/notificationStore'
 import { Badge } from '../components/Badge'
 import { CommentForm } from '../components/CommentForm'
@@ -348,6 +349,52 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
     }
   }
 
+  /**
+   * 유료 이벤트 결제 흐름.
+   *
+   * PR40 sandbox 단계: `preparePayment` → 즉시 `confirmPayment` 로 mock paymentKey 를
+   * 백엔드에 보낸다. 백엔드 PaymentConfig 가 sandbox 키 없는 환경에선 MockPaymentGateway
+   * 를 빈으로 등록해 항상 성공으로 응답한다.
+   *
+   * PR41 (실제 Toss SDK 도입) 에선 이 함수가 다음과 같이 바뀐다:
+   *   const prep = await preparePayment(eventId)
+   *   await loadTossPayments(clientKey).requestPayment('카드', {
+   *     amount: prep.amount, orderId: prep.idempotencyKey,
+   *     orderName: prep.orderName,
+   *     successUrl: '...', failUrl: '...',
+   *   })
+   *   // success 콜백에서 confirmPayment(prep.paymentAttemptId, {paymentKey, orderId, amount})
+   */
+  async function handlePaidApply() {
+    if (submittingJoin) return
+    setSubmittingJoin(true)
+    try {
+      const prep = await preparePayment(eventId)
+      const mockPaymentKey = `sandbox-mock-${prep.idempotencyKey}`
+      const confirm = await confirmPayment(prep.paymentAttemptId, {
+        paymentKey: mockPaymentKey,
+        orderId: prep.idempotencyKey,
+        amount: prep.amount,
+      })
+      showToast({
+        title: '결제가 완료되었어요',
+        message: `티켓이 발급되었습니다 (${prep.amount.toLocaleString()}원)`,
+        tone: 'success',
+      })
+      if (confirm.ticketId) {
+        onNavigate(`/tickets/${confirm.ticketId}`)
+      }
+    } catch (error) {
+      showToast({
+        title: '결제에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSubmittingJoin(false)
+    }
+  }
+
   async function handleCancel() {
     if (submittingJoin) return
     const isApproved = participation?.status === 'APPROVED'
@@ -433,7 +480,10 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
   const isClosed = event.status === 'CLOSED'
   const isFull = event.currentParticipants >= event.maxParticipants
   const status = participation?.status ?? null
+  const isPaid = event.participationFee > 0
 
+  // 유료 이벤트는 prepare+confirm 흐름, 무료는 기존 신청 흐름.
+  // CTA 라벨도 분기되며 onClick 은 아래 render 영역에서 isPaid 기준으로 선택한다.
   const cta = (() => {
     if (status === 'PENDING') {
       return { label: '승인 대기 중', tone: 'secondary' as const, disabled: true }
@@ -444,9 +494,16 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
     if (status === 'REJECTED') {
       return { label: '신청 거절됨', tone: 'secondary' as const, disabled: true }
     }
-    // none, CANCELED → 신청 가능 (CLOSED/FULL 검사 후)
+    // none, CANCELED → 신청/결제 가능 (CLOSED/FULL 검사 후)
     if (isClosed) return { label: '종료된 이벤트', tone: 'primary' as const, disabled: true }
     if (isFull) return { label: '정원 마감', tone: 'primary' as const, disabled: true }
+    if (isPaid) {
+      return {
+        label: `${event.participationFee.toLocaleString()}원 결제하고 참가하기`,
+        tone: 'primary' as const,
+        disabled: false,
+      }
+    }
     return {
       label: status === 'CANCELED' ? '다시 신청하기' : '참가 신청하기',
       tone: 'primary' as const,
@@ -790,7 +847,7 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
               className={`button button-${cta.tone} is-block ct-event-cta`}
               disabled={cta.disabled || submittingJoin}
               aria-busy={submittingJoin}
-              onClick={handleApply}
+              onClick={isPaid ? handlePaidApply : handleApply}
             >
               {submittingJoin ? <span className="button-spinner" aria-hidden="true" /> : null}
               {submittingJoin ? '처리 중...' : cta.label}

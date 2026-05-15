@@ -57,6 +57,18 @@ class EventParticipation(
         rejectReason = null
     }
 
+    /**
+     * 유료 이벤트 결제 성공 시 자동 승인. 결제 자체가 owner 의 사전 승인을 대체하므로
+     * [reviewedBy] 는 null 로 남긴다 (system approval). 신청자 관리 화면이 reviewedBy null
+     * 인 row 를 "결제 자동 승인" 으로 표시할지는 후속 UX 결정.
+     */
+    fun approveByPayment() {
+        status = ParticipationStatus.APPROVED
+        reviewedAt = LocalDateTime.now()
+        reviewedBy = null
+        rejectReason = null
+    }
+
     fun reject(reviewer: User, reason: String?) {
         status = ParticipationStatus.REJECTED
         reviewedAt = LocalDateTime.now()
