@@ -2,6 +2,7 @@ package com.contenido.domain.interaction.repository
 
 import com.contenido.domain.interaction.entity.Comment
 import com.contenido.domain.interaction.entity.TargetType
+import com.contenido.domain.user.entity.User
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
@@ -25,4 +26,7 @@ interface CommentRepository : JpaRepository<Comment, Long> {
 
     /** PR51 — 답글 조회에서 자동 숨김 제외. */
     fun findByParentCommentIdAndHiddenAtIsNull(parentCommentId: Long): List<Comment>
+
+    /** PR53 — 작성자 본인의 자동 숨김 댓글. */
+    fun findByAuthorAndHiddenAtIsNotNullOrderByHiddenAtDesc(author: User): List<Comment>
 }

@@ -1,16 +1,27 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { createChannel } from '../api/channels'
-import { getCreatorStudio } from '../api/creator'
+import { getCreatorHiddenContent, getCreatorStudio } from '../api/creator'
+import { createReportAppeal } from '../api/reportAppeals'
 import { Badge } from '../components/Badge'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { notificationStore } from '../stores/notificationStore'
 import type {
   ChannelCategory,
+  CreatorModerationHiddenItem,
   CreatorStudioEvent,
   CreatorStudioResponse,
   EventStatus,
+  ReportTargetType,
 } from '../types'
+
+const HIDDEN_TARGET_LABEL: Record<ReportTargetType, string> = {
+  CHANNEL: '채널',
+  POST: '게시글',
+  EVENT: '이벤트',
+  COMMENT: '댓글',
+  REVIEW: '후기',
+}
 
 const CATEGORY_OPTIONS: { value: ChannelCategory; label: string }[] = [
   { value: 'TRAVEL', label: '여행' },
@@ -58,6 +69,8 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState<ChannelCategory>('TRAVEL')
   const [creatingChannel, setCreatingChannel] = useState(false)
+  // PR53 — 본인 권한의 자동 숨김 콘텐츠 목록.
+  const [hidden, setHidden] = useState<CreatorModerationHiddenItem[]>([])
 
   const role = user?.role
 
@@ -89,6 +102,71 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
       setStudio(data)
     } catch {
       // ignore — page will retain stale state
+    }
+  }
+
+  // PR53 — 본인 자동 숨김 콘텐츠 로드. CREATOR/ADMIN 외에도 일반 PARTICIPANT 의 hidden
+  // REVIEW/COMMENT 가 있을 수 있으나, 본 페이지는 CREATOR/ADMIN 전용 경로라 동일 권한군만
+  // 데이터를 받는다. 일반 사용자 진입은 MyPage 또는 후속 PR 에서.
+  useEffect(() => {
+    if (role !== 'CREATOR' && role !== 'ADMIN') {
+      setHidden([])
+      return
+    }
+    let cancelled = false
+    getCreatorHiddenContent()
+      .then((items) => {
+        if (!cancelled) setHidden(items)
+      })
+      .catch(() => {
+        if (!cancelled) setHidden([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [role])
+
+  async function handleAppeal(item: CreatorModerationHiddenItem) {
+    const reason = window.prompt(
+      `이의 제기 사유를 입력해주세요\n(대상: ${HIDDEN_TARGET_LABEL[item.targetType]} #${item.targetId})`,
+    )
+    if (reason === null) return
+    if (reason.trim().length === 0) {
+      showToast({ title: '사유를 입력해주세요', tone: 'warning' })
+      return
+    }
+    try {
+      const appeal = await createReportAppeal({
+        targetType: item.targetType,
+        targetId: item.targetId,
+        reason: reason.trim(),
+      })
+      setHidden((items) =>
+        items.map((row) =>
+          row.targetType === item.targetType && row.targetId === item.targetId
+            ? { ...row, appealStatus: 'PENDING', appealId: appeal.id }
+            : row,
+        ),
+      )
+      showToast({ title: '이의 제기가 접수되었어요', tone: 'success' })
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0
+      const title =
+        status === 409
+          ? '이미 검토 대기 중입니다'
+          : status === 403
+          ? '본인 콘텐츠만 이의 제기할 수 있어요'
+          : status === 400
+          ? '숨김 처리된 대상만 이의 제기할 수 있어요'
+          : '이의 제기에 실패했어요'
+      showToast({
+        title,
+        message: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
     }
   }
 
@@ -444,6 +522,74 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
                 </div>
               </li>
             ))}
+          </ul>
+        )}
+      </section>
+
+      {/* PR53 — 본인 권한의 자동 숨김 콘텐츠 + 이의 제기 CTA. APPROVED 는 backend 가 unhide
+          하므로 다음 로드부터 응답에서 빠지지만, 같은 페이지 세션에서 처리된 경우 row 가 남아 있으면
+          "복구됨" 라벨로 표시. */}
+      <section className="ct-studio-events" aria-label="숨김 처리된 콘텐츠">
+        <div className="ct-studio-events-head">
+          <h2 className="ct-studio-section-title">숨김 처리된 콘텐츠</h2>
+          <span className="muted">{hidden.length}건</span>
+        </div>
+        {hidden.length === 0 ? (
+          <p className="muted">자동 숨김된 내 콘텐츠가 없어요.</p>
+        ) : (
+          <ul className="stack">
+            {hidden.map((item) => {
+              const canAppeal = item.appealStatus === 'NONE' || item.appealStatus === 'REJECTED'
+              const statusLabel =
+                item.appealStatus === 'PENDING'
+                  ? '검토 대기 중'
+                  : item.appealStatus === 'APPROVED'
+                  ? '복구됨'
+                  : item.appealStatus === 'REJECTED'
+                  ? '이의 제기 거절됨'
+                  : null
+              const statusTone =
+                item.appealStatus === 'PENDING'
+                  ? 'warning'
+                  : item.appealStatus === 'APPROVED'
+                  ? 'success'
+                  : item.appealStatus === 'REJECTED'
+                  ? 'neutral'
+                  : 'neutral'
+              return (
+                <article
+                  className="card"
+                  key={`${item.targetType}-${item.targetId}`}
+                >
+                  <div className="badge-row">
+                    <Badge tone="danger">{HIDDEN_TARGET_LABEL[item.targetType]}</Badge>
+                    <Badge tone="warning">자동 숨김</Badge>
+                    {statusLabel ? <Badge tone={statusTone}>{statusLabel}</Badge> : null}
+                  </div>
+                  <strong>{item.targetTitle}</strong>
+                  <p className="muted">“{item.targetPreview}”</p>
+                  {item.hiddenReason ? (
+                    <p className="muted">숨김 사유: {item.hiddenReason}</p>
+                  ) : null}
+                  <div className="meta-row">
+                    <span>신고 누적 {item.pendingReportCount}건</span>
+                    <span>{new Date(item.hiddenAt).toLocaleString()}</span>
+                    <span>#{item.targetId}</span>
+                  </div>
+                  {canAppeal ? (
+                    <div className="admin-actions">
+                      <button
+                        type="button"
+                        className="button button-primary"
+                        onClick={() => handleAppeal(item)}
+                      >
+                        이의 제기
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })}
           </ul>
         )}
       </section>

@@ -24,6 +24,9 @@ interface ReviewRepository : JpaRepository<Review, Long> {
     /** 본인 후기 단건 조회 — UI 에서 "이미 후기 작성했는지" 판별 + 수정 진입. */
     fun findByEventAndAuthor(event: Event, author: User): Optional<Review>
 
+    /** PR53 — 작성자 본인의 자동 숨김 후기. Creator Studio "숨김 처리된 콘텐츠" 섹션. */
+    fun findByAuthorAndHiddenAtIsNotNullOrderByHiddenAtDesc(author: User): List<Review>
+
     /** 한 이벤트의 평균 별점. 후기가 없으면 null. */
     @Query("SELECT AVG(r.rating) FROM Review r WHERE r.event.id = :eventId")
     fun averageRatingByEventId(@Param("eventId") eventId: Long): Double?

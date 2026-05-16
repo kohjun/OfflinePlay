@@ -14,6 +14,9 @@ interface ChannelRepository : JpaRepository<Channel, Long> {
 
     fun findByOwner(owner: User): Optional<Channel>
 
+    /** PR53 — owner 본인의 자동 숨김 채널. */
+    fun findByOwnerAndHiddenAtIsNotNullOrderByHiddenAtDesc(owner: User): List<Channel>
+
     fun existsByOwner(owner: User): Boolean
 
     fun countByOwner(owner: User): Long

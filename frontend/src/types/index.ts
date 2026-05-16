@@ -376,6 +376,25 @@ export interface Report {
 /** PR52 — 자동 숨김 대상에 대한 이의 제기 상태. */
 export type ReportAppealStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 
+/** PR53 — Creator Studio "숨김 처리된 콘텐츠" row 의 appeal 상태 (NONE 포함). */
+export type AppealStatusView = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED'
+
+/**
+ * PR53 — 작성자/소유자가 본인 권한의 자동 숨김 콘텐츠를 한눈에 보는 row.
+ * backend 가 5개 도메인 (REVIEW/COMMENT/POST/EVENT/CHANNEL) 을 hiddenAt 내림차순으로 통합.
+ */
+export interface CreatorModerationHiddenItem {
+  targetType: ReportTargetType
+  targetId: number
+  targetTitle: string
+  targetPreview: string
+  hiddenAt: string
+  hiddenReason?: string | null
+  pendingReportCount: number
+  appealStatus: AppealStatusView
+  appealId?: number | null
+}
+
 export interface ReportAppeal {
   id: number
   targetType: ReportTargetType

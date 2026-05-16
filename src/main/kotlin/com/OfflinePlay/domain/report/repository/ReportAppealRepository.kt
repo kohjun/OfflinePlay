@@ -26,4 +26,15 @@ interface ReportAppealRepository : JpaRepository<ReportAppeal, Long> {
 
     /** ADMIN appeal 전체 큐 — 상태 무관, 최신순. */
     fun findAllByOrderByCreatedAtDesc(pageable: Pageable): Page<ReportAppeal>
+
+    /**
+     * PR53 — Creator Studio "내 숨김" 섹션이 row 별 현재 appeal 상태/id 를 표시하기 위함.
+     * (requester, targetType, targetId) 기준 최신 row 1건 — PENDING 이 있으면 그것, 아니면
+     * 가장 최근 처리(APPROVED/REJECTED). 결과가 없으면 NONE 으로 매핑한다.
+     */
+    fun findFirstByRequesterAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+        requester: User,
+        targetType: ReportTargetType,
+        targetId: Long,
+    ): ReportAppeal?
 }
