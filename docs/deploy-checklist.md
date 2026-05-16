@@ -144,7 +144,36 @@ PR42 이래 전체 `./gradlew test` 가 `@SpringBootTest` 부팅 단계에서 �
 - frontend job: green.
 - 둘 다 통과해야 main merge 가능 (GitHub repo settings 의 branch protection 에서 별도 설정 필요).
 
-## 6. 배포 전 마지막 체크
+## 6. Moderation 자동 hide 임계치 (PR60)
+
+PR51 에서 `ReportService.AUTO_HIDE_THRESHOLDS` 상수로 박혀 있던 PENDING 신고 누적 임계치를
+PR60 에서 DB 의 `moderation_threshold_settings` 테이블로 옮겼다. ADMIN 이 운영 지표(PR57) 를
+보고 운영 중 직접 조정 가능.
+
+| target_type | default | 이유 |
+| --- | --- | --- |
+| REVIEW  | 3 | 노출 사이클 짧고 영향 범위 좁음 — 빠른 숨김 안전 |
+| COMMENT | 3 | 동일 |
+| POST    | 5 | 운영자 콘텐츠 — 오탐 비용 큼 |
+| EVENT   | 5 | 동일 |
+| CHANNEL | 7 | 모든 소속 콘텐츠가 함께 가려짐 — 가장 비용 큼 |
+
+V4 마이그레이션(`V4__add_moderation_threshold_settings.sql`) 이 위 5 row 를 seed 한다.
+
+운영 중 조정:
+- ADMIN 페이지의 "자동 숨김 임계치" 카드에서 1~100 범위로 변경.
+- `PATCH /api/v1/admin/moderation/thresholds` (ADMIN-only) 직접 호출도 가능.
+- 변경 즉시 **다음 신고부터** 새 임계치 적용. **기존 hidden 상태는 retroactive 재계산되지 않음**
+  (즉, 임계치를 낮춰도 이미 노출 중인 항목을 사후 숨기지 않는다).
+- DB row 가 누락/롤백되면 service 단 default fallback (`ModerationThresholdService.DEFAULTS`)
+  으로 자동 복귀 — 안전판.
+
+후속 TODO:
+- 임계치 변경 audit log (누가/언제/어떤 값으로) 는 본 PR 범위 밖 — 후속 PR.
+- 임계치 변경 시점에 누적 PENDING 신고가 새 임계치를 이미 넘은 항목을 일괄 재평가하는 옵션은
+  운영팀 합의 후 별도 PR.
+
+## 7. 배포 전 마지막 체크
 
 - [ ] §1 환경 변수 모두 secrets 에 들어가 있는가 (특히 `JWT_SECRET`, `TOSS_SECRET_KEY`,
       `AWS_SECRET_ACCESS_KEY`).
@@ -155,9 +184,10 @@ PR42 이래 전체 `./gradlew test` 가 `@SpringBootTest` 부팅 단계에서 �
 - [ ] PR48 schema 승격을 위해 `reports` 중복 행 cleanup 완료.
 - [ ] 로그 수집 (CloudWatch / Loki 등) 이 컨테이너 stdout 을 받고 있는가.
 
-## 7. 후속 과제
+## 8. 후속 과제
 
-- 신고 누적 자동 비공개 정책 (별도 PR).
+- ~~신고 누적 자동 비공개 정책 (별도 PR).~~ → PR51 에서 도입, PR60 에서 DB 임계치로 승격, 위 §6 참고.
 - ~~전체 `./gradlew test` hang 원인 분리~~ → PR50 에서 해결됨, 위 §5 참고.
+- Moderation 임계치 변경 audit log (PR60 후속).
 - Actuator metrics/prometheus 노출 — 인증 게이트 (basic auth 또는 internal-only path) 와 함께.
 - Flyway V2 — 운영 첫 검증 후 mismatch 보정.

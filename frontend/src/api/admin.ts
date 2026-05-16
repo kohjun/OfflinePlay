@@ -8,9 +8,11 @@ import type {
   AdminModerationTarget,
   Channel,
   CreatorApplication,
+  ModerationThreshold,
   PageResponse,
   Report,
   ReportTargetType,
+  UpdateModerationThresholdsRequest,
   User,
 } from '../types'
 
@@ -144,4 +146,23 @@ export function banChannelForModeration(channelId: number, reason: string) {
  */
 export function unbanChannelForModeration(channelId: number) {
   return apiClient.patch<AdminChannelBan>(`/admin/moderation/channels/${channelId}/unban`)
+}
+
+/**
+ * GET /api/v1/admin/moderation/thresholds
+ *
+ * PR60 — 자동 hide 임계치 5종 조회. DB row 없으면 backend 가 default 로 채워 반환.
+ */
+export function getModerationThresholds() {
+  return apiClient.get<ModerationThreshold[]>('/admin/moderation/thresholds')
+}
+
+/**
+ * PATCH /api/v1/admin/moderation/thresholds
+ *
+ * PR60 — partial update. 변경하지 않을 필드는 보내지 않으면 됨. 1..100 범위. 변경 즉시 다음
+ * 신고부터 적용되며, 기존 hidden 상태는 retroactive 재계산되지 않는다.
+ */
+export function updateModerationThresholds(request: UpdateModerationThresholdsRequest) {
+  return apiClient.patch<ModerationThreshold[]>('/admin/moderation/thresholds', request)
 }

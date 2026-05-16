@@ -452,6 +452,25 @@ export interface AdminChannelBan {
 }
 
 /**
+ * PR60 — 자동 hide 임계치 단건. 5개 targetType 모두 GET 응답에 포함.
+ */
+export interface ModerationThreshold {
+  targetType: ReportTargetType
+  threshold: number
+}
+
+/**
+ * PR60 — partial update. null/undefined 필드는 변경하지 않음. 1..100 범위.
+ */
+export interface UpdateModerationThresholdsRequest {
+  review?: number
+  comment?: number
+  post?: number
+  event?: number
+  channel?: number
+}
+
+/**
  * PR55 — 신고 / appeal / hidden 3개 source 를 (targetType, targetId) 키로 merge 한 통합 row.
  * 운영자가 한 페이지에서 우선순위 순으로 처리할 수 있게 모든 컨텍스트를 동봉한다.
  */

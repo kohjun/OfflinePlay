@@ -71,7 +71,7 @@ data class AdminModerationQueueItemResponse(
  * Queue row 우선순위.
  *
  *  - HIGH   : 이미 hidden 이거나 PENDING appeal 이 있는 대상 — 운영자 결정이 즉시 필요.
- *  - MEDIUM : 자동 임계치 (PR51 [ReportService.AUTO_HIDE_THRESHOLDS]) 의 70% 이상 누적된 대상.
+ *  - MEDIUM : 자동 임계치 (PR60 [ModerationThresholdService.thresholdFor]) 의 70% 이상 누적된 대상.
  *  - LOW    : 그 외 PENDING report 가 있는 대상.
  */
 enum class AdminModerationPriority { HIGH, MEDIUM, LOW }

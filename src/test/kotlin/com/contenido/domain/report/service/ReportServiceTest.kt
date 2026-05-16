@@ -1,5 +1,6 @@
 package com.contenido.domain.report.service
 
+import com.contenido.domain.admin.service.ModerationThresholdService
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
 import com.contenido.domain.channel.repository.ChannelRepository
@@ -52,6 +53,7 @@ class ReportServiceTest {
     @MockK lateinit var postRepository: PostRepository
     @MockK lateinit var commentRepository: CommentRepository
     @MockK lateinit var reviewRepository: ReviewRepository
+    @MockK lateinit var moderationThresholdService: ModerationThresholdService
 
     private lateinit var service: ReportService
 
@@ -65,7 +67,15 @@ class ReportServiceTest {
             postRepository = postRepository,
             commentRepository = commentRepository,
             reviewRepository = reviewRepository,
+            moderationThresholdService = moderationThresholdService,
         )
+        // PR60 — service 가 DB 에서 임계치를 가져오므로 테스트 stub 으로 PR51 default 값을 반환.
+        // 개별 테스트가 다른 값을 원하면 every {} 로 override.
+        every { moderationThresholdService.thresholdFor(ReportTargetType.REVIEW) } returns 3
+        every { moderationThresholdService.thresholdFor(ReportTargetType.COMMENT) } returns 3
+        every { moderationThresholdService.thresholdFor(ReportTargetType.POST) } returns 5
+        every { moderationThresholdService.thresholdFor(ReportTargetType.EVENT) } returns 5
+        every { moderationThresholdService.thresholdFor(ReportTargetType.CHANNEL) } returns 7
     }
 
     // ── REVIEW (PR48 신규) ───────────────────────────────────────────────────

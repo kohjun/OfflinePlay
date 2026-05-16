@@ -10,7 +10,10 @@ import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
 import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
+import com.contenido.domain.admin.dto.ModerationThresholdResponse
+import com.contenido.domain.admin.dto.UpdateModerationThresholdsRequest
 import com.contenido.domain.admin.service.AdminModerationService
+import com.contenido.domain.admin.service.ModerationThresholdService
 import org.springframework.format.annotation.DateTimeFormat
 import java.time.LocalDateTime
 import com.contenido.domain.admin.service.AdminService
@@ -33,6 +36,7 @@ class AdminController(
     private val adminService: AdminService,
     private val reportAppealService: ReportAppealService,
     private val adminModerationService: AdminModerationService,
+    private val moderationThresholdService: ModerationThresholdService,
 ) {
 
     // ── 유저 관리 ──────────────────────────────────────────────────────────────
@@ -177,5 +181,20 @@ class AdminController(
         ApiResponse.ok(
             adminModerationService.unbanChannelForModeration(channelId),
             "채널 제재를 해제했어요.",
+        )
+
+    // ── 자동 hide 임계치 조정 — PR60 ──────────────────────────────────────────
+
+    @GetMapping("/moderation/thresholds")
+    fun getModerationThresholds(): ApiResponse<List<ModerationThresholdResponse>> =
+        ApiResponse.ok(moderationThresholdService.getThresholds())
+
+    @PatchMapping("/moderation/thresholds")
+    fun updateModerationThresholds(
+        @Valid @RequestBody request: UpdateModerationThresholdsRequest,
+    ): ApiResponse<List<ModerationThresholdResponse>> =
+        ApiResponse.ok(
+            moderationThresholdService.updateThresholds(request),
+            "임계치를 갱신했어요.",
         )
 }

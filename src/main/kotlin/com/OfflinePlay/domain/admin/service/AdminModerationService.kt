@@ -60,6 +60,7 @@ class AdminModerationService(
     private val reportRepository: ReportRepository,
     private val reportAppealRepository: ReportAppealRepository,
     private val notificationService: NotificationService,
+    private val moderationThresholdService: ModerationThresholdService,
 ) {
 
     companion object {
@@ -587,7 +588,8 @@ class AdminModerationService(
         targetType: ReportTargetType,
     ): AdminModerationPriority {
         if (hidden || isAppealPending) return AdminModerationPriority.HIGH
-        val threshold = ReportService.AUTO_HIDE_THRESHOLDS[targetType] ?: return AdminModerationPriority.LOW
+        // PR60 — 운영 가능한 DB 임계치를 사용. DB miss 시 default fallback.
+        val threshold = moderationThresholdService.thresholdFor(targetType)
         // 70% 이상이면 MEDIUM. 임계치 도달은 이미 자동 hide 되어 hidden=true 가 되므로 사실상 70~99%.
         val mediumFloor = (threshold * 7 + 9) / 10 // ceil(threshold * 0.7)
         return if (pendingReportCount >= mediumFloor) AdminModerationPriority.MEDIUM

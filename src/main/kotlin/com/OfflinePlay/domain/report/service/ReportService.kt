@@ -1,5 +1,6 @@
 package com.contenido.domain.report.service
 
+import com.contenido.domain.admin.service.ModerationThresholdService
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.interaction.repository.CommentRepository
@@ -46,23 +47,15 @@ class ReportService(
     private val postRepository: PostRepository,
     private val commentRepository: CommentRepository,
     private val reviewRepository: ReviewRepository,
+    private val moderationThresholdService: ModerationThresholdService,
 ) {
 
     companion object {
         /**
-         * PR51 — 신고 누적 자동 숨김 임계치 (PENDING 신고 수 기준).
-         *  - REVIEW/COMMENT 가 낮은 이유: 노출 사이클이 짧고 영향 범위가 좁아 빠른 숨김이 안전.
-         *  - POST/EVENT 는 운영자 콘텐츠라 오탐 비용이 크다 — 임계치 5.
-         *  - CHANNEL 은 가장 비용 큼 (모든 콘텐츠가 함께 가려짐) — 임계치 7.
-         * 작성자 패널티/계정 정지/IP fingerprint 는 본 PR 범위 밖. 후속 PR.
+         * PR51 시점 default. PR60 부터 실제 임계치는 DB 의 moderation_threshold_settings (운영 중
+         * 변경 가능) 에서 [ModerationThresholdService.thresholdFor] 로 조회한다. 이 상수는
+         * fallback/문서화 목적으로 [ModerationThresholdService.DEFAULTS] 와 1:1 매치.
          */
-        val AUTO_HIDE_THRESHOLDS: Map<ReportTargetType, Int> = mapOf(
-            ReportTargetType.REVIEW to 3,
-            ReportTargetType.COMMENT to 3,
-            ReportTargetType.POST to 5,
-            ReportTargetType.EVENT to 5,
-            ReportTargetType.CHANNEL to 7,
-        )
         const val AUTO_HIDE_REASON = "신고 누적 자동 숨김"
     }
 
@@ -104,7 +97,8 @@ class ReportService(
     }
 
     private fun maybeAutoHide(targetType: ReportTargetType, targetId: Long) {
-        val threshold = AUTO_HIDE_THRESHOLDS[targetType] ?: return
+        // PR60 — DB 의 운영 가능한 임계치를 조회. DB miss 시 service 단 default fallback.
+        val threshold = moderationThresholdService.thresholdFor(targetType)
         val pendingCount = reportRepository.countByTargetTypeAndTargetIdAndStatus(
             targetType = targetType,
             targetId = targetId,

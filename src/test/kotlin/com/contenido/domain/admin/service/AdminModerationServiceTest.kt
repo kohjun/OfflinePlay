@@ -54,6 +54,7 @@ class AdminModerationServiceTest {
     @MockK lateinit var reportRepository: ReportRepository
     @MockK lateinit var reportAppealRepository: ReportAppealRepository
     @MockK(relaxed = true) lateinit var notificationService: NotificationService
+    @MockK lateinit var moderationThresholdService: ModerationThresholdService
 
     private lateinit var service: AdminModerationService
 
@@ -68,7 +69,14 @@ class AdminModerationServiceTest {
             reportRepository = reportRepository,
             reportAppealRepository = reportAppealRepository,
             notificationService = notificationService,
+            moderationThresholdService = moderationThresholdService,
         )
+        // PR60 — computePriority 가 DB 임계치를 조회하므로 PR51 default 로 stub.
+        every { moderationThresholdService.thresholdFor(ReportTargetType.REVIEW) } returns 3
+        every { moderationThresholdService.thresholdFor(ReportTargetType.COMMENT) } returns 3
+        every { moderationThresholdService.thresholdFor(ReportTargetType.POST) } returns 5
+        every { moderationThresholdService.thresholdFor(ReportTargetType.EVENT) } returns 5
+        every { moderationThresholdService.thresholdFor(ReportTargetType.CHANNEL) } returns 7
         // 응답 빌딩에 항상 사용되는 기본 stub.
         every { reportRepository.countByTargetTypeAndTargetIdAndStatus(any(), any(), any()) } returns 0L
         every {

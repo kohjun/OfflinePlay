@@ -7,12 +7,14 @@ import {
   getCreatorApplications,
   getModerationQueue,
   getModerationStats,
+  getModerationThresholds,
   getReports,
   hideModerationTarget,
   rejectCreatorApplication,
   resolveReport,
   unbanChannelForModeration,
   unhideModerationTarget,
+  updateModerationThresholds,
 } from '../api/admin'
 import {
   approveReportAppeal,
@@ -28,9 +30,11 @@ import type {
   AdminModerationStats,
   Channel,
   CreatorApplication,
+  ModerationThreshold,
   Report,
   ReportAppeal,
   ReportTargetType,
+  UpdateModerationThresholdsRequest,
 } from '../types'
 
 const PRIORITY_LABEL: Record<AdminModerationPriority, string> = {
@@ -132,6 +136,17 @@ export function AdminPage() {
   const [queue, setQueue] = useState<AdminModerationQueueItem[]>([])
   // PR57 — 운영 지표 (최근 30일 default).
   const [stats, setStats] = useState<AdminModerationStats | null>(null)
+  // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
+  const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
+  // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
+  const [thresholdDraft, setThresholdDraft] = useState<Record<ReportTargetType, string>>({
+    REVIEW: '',
+    COMMENT: '',
+    POST: '',
+    EVENT: '',
+    CHANNEL: '',
+  })
+  const [thresholdSaving, setThresholdSaving] = useState(false)
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
@@ -142,14 +157,23 @@ export function AdminPage() {
       getAdminReportAppeals({ size: 20, status: 'PENDING' }),
       getModerationQueue({ size: 30 }),
       getModerationStats(),
+      getModerationThresholds(),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
         setAppeals(appealPage.content)
         setQueue(queuePage.content)
         setStats(statsRes)
+        setThresholds(thresholdsRes)
+        setThresholdDraft({
+          REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
+          COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
+          POST: String(thresholdsRes.find((t) => t.targetType === 'POST')?.threshold ?? ''),
+          EVENT: String(thresholdsRes.find((t) => t.targetType === 'EVENT')?.threshold ?? ''),
+          CHANNEL: String(thresholdsRes.find((t) => t.targetType === 'CHANNEL')?.threshold ?? ''),
+        })
       })
       .catch((error) => {
         showToast({
@@ -255,6 +279,65 @@ export function AdminPage() {
       const title =
         status === 400 || status === 409 ? '제재되지 않은 채널이에요' : status === 404 ? '채널을 찾을 수 없어요' : '제재 해제에 실패했어요'
       showToast({ title, tone: 'danger' })
+    }
+  }
+
+  // PR60 — 자동 hide 임계치 부분 갱신. 빈 칸이거나 현재 값과 같으면 해당 필드는 보내지 않는다.
+  // 1..100 범위 클라이언트 검증 — backend 도 @Valid 로 막지만 UX 토스트를 친화적으로.
+  async function handleSaveThresholds() {
+    const current: Record<ReportTargetType, number | undefined> = {
+      REVIEW: thresholds.find((t) => t.targetType === 'REVIEW')?.threshold,
+      COMMENT: thresholds.find((t) => t.targetType === 'COMMENT')?.threshold,
+      POST: thresholds.find((t) => t.targetType === 'POST')?.threshold,
+      EVENT: thresholds.find((t) => t.targetType === 'EVENT')?.threshold,
+      CHANNEL: thresholds.find((t) => t.targetType === 'CHANNEL')?.threshold,
+    }
+    const request: UpdateModerationThresholdsRequest = {}
+    const keys: Array<{ key: keyof UpdateModerationThresholdsRequest; type: ReportTargetType }> = [
+      { key: 'review', type: 'REVIEW' },
+      { key: 'comment', type: 'COMMENT' },
+      { key: 'post', type: 'POST' },
+      { key: 'event', type: 'EVENT' },
+      { key: 'channel', type: 'CHANNEL' },
+    ]
+    for (const { key, type } of keys) {
+      const raw = thresholdDraft[type].trim()
+      if (raw === '') continue
+      const num = Number(raw)
+      if (!Number.isInteger(num) || num < 1 || num > 100) {
+        showToast({
+          title: '임계치는 1~100 사이의 정수여야 해요',
+          message: `${TARGET_TYPE_LABEL[type]} 값을 확인해주세요.`,
+          tone: 'warning',
+        })
+        return
+      }
+      if (num !== current[type]) request[key] = num
+    }
+    if (Object.keys(request).length === 0) {
+      showToast({ title: '변경된 임계치가 없어요', tone: 'info' })
+      return
+    }
+    setThresholdSaving(true)
+    try {
+      const updated = await updateModerationThresholds(request)
+      setThresholds(updated)
+      setThresholdDraft({
+        REVIEW: String(updated.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
+        COMMENT: String(updated.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
+        POST: String(updated.find((t) => t.targetType === 'POST')?.threshold ?? ''),
+        EVENT: String(updated.find((t) => t.targetType === 'EVENT')?.threshold ?? ''),
+        CHANNEL: String(updated.find((t) => t.targetType === 'CHANNEL')?.threshold ?? ''),
+      })
+      showToast({ title: '임계치를 갱신했어요', tone: 'success' })
+    } catch (error) {
+      showToast({
+        title: '임계치 저장에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setThresholdSaving(false)
     }
   }
 
@@ -546,6 +629,49 @@ export function AdminPage() {
               ))}
             </ul>
           )}
+        </section>
+      ) : null}
+      {/* PR60 — 자동 hide 임계치 조정. 5개 targetType 의 PENDING 신고 누적 임계치를 운영 중 변경.
+          변경 즉시 다음 신고부터 적용. 기존 hidden 상태는 retroactive 재계산되지 않는다. */}
+      {thresholds.length > 0 ? (
+        <section className="section">
+          <div className="section-heading">
+            <h2>자동 숨김 임계치</h2>
+            <span className="muted">1~100 / 변경 즉시 적용</span>
+          </div>
+          <p className="muted" style={{ marginBottom: '12px' }}>
+            PENDING 신고가 임계치에 도달하면 해당 콘텐츠를 자동으로 숨김 처리해요. 기존에 이미
+            숨김 처리된 항목은 임계치를 낮춰도 다시 재계산되지 않아요.
+          </p>
+          <div className="ct-admin-thresholds">
+            {(['REVIEW', 'COMMENT', 'POST', 'EVENT', 'CHANNEL'] as ReportTargetType[]).map((type) => (
+              <label key={type} className="ct-admin-threshold-field">
+                <span>{TARGET_TYPE_LABEL[type]}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  inputMode="numeric"
+                  value={thresholdDraft[type]}
+                  onChange={(e) =>
+                    setThresholdDraft((prev) => ({ ...prev, [type]: e.target.value }))
+                  }
+                  disabled={thresholdSaving}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="admin-actions" style={{ marginTop: '12px' }}>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={handleSaveThresholds}
+              disabled={thresholdSaving}
+            >
+              {thresholdSaving ? '저장 중…' : '임계치 저장'}
+            </button>
+          </div>
         </section>
       ) : null}
       {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.
