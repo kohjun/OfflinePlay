@@ -278,3 +278,18 @@ class RefundFailedException(
 class RefundDeadlinePassedException : ContENIDOException(
     HttpStatus.CONFLICT, "이벤트가 이미 시작되어 환불할 수 없습니다."
 )
+
+// --- Review / Rating ---
+class ReviewNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "후기를 찾을 수 없습니다."
+)
+
+/** USED 티켓이 없는 사용자가 후기 작성 시도. */
+class ReviewNotAllowedException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "체크인 완료한 참가자만 후기를 작성할 수 있습니다."
+)
+
+/** 같은 이벤트에 이미 후기를 작성한 사용자가 다시 POST 한 경우. UI 는 PATCH 로 유도. */
+class ReviewAlreadyExistsException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 후기를 작성한 이벤트입니다."
+)

@@ -12,7 +12,18 @@ import {
   rejectParticipation,
 } from '../api/events'
 import { getEventCheckIns, type EventCheckInSummary } from '../api/tickets'
+import {
+  createReview,
+  deleteReview,
+  getEventReviews,
+  getEventReviewSummary,
+  getMyReview,
+  updateReview,
+  type EventReviewSummary,
+  type Review,
+} from '../api/reviews'
 import { RemainingProgress } from '../components/RemainingProgress'
+import { ReviewForm } from '../components/ReviewForm'
 import { notificationStore } from '../stores/notificationStore'
 import { Badge } from '../components/Badge'
 import { CommentForm } from '../components/CommentForm'
@@ -137,6 +148,15 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
   const [applicants, setApplicants] = useState<EventApplicant[]>([])
   const [reviewingId, setReviewingId] = useState<number | null>(null)
   const [checkInSummary, setCheckInSummary] = useState<EventCheckInSummary | null>(null)
+  // PR46 — 후기/별점 상태
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [reviewSummary, setReviewSummary] = useState<EventReviewSummary>({
+    averageRating: null,
+    reviewCount: 0,
+  })
+  const [myReview, setMyReview] = useState<Review | null>(null)
+  const [showReviewForm, setShowReviewForm] = useState(false)
+  const [submittingReview, setSubmittingReview] = useState(false)
 
   // ── 초기 로드: 이벤트 + 본인 신청 상태 + 댓글 ────────────────────────────────
   useEffect(() => {
@@ -168,6 +188,92 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
       alive = false
     }
   }, [channelId, eventId, showToast])
+
+  // ── 후기/별점 로드 (인증/비인증 모두) ────────────────────────────────────────
+  // summary 와 list 는 비로그인도 접근 가능. myReview 는 로그인 시에만 호출.
+  useEffect(() => {
+    let alive = true
+    Promise.all([
+      getEventReviewSummary(eventId).catch(() => ({ averageRating: null, reviewCount: 0 } as EventReviewSummary)),
+      getEventReviews(eventId, { size: 20 }).catch(() => null),
+    ]).then(([summary, listPage]) => {
+      if (!alive) return
+      setReviewSummary(summary)
+      if (listPage) setReviews(listPage.content)
+    })
+    // 로그인 사용자만 본인 후기 조회 — 미존재면 null.
+    if (user) {
+      getMyReview(eventId)
+        .then((mine) => {
+          if (alive) setMyReview(mine)
+        })
+        .catch(() => {
+          /* USED 티켓 없거나 미작성 — non-fatal */
+        })
+    }
+    return () => {
+      alive = false
+    }
+  }, [eventId, user])
+
+  // 후기 작성/수정/삭제 핸들러
+  async function handleReviewSubmit(rating: number, content: string) {
+    if (submittingReview) return
+    setSubmittingReview(true)
+    try {
+      const saved = myReview
+        ? await updateReview(myReview.id, { rating, content })
+        : await createReview(eventId, { rating, content })
+      setMyReview(saved)
+      setShowReviewForm(false)
+      // 목록과 summary 도 다시 받아온다 (낙관 갱신 대신 단순 refetch).
+      const [summary, listPage] = await Promise.all([
+        getEventReviewSummary(eventId),
+        getEventReviews(eventId, { size: 20 }),
+      ])
+      setReviewSummary(summary)
+      setReviews(listPage.content)
+      showToast({ title: myReview ? '후기를 수정했어요' : '후기가 등록되었어요', tone: 'success' })
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status
+      const title =
+        status === 403
+          ? '체크인 완료자만 후기를 쓸 수 있어요'
+          : status === 409
+            ? '이미 후기를 작성했어요'
+            : '후기 저장에 실패했어요'
+      showToast({
+        title,
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSubmittingReview(false)
+    }
+  }
+
+  async function handleReviewDelete() {
+    if (!myReview) return
+    if (!window.confirm('후기를 삭제할까요? 삭제하면 복구할 수 없어요.')) return
+    try {
+      await deleteReview(myReview.id)
+      setMyReview(null)
+      setShowReviewForm(false)
+      const [summary, listPage] = await Promise.all([
+        getEventReviewSummary(eventId),
+        getEventReviews(eventId, { size: 20 }),
+      ])
+      setReviewSummary(summary)
+      setReviews(listPage.content)
+      showToast({ title: '후기를 삭제했어요', tone: 'info' })
+    } catch (error) {
+      showToast({
+        title: '삭제에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    }
+  }
 
   // ── owner 면 신청자 목록 + 체크인 현황도 로드 ───────────────────────────────
   const isOwner = Boolean(event && user && event.channelOwnerId === user.userId)
@@ -622,6 +728,103 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
             <p className="ct-event-section-text">{event.refundPolicy}</p>
           </div>
         </article>
+      </section>
+
+      <section className="ct-event-section ct-reviews-section">
+        <div className="section-heading">
+          <h2 className="ct-event-section-title">후기</h2>
+          {reviewSummary.reviewCount > 0 ? (
+            <span className="ct-reviews-summary" aria-label={`평균 별점 ${reviewSummary.averageRating?.toFixed(1)}점, 후기 ${reviewSummary.reviewCount}건`}>
+              <span className="ct-reviews-summary__star" aria-hidden="true">★</span>
+              <strong>{reviewSummary.averageRating?.toFixed(1) ?? '—'}</strong>
+              <span className="muted">({reviewSummary.reviewCount})</span>
+            </span>
+          ) : (
+            <span className="muted">아직 후기가 없어요</span>
+          )}
+        </div>
+
+        {/* 본인이 USED 티켓 보유 (= ticketStatus === 'USED') 이고 아직 후기 미작성이면 작성 CTA. */}
+        {participation?.ticketStatus === 'USED' && !myReview && !showReviewForm ? (
+          <button
+            type="button"
+            className="button button-primary"
+            onClick={() => setShowReviewForm(true)}
+          >
+            후기 남기기
+          </button>
+        ) : null}
+
+        {/* 본인 후기가 이미 있으면 카드 + 수정/삭제 버튼. showReviewForm 인 경우 폼 우선. */}
+        {myReview && !showReviewForm ? (
+          <article className="card ct-review-card ct-review-card--mine">
+            <div className="card-body">
+              <div className="ct-review-card__head">
+                <div className="ct-review-card__author">
+                  <span className="ct-review-card__stars" aria-hidden="true">
+                    {'★'.repeat(myReview.rating)}
+                    <span className="ct-review-card__stars-empty">{'★'.repeat(5 - myReview.rating)}</span>
+                  </span>
+                  <span className="muted">내 후기</span>
+                </div>
+                <div className="ct-review-card__actions">
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setShowReviewForm(true)}
+                  >
+                    수정
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button text-button--danger"
+                    onClick={handleReviewDelete}
+                  >
+                    삭제
+                  </button>
+                </div>
+              </div>
+              <p className="ct-review-card__content">{myReview.content}</p>
+            </div>
+          </article>
+        ) : null}
+
+        {showReviewForm ? (
+          <ReviewForm
+            initialRating={myReview?.rating ?? 0}
+            initialContent={myReview?.content ?? ''}
+            submitting={submittingReview}
+            onSubmit={handleReviewSubmit}
+            onCancel={() => setShowReviewForm(false)}
+          />
+        ) : null}
+
+        {/* 다른 사람들의 후기 — 본인 후기는 위에서 별도 노출하므로 목록에서 제외. */}
+        {reviews.length > 0 ? (
+          <ul className="ct-review-list">
+            {reviews
+              .filter((r) => r.id !== myReview?.id)
+              .map((r) => (
+                <li key={r.id} className="card ct-review-card">
+                  <div className="card-body">
+                    <div className="ct-review-card__head">
+                      <div className="ct-review-card__author">
+                        <span className="ct-review-card__stars" aria-hidden="true">
+                          {'★'.repeat(r.rating)}
+                          <span className="ct-review-card__stars-empty">{'★'.repeat(5 - r.rating)}</span>
+                        </span>
+                        <span className="muted">{r.authorNickname}</span>
+                      </div>
+                      <span className="ct-review-card__date muted">
+                        {new Date(r.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="ct-review-card__content">{r.content}</p>
+                  </div>
+                </li>
+              ))}
+          </ul>
+        ) : null}
       </section>
 
       {isOwner ? (

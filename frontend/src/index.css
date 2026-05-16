@@ -4611,6 +4611,161 @@ textarea {
 }
 
 /* =========================================================================
+   PR46 — Review / Rating
+   ========================================================================= */
+.ct-reviews-section {
+  display: grid;
+  gap: 12px;
+}
+
+.ct-reviews-summary {
+  align-items: center;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 4px;
+}
+
+.ct-reviews-summary__star {
+  color: var(--c-primary);
+  font-size: 16px;
+}
+
+.ct-reviews-summary strong {
+  color: var(--text-primary);
+  font-family: var(--font-en);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.ct-review-form {
+  background: var(--surface);
+  border: 1.5px solid var(--c-primary);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 12px;
+}
+
+.ct-review-form__stars {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.ct-review-form__star {
+  background: transparent;
+  border: 0;
+  color: var(--c-border-strong);
+  cursor: pointer;
+  font-size: 26px;
+  line-height: 1;
+  padding: 2px 4px;
+  transition: color 0.1s ease;
+}
+
+.ct-review-form__star.is-active {
+  color: var(--c-primary);
+}
+
+.ct-review-form__star:disabled {
+  cursor: not-allowed;
+}
+
+.ct-review-form__rating-label {
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.ct-review-form__textarea {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font: var(--t-body);
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.ct-review-form__textarea:focus {
+  background: var(--surface);
+  border-color: var(--c-primary);
+  outline: 0;
+}
+
+.ct-review-form__hint {
+  font-size: 11px;
+  margin-left: auto;
+  text-align: right;
+}
+
+.ct-review-form__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.ct-review-card {
+  margin: 0;
+}
+
+.ct-review-card--mine {
+  border: 1.5px solid var(--c-primary);
+}
+
+.ct-review-card__head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.ct-review-card__author {
+  align-items: center;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.ct-review-card__stars {
+  color: var(--c-primary);
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.ct-review-card__stars-empty {
+  color: var(--c-border-strong);
+}
+
+.ct-review-card__date {
+  font-size: 11px;
+}
+
+.ct-review-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ct-review-card__content {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.ct-review-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.text-button--danger {
+  color: var(--c-danger);
+}
+
+/* =========================================================================
    Ticket check-in — 스태프 코드 입력 화면
    ========================================================================= */
 .ct-check-in-page {

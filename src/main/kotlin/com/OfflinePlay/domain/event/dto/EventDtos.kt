@@ -96,6 +96,9 @@ data class EventResponse(
     val status: EventStatus,
     val contentType: ContentType?,
     val createdAt: LocalDateTime,
+    /** PR46 — 이벤트 후기 집계. 후기 0건이면 averageRating=null, reviewCount=0. */
+    val averageRating: Double? = null,
+    val reviewCount: Long = 0L,
 )
 
 /**

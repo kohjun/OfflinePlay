@@ -69,6 +69,9 @@ export interface Event {
   createdAt: string
   /** Backend may add later; currently optimistic from client side. */
   isJoined?: boolean
+  /** PR46 — 후기 집계. 후기 0건이면 averageRating=null, reviewCount=0. */
+  averageRating?: number | null
+  reviewCount?: number
 }
 
 /**
