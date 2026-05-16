@@ -22,6 +22,7 @@ import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.AppealAlreadyExistsException
+import com.contenido.global.exception.AppealCooldownActiveException
 import com.contenido.global.exception.AppealNotAllowedException
 import com.contenido.global.exception.ReportAppealAlreadyProcessedException
 import com.contenido.global.exception.ReportAppealNotFoundException
@@ -72,6 +73,13 @@ class ReportAppealServiceTest {
             commentRepository = commentRepository,
             reviewRepository = reviewRepository,
         )
+        // PR56 — createAppeal 가 cooldown 검사 시 호출. 별도 케이스에서 override.
+        // 기본은 "이전 appeal 없음" → cooldown 가드 통과.
+        every {
+            reportAppealRepository.findFirstByRequesterAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                any(), any(), any(),
+            )
+        } returns null
     }
 
     // ── createAppeal ─────────────────────────────────────────────────────────
@@ -205,6 +213,132 @@ class ReportAppealServiceTest {
 
         assertThrows<AppealNotAllowedException> {
             service.createAppeal(7L, CreateReportAppealRequest(ReportTargetType.CHANNEL, 10L, "남의 채널"))
+        }
+    }
+
+    // ── PR56 cooldown ────────────────────────────────────────────────────────
+
+    @Test
+    fun `createAppeal REJECTED 후 7일 안 지났으면 AppealCooldownActiveException`() {
+        val author = createUser(id = 5L)
+        val review = createHiddenReview(id = 50L, author = author)
+        val admin = createUser(id = 1L, role = UserRole.ADMIN)
+        // 3일 전 거절 — cooldown 활성.
+        val rejected = createPendingAppeal(id = 199L, requester = author).apply {
+            reject(admin, "정책 위반", LocalDateTime.now().minusDays(3))
+        }
+
+        every { userRepository.findById(5L) } returns Optional.of(author)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+        every {
+            reportAppealRepository.existsByRequesterAndTargetTypeAndTargetIdAndStatus(
+                author, ReportTargetType.REVIEW, 50L, ReportAppealStatus.PENDING,
+            )
+        } returns false
+        every {
+            reportAppealRepository.findFirstByRequesterAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                author, ReportTargetType.REVIEW, 50L,
+            )
+        } returns rejected
+
+        assertThrows<AppealCooldownActiveException> {
+            service.createAppeal(5L, CreateReportAppealRequest(ReportTargetType.REVIEW, 50L, "재시도"))
+        }
+    }
+
+    @Test
+    fun `createAppeal REJECTED 후 7일 초과면 새 PENDING 생성 허용`() {
+        val author = createUser(id = 5L)
+        val review = createHiddenReview(id = 50L, author = author)
+        val admin = createUser(id = 1L, role = UserRole.ADMIN)
+        // 8일 전 거절 — cooldown 종료.
+        val rejected = createPendingAppeal(id = 198L, requester = author).apply {
+            reject(admin, "이전 거절", LocalDateTime.now().minusDays(8))
+        }
+
+        every { userRepository.findById(5L) } returns Optional.of(author)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+        every {
+            reportAppealRepository.existsByRequesterAndTargetTypeAndTargetIdAndStatus(
+                author, ReportTargetType.REVIEW, 50L, ReportAppealStatus.PENDING,
+            )
+        } returns false
+        every {
+            reportAppealRepository.findFirstByRequesterAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                author, ReportTargetType.REVIEW, 50L,
+            )
+        } returns rejected
+        every { reportAppealRepository.save(any<ReportAppeal>()) } answers {
+            firstArg<ReportAppeal>().also {
+                ReflectionTestUtils.setField(it, "id", 300L)
+                val now = LocalDateTime.now()
+                ReflectionTestUtils.setField(it, "createdAt", now)
+                ReflectionTestUtils.setField(it, "updatedAt", now)
+            }
+        }
+
+        val response = service.createAppeal(
+            5L, CreateReportAppealRequest(ReportTargetType.REVIEW, 50L, "8일 뒤 재시도"),
+        )
+
+        assertThat(response.status).isEqualTo(ReportAppealStatus.PENDING)
+        assertThat(response.id).isEqualTo(300L)
+    }
+
+    @Test
+    fun `createAppeal APPROVED 이력은 cooldown 없이 재신청 허용`() {
+        val author = createUser(id = 5L)
+        val review = createHiddenReview(id = 50L, author = author)
+        val admin = createUser(id = 1L, role = UserRole.ADMIN)
+        // 어제 APPROVED — 그 사이 대상이 다시 hidden 됐다고 가정. cooldown 없음.
+        val approved = createPendingAppeal(id = 197L, requester = author).apply {
+            approve(admin, LocalDateTime.now().minusDays(1))
+        }
+
+        every { userRepository.findById(5L) } returns Optional.of(author)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+        every {
+            reportAppealRepository.existsByRequesterAndTargetTypeAndTargetIdAndStatus(
+                author, ReportTargetType.REVIEW, 50L, ReportAppealStatus.PENDING,
+            )
+        } returns false
+        every {
+            reportAppealRepository.findFirstByRequesterAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                author, ReportTargetType.REVIEW, 50L,
+            )
+        } returns approved
+        every { reportAppealRepository.save(any<ReportAppeal>()) } answers {
+            firstArg<ReportAppeal>().also {
+                ReflectionTestUtils.setField(it, "id", 301L)
+                val now = LocalDateTime.now()
+                ReflectionTestUtils.setField(it, "createdAt", now)
+                ReflectionTestUtils.setField(it, "updatedAt", now)
+            }
+        }
+
+        val response = service.createAppeal(
+            5L, CreateReportAppealRequest(ReportTargetType.REVIEW, 50L, "다시 hidden 됐어요"),
+        )
+
+        assertThat(response.status).isEqualTo(ReportAppealStatus.PENDING)
+    }
+
+    @Test
+    fun `createAppeal PENDING 중복은 cooldown 보다 먼저 차단 — AppealAlreadyExistsException`() {
+        val author = createUser(id = 5L)
+        val review = createHiddenReview(id = 50L, author = author)
+
+        every { userRepository.findById(5L) } returns Optional.of(author)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+        every {
+            reportAppealRepository.existsByRequesterAndTargetTypeAndTargetIdAndStatus(
+                author, ReportTargetType.REVIEW, 50L, ReportAppealStatus.PENDING,
+            )
+        } returns true
+
+        // PENDING 중복이 먼저 검사되어 cooldown 검사로 진입하지 않는다 (findFirstBy... unstubbed 호출 없음).
+        assertThrows<AppealAlreadyExistsException> {
+            service.createAppeal(5L, CreateReportAppealRequest(ReportTargetType.REVIEW, 50L, "x"))
         }
     }
 

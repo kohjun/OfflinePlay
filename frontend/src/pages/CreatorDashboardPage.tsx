@@ -154,8 +154,13 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
         error && typeof error === 'object' && 'status' in error
           ? Number((error as { status?: number }).status)
           : 0
+      const message = error instanceof Error ? error.message : ''
+      // PR56 — 409 cooldown 과 409 PENDING 중복을 메시지로 구분한다.
+      const isCooldown = status === 409 && message.includes('7일')
       const title =
-        status === 409
+        isCooldown
+          ? '최근 거절된 이의 제기는 7일 뒤 다시 신청할 수 있어요'
+          : status === 409
           ? '이미 검토 대기 중입니다'
           : status === 403
           ? '본인 콘텐츠만 이의 제기할 수 있어요'
@@ -164,7 +169,7 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
           : '이의 제기에 실패했어요'
       showToast({
         title,
-        message: error instanceof Error ? error.message : undefined,
+        message: isCooldown ? undefined : message || undefined,
         tone: 'danger',
       })
     }

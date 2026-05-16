@@ -208,6 +208,14 @@ class AppealAlreadyExistsException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 처리 대기 중인 이의 제기가 있습니다."
 )
 
+/**
+ * PR56 — REJECTED 처리된 appeal 의 cooldown(7일) 이 끝나지 않은 같은 (requester, target) 에
+ * 재신청 시도. 어뷰즈(거절된 appeal 을 매일 재제출) 방어.
+ */
+class AppealCooldownActiveException : ContENIDOException(
+    HttpStatus.CONFLICT, "이의 제기는 거절 후 7일 뒤 다시 신청할 수 있습니다."
+)
+
 class ReportAppealNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "존재하지 않는 이의 제기입니다."
 )

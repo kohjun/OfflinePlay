@@ -15,6 +15,7 @@ import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.AppealAlreadyExistsException
+import com.contenido.global.exception.AppealCooldownActiveException
 import com.contenido.global.exception.AppealNotAllowedException
 import com.contenido.global.exception.DeletedUserException
 import com.contenido.global.exception.ReportAppealAlreadyProcessedException
@@ -26,6 +27,8 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.Duration
+import java.time.LocalDateTime
 
 /**
  * 자동 숨김 대상에 대한 이의 제기(appeal) 도메인 (PR52).
@@ -57,6 +60,14 @@ class ReportAppealService(
 
     companion object {
         private const val PREVIEW_LIMIT = 80
+
+        /**
+         * PR56 — REJECTED appeal 의 재신청 차단 기간. reviewedAt 기준(없으면 updatedAt)으로
+         * 7일 이내면 새 PENDING appeal 생성 차단. APPROVED 케이스는 cooldown 없음 — 대상이
+         * 다시 hidden 되면 새 컨텍스트로 즉시 재신청 허용. 테스트는 fixture 의 reviewedAt 을
+         * 과거/현재로 조작해 양쪽 분기 검증.
+         */
+        val REJECT_COOLDOWN: Duration = Duration.ofDays(7)
     }
 
     @Transactional
@@ -76,6 +87,21 @@ class ReportAppealService(
             )
         ) {
             throw AppealAlreadyExistsException()
+        }
+
+        // 3. PR56 — REJECTED 이력이 있고 cooldown(7일) 안 끝났으면 409. PENDING 검사 이후로
+        //    배치 — PENDING 중복은 더 우선 차단 (가장 명확한 케이스).
+        val latestAppeal = reportAppealRepository
+            .findFirstByRequesterAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
+                requester, request.targetType, request.targetId,
+            )
+        if (latestAppeal != null && latestAppeal.status == ReportAppealStatus.REJECTED) {
+            // reviewedAt 이 정공 — 거절 시점. 누락 케이스는 updatedAt 으로 fallback.
+            val anchor = latestAppeal.reviewedAt ?: latestAppeal.updatedAt
+            val cooldownEnd = anchor.plus(REJECT_COOLDOWN)
+            if (cooldownEnd.isAfter(LocalDateTime.now())) {
+                throw AppealCooldownActiveException()
+            }
         }
 
         val appeal = reportAppealRepository.save(
