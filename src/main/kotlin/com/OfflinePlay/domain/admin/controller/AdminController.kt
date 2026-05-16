@@ -213,7 +213,7 @@ class AdminController(
             "임계치를 갱신했어요.",
         )
 
-    // ── 운영 감사 로그 — PR61 ────────────────────────────────────────────────
+    // ── 운영 감사 로그 — PR61, PR62 (필터 확장) ───────────────────────────────
 
     @GetMapping("/moderation/audit-logs")
     fun getModerationAuditLogs(
@@ -222,8 +222,23 @@ class AdminController(
         @RequestParam(required = false) action: ModerationAuditAction?,
         @RequestParam(required = false) targetType: ReportTargetType?,
         @RequestParam(required = false) targetId: Long?,
+        @RequestParam(required = false) actorId: Long?,
+        // ISO datetime 또는 date-only. date-only 는 service 가 from=00:00 / to=23:59:59.999999999 로 확장.
+        @RequestParam(required = false) from: String?,
+        @RequestParam(required = false) to: String?,
     ): ApiResponse<PageResponse<ModerationAuditLogResponse>> =
         ApiResponse.ok(
-            PageResponse.of(moderationAuditLogService.list(page, size, action, targetType, targetId)),
+            PageResponse.of(
+                moderationAuditLogService.list(
+                    page = page,
+                    size = size,
+                    action = action,
+                    targetType = targetType,
+                    targetId = targetId,
+                    actorId = actorId,
+                    from = from,
+                    to = to,
+                ),
+            ),
         )
 }

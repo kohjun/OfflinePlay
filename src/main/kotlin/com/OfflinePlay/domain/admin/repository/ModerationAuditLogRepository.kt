@@ -1,42 +1,16 @@
 package com.contenido.domain.admin.repository
 
-import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.entity.ModerationAuditLog
-import com.contenido.domain.report.entity.ReportTargetType
-import org.springframework.data.domain.Page
-import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 
-interface ModerationAuditLogRepository : JpaRepository<ModerationAuditLog, Long> {
-
-    fun findAllByOrderByCreatedAtDesc(pageable: Pageable): Page<ModerationAuditLog>
-
-    fun findByActionOrderByCreatedAtDesc(
-        action: ModerationAuditAction,
-        pageable: Pageable,
-    ): Page<ModerationAuditLog>
-
-    fun findByTargetTypeAndTargetIdOrderByCreatedAtDesc(
-        targetType: ReportTargetType,
-        targetId: Long,
-        pageable: Pageable,
-    ): Page<ModerationAuditLog>
-
-    fun findByTargetTypeOrderByCreatedAtDesc(
-        targetType: ReportTargetType,
-        pageable: Pageable,
-    ): Page<ModerationAuditLog>
-
-    fun findByActionAndTargetTypeAndTargetIdOrderByCreatedAtDesc(
-        action: ModerationAuditAction,
-        targetType: ReportTargetType,
-        targetId: Long,
-        pageable: Pageable,
-    ): Page<ModerationAuditLog>
-
-    fun findByActionAndTargetTypeOrderByCreatedAtDesc(
-        action: ModerationAuditAction,
-        targetType: ReportTargetType,
-        pageable: Pageable,
-    ): Page<ModerationAuditLog>
-}
+/**
+ * PR61 신설, PR62 에서 [JpaSpecificationExecutor] 추가.
+ *
+ * derived query 6종(findByAction, findByTargetType, ...) 은 PR62 의 새 필터(actorId/from/to)
+ * 와 결합되면 조합이 폭증해서 유지가 어렵다. [Specification] 으로 일원화하고 [ModerationAuditLogSpecs]
+ * 에서 필터를 합성한다.
+ */
+interface ModerationAuditLogRepository :
+    JpaRepository<ModerationAuditLog, Long>,
+    JpaSpecificationExecutor<ModerationAuditLog>

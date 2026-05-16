@@ -172,8 +172,11 @@ export function updateModerationThresholds(request: UpdateModerationThresholdsRe
 /**
  * GET /api/v1/admin/moderation/audit-logs
  *
- * PR61 — ADMIN 의 운영 액션 (수동 hide/unhide, 채널 ban/unban, appeal 처리, threshold 변경,
- * report resolve/dismiss) 을 시간 역순으로 조회. append-only — 수정/삭제 API 없음.
+ * PR61 신설, PR62 에서 actorId / from / to 필터 추가.
+ * - action / targetType / targetId / actorId: 정확 일치 (모두 optional, AND).
+ * - from / to: ISO datetime (`2026-05-17T08:30:00`) 또는 date-only (`2026-05-17`).
+ *   date-only 는 backend 가 from=00:00, to=23:59:59.999999999 로 확장.
+ * - 정렬은 createdAt DESC 고정.
  */
 export function getModerationAuditLogs(params?: {
   page?: number
@@ -181,6 +184,9 @@ export function getModerationAuditLogs(params?: {
   action?: ModerationAuditAction
   targetType?: ReportTargetType
   targetId?: number
+  actorId?: number
+  from?: string
+  to?: string
 }) {
   return apiClient.get<PageResponse<ModerationAuditLog>>('/admin/moderation/audit-logs', params)
 }

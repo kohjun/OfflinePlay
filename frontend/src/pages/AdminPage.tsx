@@ -95,17 +95,74 @@ const AUDIT_ACTION_TONE: Record<ModerationAuditAction, 'danger' | 'warning' | 's
   REPORT_DISMISSED: 'neutral',
 }
 
-type AuditFilter = 'ALL' | ModerationAuditAction
+/**
+ * PR62 — audit log 필터 폼 상태. 입력 중에는 빈 문자열을 유지하고, API 호출 시점에만
+ * undefined 로 변환해서 backend 로 보낸다 (controlled input 유지).
+ */
+interface AuditFiltersForm {
+  action: ModerationAuditAction | ''
+  targetType: ReportTargetType | ''
+  targetId: string
+  actorId: string
+  from: string
+  to: string
+}
 
-const AUDIT_FILTERS: Array<{ value: AuditFilter; label: string }> = [
-  { value: 'ALL', label: '전체' },
-  { value: 'TARGET_HIDDEN', label: '수동 숨김' },
-  { value: 'TARGET_UNHIDDEN', label: '숨김 해제' },
-  { value: 'CHANNEL_BANNED', label: '채널 제재' },
-  { value: 'APPEAL_APPROVED', label: '이의 제기 승인' },
-  { value: 'APPEAL_REJECTED', label: '이의 제기 거절' },
-  { value: 'THRESHOLD_UPDATED', label: '임계치 변경' },
+const EMPTY_AUDIT_FILTERS: AuditFiltersForm = {
+  action: '',
+  targetType: '',
+  targetId: '',
+  actorId: '',
+  from: '',
+  to: '',
+}
+
+const AUDIT_ACTION_OPTIONS: ModerationAuditAction[] = [
+  'TARGET_HIDDEN',
+  'TARGET_UNHIDDEN',
+  'CHANNEL_BANNED',
+  'CHANNEL_UNBANNED',
+  'APPEAL_APPROVED',
+  'APPEAL_REJECTED',
+  'REPORT_RESOLVED',
+  'REPORT_DISMISSED',
+  'THRESHOLD_UPDATED',
 ]
+
+const AUDIT_TARGET_TYPE_OPTIONS: ReportTargetType[] = [
+  'CHANNEL',
+  'EVENT',
+  'POST',
+  'COMMENT',
+  'REVIEW',
+]
+
+const AUDIT_PAGE_SIZE = 20
+
+/** input 문자열을 양의 Long 으로 변환. 빈/비숫자/0 이하 는 undefined → backend 무시. */
+function parsePositiveLong(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (trimmed === '') return undefined
+  const n = Number(trimmed)
+  return Number.isInteger(n) && n > 0 ? n : undefined
+}
+
+/**
+ * audit 의 before/after 는 service 가 JSON 또는 raw string 으로 저장. UI 표시 시 JSON 이면
+ * 2-space indent 로 pretty-print 하고, 그 외에는 원문 그대로. 안전하게 try-catch.
+ */
+function prettyAuditValue(raw: string | null | undefined): string {
+  if (raw == null || raw === '') return ''
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed === 'object' && parsed !== null) {
+      return JSON.stringify(parsed, null, 2)
+    }
+  } catch {
+    /* not JSON — fall through */
+  }
+  return raw
+}
 
 /**
  * PR57 — 운영 지표 line chart. 외부 라이브러리 없이 inline SVG polyline 으로 3선:
@@ -175,9 +232,15 @@ export function AdminPage() {
   const [queue, setQueue] = useState<AdminModerationQueueItem[]>([])
   // PR57 — 운영 지표 (최근 30일 default).
   const [stats, setStats] = useState<AdminModerationStats | null>(null)
-  // PR61 — 운영 감사 로그 (최신 20건). action 필터 칩으로 좁힘.
+  // PR61 — 운영 감사 로그. PR62 에서 다축 필터 + 페이지네이션 + 본문 확장 추가.
   const [auditLogs, setAuditLogs] = useState<ModerationAuditLog[]>([])
-  const [auditFilter, setAuditFilter] = useState<AuditFilter>('ALL')
+  const [auditFilters, setAuditFilters] = useState<AuditFiltersForm>(EMPTY_AUDIT_FILTERS)
+  const [auditPage, setAuditPage] = useState(0)
+  const [auditTotalPages, setAuditTotalPages] = useState(0)
+  const [auditIsLast, setAuditIsLast] = useState(true)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [expandedAuditIds, setExpandedAuditIds] = useState<Set<number>>(new Set())
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -200,9 +263,9 @@ export function AdminPage() {
       getModerationQueue({ size: 30 }),
       getModerationStats(),
       getModerationThresholds(),
-      getModerationAuditLogs({ size: 20 }),
+      getModerationAuditLogs({ size: AUDIT_PAGE_SIZE }),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPage]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
@@ -210,7 +273,9 @@ export function AdminPage() {
         setQueue(queuePage.content)
         setStats(statsRes)
         setThresholds(thresholdsRes)
-        setAuditLogs(auditPage.content)
+        setAuditLogs(auditPageRes.content)
+        setAuditTotalPages(auditPageRes.totalPages)
+        setAuditIsLast(auditPageRes.isLast)
         setThresholdDraft({
           REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
           COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
@@ -240,17 +305,51 @@ export function AdminPage() {
       })
   }, [reportFilter, user?.role])
 
-  // PR61 — audit 필터 변경 시 해당 action 만 다시 받는다.
+  // PR62 — audit 필터/페이지 변경 시 다시 받는다. 빈 문자열은 undefined 로 변환해
+  // backend 가 해당 필드를 무시하게 한다. targetId/actorId 는 number 변환 실패 시 보내지 않음
+  // (validation 토스트는 reset 버튼 외에는 굳이 띄우지 않음 — 사용자가 입력 중일 수 있음).
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
-    const params: Parameters<typeof getModerationAuditLogs>[0] =
-      auditFilter === 'ALL' ? { size: 20 } : { size: 20, action: auditFilter }
+    let alive = true
+    setAuditLoading(true)
+    setAuditError(null)
+    const params: Parameters<typeof getModerationAuditLogs>[0] = {
+      page: auditPage,
+      size: AUDIT_PAGE_SIZE,
+      action: auditFilters.action || undefined,
+      targetType: auditFilters.targetType || undefined,
+      targetId: parsePositiveLong(auditFilters.targetId),
+      actorId: parsePositiveLong(auditFilters.actorId),
+      from: auditFilters.from.trim() || undefined,
+      to: auditFilters.to.trim() || undefined,
+    }
     getModerationAuditLogs(params)
-      .then((page) => setAuditLogs(page.content))
-      .catch(() => {
-        /* non-fatal */
+      .then((page) => {
+        if (!alive) return
+        setAuditLogs(page.content)
+        setAuditTotalPages(page.totalPages)
+        setAuditIsLast(page.isLast)
       })
-  }, [auditFilter, user?.role])
+      .catch((error) => {
+        if (!alive) return
+        setAuditError(error instanceof Error ? error.message : '불러오지 못했어요.')
+      })
+      .finally(() => {
+        if (alive) setAuditLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [
+    user?.role,
+    auditPage,
+    auditFilters.action,
+    auditFilters.targetType,
+    auditFilters.targetId,
+    auditFilters.actorId,
+    auditFilters.from,
+    auditFilters.to,
+  ])
 
   async function handleApproveAppeal(id: number) {
     try {
@@ -730,55 +829,214 @@ export function AdminPage() {
           </div>
         </section>
       ) : null}
-      {/* PR61 — 운영 감사 로그. 최신 20건 + action 필터 칩. before/after 는 JSON 문자열을
-          접어 한 줄로 표시. 상세 보기는 후속 PR — MVP 는 감사 가능성 보장에 집중. */}
+      {/* PR61 신설, PR62 에서 다축 필터 + 페이지네이션 + before/after 확장. */}
       <section className="section">
         <div className="section-heading">
           <h2>운영 감사 로그</h2>
-          <span className="muted">최신 {auditLogs.length}건</span>
+          <span className="muted">
+            {auditTotalPages > 0 ? `${auditPage + 1} / ${auditTotalPages} 페이지` : '결과 없음'}
+          </span>
         </div>
-        <div className="badge-row" style={{ gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-          {AUDIT_FILTERS.map((filter) => (
-            <button
-              key={filter.value}
-              type="button"
-              className={`chip${auditFilter === filter.value ? ' is-active' : ''}`}
-              onClick={() => setAuditFilter(filter.value)}
+        <div className="ct-audit-filters">
+          <label className="ct-audit-filter">
+            <span>액션</span>
+            <select
+              value={auditFilters.action}
+              onChange={(e) => {
+                const next = e.target.value as ModerationAuditAction | ''
+                setAuditFilters((prev) => ({ ...prev, action: next }))
+                setAuditPage(0)
+              }}
             >
-              {filter.label}
-            </button>
-          ))}
+              <option value="">전체</option>
+              {AUDIT_ACTION_OPTIONS.map((a) => (
+                <option key={a} value={a}>{AUDIT_ACTION_LABEL[a]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="ct-audit-filter">
+            <span>대상 종류</span>
+            <select
+              value={auditFilters.targetType}
+              onChange={(e) => {
+                const next = e.target.value as ReportTargetType | ''
+                setAuditFilters((prev) => ({ ...prev, targetType: next }))
+                setAuditPage(0)
+              }}
+            >
+              <option value="">전체</option>
+              {AUDIT_TARGET_TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>{TARGET_TYPE_LABEL[t]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="ct-audit-filter">
+            <span>대상 ID</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              placeholder="예: 50"
+              value={auditFilters.targetId}
+              onChange={(e) => {
+                const v = e.target.value
+                setAuditFilters((prev) => ({ ...prev, targetId: v }))
+                setAuditPage(0)
+              }}
+            />
+          </label>
+          <label className="ct-audit-filter">
+            <span>운영자 ID</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              placeholder="예: 7"
+              value={auditFilters.actorId}
+              onChange={(e) => {
+                const v = e.target.value
+                setAuditFilters((prev) => ({ ...prev, actorId: v }))
+                setAuditPage(0)
+              }}
+            />
+          </label>
+          <label className="ct-audit-filter">
+            <span>From</span>
+            <input
+              type="date"
+              value={auditFilters.from}
+              onChange={(e) => {
+                const v = e.target.value
+                setAuditFilters((prev) => ({ ...prev, from: v }))
+                setAuditPage(0)
+              }}
+            />
+          </label>
+          <label className="ct-audit-filter">
+            <span>To</span>
+            <input
+              type="date"
+              value={auditFilters.to}
+              onChange={(e) => {
+                const v = e.target.value
+                setAuditFilters((prev) => ({ ...prev, to: v }))
+                setAuditPage(0)
+              }}
+            />
+          </label>
         </div>
-        {auditLogs.length === 0 ? (
-          <p className="muted">감사 로그가 없어요.</p>
+        <div className="admin-actions" style={{ marginBottom: '12px' }}>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => {
+              setAuditFilters(EMPTY_AUDIT_FILTERS)
+              setAuditPage(0)
+            }}
+            disabled={auditLoading}
+          >
+            필터 초기화
+          </button>
+        </div>
+        {auditError ? (
+          <p className="muted" role="alert">불러오기 실패: {auditError}</p>
+        ) : null}
+        {auditLoading ? (
+          <p className="muted">불러오는 중…</p>
+        ) : auditLogs.length === 0 ? (
+          <p className="muted">조건에 맞는 감사 로그가 없어요.</p>
         ) : (
           <ul className="stack">
-            {auditLogs.map((log) => (
-              <article className="card admin-card" key={log.id}>
-                <div>
-                  <div className="badge-row">
-                    <Badge tone={AUDIT_ACTION_TONE[log.action]}>{AUDIT_ACTION_LABEL[log.action]}</Badge>
-                    {log.targetType ? (
-                      <Badge tone="neutral">{TARGET_TYPE_LABEL[log.targetType]}</Badge>
+            {auditLogs.map((log) => {
+              const expanded = expandedAuditIds.has(log.id)
+              const hasDetail = !!(log.beforeValue || log.afterValue)
+              return (
+                <article className="card admin-card" key={log.id}>
+                  <div>
+                    <div className="badge-row">
+                      <Badge tone={AUDIT_ACTION_TONE[log.action]}>{AUDIT_ACTION_LABEL[log.action]}</Badge>
+                      {log.targetType ? (
+                        <Badge tone="neutral">{TARGET_TYPE_LABEL[log.targetType]}</Badge>
+                      ) : null}
+                      {log.targetId != null ? (
+                        <span className="muted">#{log.targetId}</span>
+                      ) : null}
+                    </div>
+                    <strong>{log.actorNickname} <span className="muted">(#{log.actorId})</span></strong>
+                    {log.reason ? <p className="muted">사유: {log.reason}</p> : null}
+                    {hasDetail && !expanded ? (
+                      <>
+                        {log.beforeValue ? (
+                          <p className="muted ct-audit-snippet">before: {log.beforeValue}</p>
+                        ) : null}
+                        {log.afterValue ? (
+                          <p className="muted ct-audit-snippet">after: {log.afterValue}</p>
+                        ) : null}
+                      </>
                     ) : null}
-                    {log.targetId != null ? (
-                      <span className="muted">#{log.targetId}</span>
+                    {hasDetail && expanded ? (
+                      <div className="ct-audit-detail">
+                        {log.beforeValue ? (
+                          <>
+                            <span className="muted">before</span>
+                            <pre className="ct-audit-detail-pre">{prettyAuditValue(log.beforeValue)}</pre>
+                          </>
+                        ) : null}
+                        {log.afterValue ? (
+                          <>
+                            <span className="muted">after</span>
+                            <pre className="ct-audit-detail-pre">{prettyAuditValue(log.afterValue)}</pre>
+                          </>
+                        ) : null}
+                      </div>
                     ) : null}
+                    <span className="muted">{new Date(log.createdAt).toLocaleString()}</span>
                   </div>
-                  <strong>{log.actorNickname}</strong>
-                  {log.reason ? <p className="muted">사유: {log.reason}</p> : null}
-                  {log.beforeValue ? (
-                    <p className="muted ct-audit-snippet">before: {log.beforeValue}</p>
+                  {hasDetail ? (
+                    <div className="admin-actions">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() =>
+                          setExpandedAuditIds((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(log.id)) next.delete(log.id)
+                            else next.add(log.id)
+                            return next
+                          })
+                        }
+                      >
+                        {expanded ? '접기' : '상세'}
+                      </button>
+                    </div>
                   ) : null}
-                  {log.afterValue ? (
-                    <p className="muted ct-audit-snippet">after: {log.afterValue}</p>
-                  ) : null}
-                  <span className="muted">{new Date(log.createdAt).toLocaleString()}</span>
-                </div>
-              </article>
-            ))}
+                </article>
+              )
+            })}
           </ul>
         )}
+        {auditTotalPages > 1 ? (
+          <div className="admin-actions" style={{ marginTop: '12px', justifyContent: 'space-between' }}>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => setAuditPage((p) => Math.max(0, p - 1))}
+              disabled={auditPage === 0 || auditLoading}
+            >
+              이전
+            </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => setAuditPage((p) => p + 1)}
+              disabled={auditIsLast || auditLoading}
+            >
+              다음
+            </button>
+          </div>
+        ) : null}
       </section>
       {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.
           상세 신고/appeal 섹션은 아래에 그대로 유지되어 전체 목록 조회/필터링용으로 남는다. */}
