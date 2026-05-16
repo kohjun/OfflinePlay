@@ -265,3 +265,16 @@ class RefundFailedException(
     val code: String,
     detail: String,
 ) : ContENIDOException(HttpStatus.BAD_GATEWAY, "환불 처리에 실패했습니다: $detail")
+
+/**
+ * 이벤트가 이미 시작/종료된 뒤 환불 요청이 들어왔을 때.
+ *
+ * 정책 (docs/payment-refund-policy.md §11.3): 시작 시각 이후 환불 불가.
+ * 노쇼/행사 취소 보상은 ADMIN 전용 운영 도구로 별도 처리 — 본 흐름에서는 막는다.
+ *
+ * 운영 도구(ADMIN refund override)는 본 PR 범위 밖. 별도 PR 에서
+ * `refundPaymentByTicket(force = true)` 같은 옵션으로 추가 예정.
+ */
+class RefundDeadlinePassedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이벤트가 이미 시작되어 환불할 수 없습니다."
+)

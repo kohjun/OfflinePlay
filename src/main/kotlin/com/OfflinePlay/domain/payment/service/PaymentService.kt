@@ -40,6 +40,7 @@ import com.contenido.global.exception.OwnerCannotApplyException
 import com.contenido.global.exception.PaymentAttemptNotFoundException
 import com.contenido.global.exception.PaymentConfirmFailedException
 import com.contenido.global.exception.PaymentNotRefundableException
+import com.contenido.global.exception.RefundDeadlinePassedException
 import com.contenido.global.exception.RefundFailedException
 import com.contenido.global.exception.TicketAlreadyRefundedException
 import com.contenido.global.exception.TicketAlreadyUsedException
@@ -242,6 +243,11 @@ class PaymentService(
      *
      * PaymentAttempt 가 PAID 가 아니거나 providerPaymentKey 가 비어 있으면 환불 불가
      * ([PaymentNotRefundableException]) — 결제 완료 시점 정보 없이는 PG 에 환불 요청 못함.
+     *
+     * 시간 가드 (PR43 MVP):
+     *  - 이벤트 시작 시각 이후 환불 요청은 [RefundDeadlinePassedException] 으로 차단.
+     *    ADMIN 도 본 메서드로는 막힌다 — 노쇼/행사 취소 보상은 별도 ADMIN 전용 운영 도구로.
+     *  - 기획자/주최자 측 행사 취소로 인한 강제 환불은 후속 PR 에서 `force=true` 또는 별도 endpoint.
      */
     @Transactional
     fun refundPaymentByTicket(
@@ -264,6 +270,12 @@ class PaymentService(
                 return attempt.toRefundResponse(ticket)
             }
             TicketStatus.PAID -> { /* 진행 */ }
+        }
+
+        // PR43: 이벤트 시작 시각 이후 환불 차단. USED 가드와 함께 "행사가 시작되면 환불 불가"
+        // 정책의 양면. 시작 직후 USED 마킹 전에 들어오는 요청도 여기서 막힌다.
+        if (!ticket.event.startAt.isAfter(LocalDateTime.now())) {
+            throw RefundDeadlinePassedException()
         }
 
         val attempt = paymentAttemptRepository.findByTicket(ticket)

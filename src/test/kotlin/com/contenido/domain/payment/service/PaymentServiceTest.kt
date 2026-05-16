@@ -860,6 +860,32 @@ class PaymentServiceTest {
         }
     }
 
+    @Test
+    fun `refundPaymentByTicket 이벤트 이미 시작됐으면 RefundDeadlinePassedException (gateway 호출 X)`() {
+        // PR43 가드: PAID 티켓이라도 event.startAt 이 현재보다 과거면 환불 불가.
+        // ADMIN 도 동일 — ADMIN 우회는 별도 운영 도구로 처리.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L,
+            channel = createChannel(owner = owner),
+            fee = 30_000L,
+            startAt = LocalDateTime.now().minusHours(1),  // 1 시간 전 시작
+            endAt = LocalDateTime.now().plusHours(1),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PAID)
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+
+        assertThrows<com.contenido.global.exception.RefundDeadlinePassedException> {
+            service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+        }
+
+        // gateway 호출 흔적이 없어야 한다 — 시간 가드는 PG 호출 전에 일어남.
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
     // ── handleWebhook REFUNDED ───────────────────────────────────────────────────
 
     @Test

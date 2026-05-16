@@ -176,11 +176,14 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
     } catch (err) {
       const status = (err as { status?: number } | null)?.status
       const msg = err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.'
-      showToast({
-        title: status === 403 ? '환불 권한이 없습니다' : '환불 처리에 실패했어요',
-        message: msg,
-        tone: 'danger',
-      })
+      // 409 는 시간 가드 / USED / 이미 환불 등 도메인 거부 — 백엔드 메시지가 사용자 친화적.
+      const title =
+        status === 403
+          ? '환불 권한이 없습니다'
+          : status === 409
+            ? '환불할 수 없어요'
+            : '환불 처리에 실패했어요'
+      showToast({ title, message: msg, tone: 'danger' })
     } finally {
       setRefunding(false)
     }
@@ -251,12 +254,15 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
   )
   const canCheckIn = isStaffViewer && isUsable
 
-  // 환불 마감 카운트다운 — 정책 (docs/payment-refund-policy.md): 시작 24h 전까지 전액 환불.
-  // 유료 + PAID + 본인 + 24h 이내일 때만 chip 노출. 자정 단위 회전이 아니라 라이브 카운트가 아니므로
-  // 매 분 변경을 보여주진 않는다.
+  // 환불 마감 카운트다운 — 정책 (docs/payment-refund-policy.md §11): 시작 시각까지 환불 가능.
+  // 유료 + PAID + 본인 + 24h 이내일 때만 chip 노출. 매 분 회전은 라이브 카운트가 아니라 정적 라벨.
   const hoursToStart = isUsable
-    ? Math.max(0, (new Date(ticket.startAt).getTime() - Date.now()) / 36e5)
+    ? (new Date(ticket.startAt).getTime() - Date.now()) / 36e5
     : null
+  // PR43 환불 가능 조건: PAID + 유료 + buyer 본인 + 이벤트 시작 시각 이전.
+  // backend 도 동일 가드 — 시작 후엔 RefundDeadlinePassedException 으로 거부.
+  const canRefund =
+    isUsable && !isStaffViewer && ticket.participationFee > 0 && hoursToStart != null && hoursToStart > 0
   const showRefundCountdown =
     isUsable && !isStaffViewer && ticket.participationFee > 0 && hoursToStart != null && hoursToStart < 24
   const refundDeadlineLabel =
@@ -408,7 +414,7 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
         >
           이벤트 상세 보기
         </button>
-        {!isStaffViewer && ticket.ticketStatus === 'PAID' ? (
+        {canRefund ? (
           <button
             type="button"
             className="button button-secondary is-block"
@@ -419,6 +425,10 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
             {refunding ? <span className="button-spinner" aria-hidden="true" /> : null}
             {refunding ? '환불 처리 중...' : '환불 요청'}
           </button>
+        ) : !isStaffViewer && isUsable && ticket.participationFee > 0 ? (
+          <p className="ct-ticket-refund-closed muted" role="status">
+            이벤트가 시작되어 환불 가능 시간이 지났어요.
+          </p>
         ) : null}
       </section>
     </main>

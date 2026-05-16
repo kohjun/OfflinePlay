@@ -443,9 +443,12 @@ interface PaymentGateway {
 | Ticket USED (체크인 완료) | `TicketAlreadyUsedException` | 409 |
 | Ticket CANCELED | `PaymentNotRefundableException` | 409 |
 | 이미 REFUNDED + attempt.refundedAt 세팅 | 멱등 응답 (no throw) | 200 |
+| 이벤트 시작 시각 ≤ now (PR43) | `RefundDeadlinePassedException` | 409 |
 | PaymentAttempt 미존재 / status≠PAID | `PaymentNotRefundableException` | 409 |
 | providerPaymentKey 누락 | `PaymentNotRefundableException` | 409 |
 | PG gateway 거절 | `RefundFailedException(code, detail)` | 502 |
+
+**PR43 시간 가드**: 이벤트가 이미 시작된 뒤에는 buyer / owner / ADMIN 누구라도 본 endpoint 로는 환불할 수 없다. 노쇼 보상이나 행사 측 취소로 인한 강제 환불은 후속 PR 의 ADMIN 전용 운영 도구로 처리한다 — 24h 전 마감 같은 더 엄격한 정책은 `event.refundDeadlineMinutesBeforeStart` 같은 구조화 컬럼이 도입된 뒤 활성화.
 
 ### 11.4 webhook `refund.completed` 분기
 

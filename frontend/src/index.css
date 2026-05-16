@@ -4477,6 +4477,15 @@ textarea {
   margin-left: auto;
 }
 
+.ct-ticket-refund-closed {
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: center;
+}
+
 /* =========================================================================
    Ticket check-in — 스태프 코드 입력 화면
    ========================================================================= */
