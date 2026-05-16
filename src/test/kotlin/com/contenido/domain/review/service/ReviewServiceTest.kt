@@ -63,7 +63,14 @@ class ReviewServiceTest {
         } returns true
         every { reviewRepository.findByEventAndAuthor(event, author) } returns Optional.empty()
         every { reviewRepository.save(capture(captured)) } answers {
-            captured.captured.also { ReflectionTestUtils.setField(it, "id", 777L) }
+            // 실제 JPA 라면 영속화 후 id/createdAt/updatedAt 가 채워진다. 단위 테스트에서는
+            // AuditingEntityListener 가 동작하지 않으므로 fixture 헬퍼와 같은 방식으로 직접 세팅.
+            captured.captured.also {
+                ReflectionTestUtils.setField(it, "id", 777L)
+                val now = LocalDateTime.now()
+                ReflectionTestUtils.setField(it, "createdAt", now)
+                ReflectionTestUtils.setField(it, "updatedAt", now)
+            }
         }
 
         val response = service.createReview(2L, 100L, CreateReviewRequest(rating = 5, content = "최고였어요"))
@@ -127,8 +134,7 @@ class ReviewServiceTest {
     fun `updateReview 본인이면 rating + content 갱신`() {
         val author = createUser(id = 2L)
         val event = createEventWithChannel(id = 100L)
-        val review = Review(event = event, author = author, rating = 3, content = "그저 그래요")
-            .apply { ReflectionTestUtils.setField(this, "id", 50L) }
+        val review = createReviewFixture(event = event, author = author, rating = 3, content = "그저 그래요", id = 50L)
 
         every { reviewRepository.findById(50L) } returns Optional.of(review)
 
@@ -288,5 +294,26 @@ class ReviewServiceTest {
         ).apply {
             ReflectionTestUtils.setField(this, "id", id)
         }
+    }
+
+    /**
+     * Review 픽스처 — id 와 audit 필드(createdAt/updatedAt) 까지 세팅한다.
+     *
+     * Review 의 createdAt/updatedAt 는 `lateinit` 으로 JPA AuditingEntityListener 가 채우는데
+     * 단위 테스트엔 AuditingEntityListener 가 동작하지 않는다. service.toResponse() 가
+     * 두 필드를 읽을 수 있도록 본 헬퍼가 항상 채워준다 — 실제 운영 흐름엔 영향 없음.
+     */
+    private fun createReviewFixture(
+        event: Event,
+        author: User,
+        rating: Int,
+        content: String,
+        id: Long = 0L,
+        createdAt: LocalDateTime = LocalDateTime.now(),
+        updatedAt: LocalDateTime = createdAt,
+    ): Review = Review(event = event, author = author, rating = rating, content = content).apply {
+        if (id != 0L) ReflectionTestUtils.setField(this, "id", id)
+        ReflectionTestUtils.setField(this, "createdAt", createdAt)
+        ReflectionTestUtils.setField(this, "updatedAt", updatedAt)
     }
 }
