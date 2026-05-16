@@ -44,4 +44,11 @@ interface ReportRepository : JpaRepository<Report, Long> {
         targetId: Long,
         status: ReportStatus,
     ): Long
+
+    /**
+     * PR55 — Admin moderation queue 빌드에 사용. 특정 상태(주로 PENDING)의 모든 신고 row 를
+     * createdAt 내림차순으로. 서비스 단에서 (targetType, targetId) 그룹화 후 latest 1건/카운트로
+     * 집계. 운영 트래픽에서 PENDING 신고 양은 매니지블 — 더 커지면 native group-by 로 최적화.
+     */
+    fun findByStatusOrderByCreatedAtDesc(status: ReportStatus): List<Report>
 }

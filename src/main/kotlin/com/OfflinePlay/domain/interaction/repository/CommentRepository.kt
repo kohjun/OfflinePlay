@@ -29,4 +29,7 @@ interface CommentRepository : JpaRepository<Comment, Long> {
 
     /** PR53 — 작성자 본인의 자동 숨김 댓글. */
     fun findByAuthorAndHiddenAtIsNotNullOrderByHiddenAtDesc(author: User): List<Comment>
+
+    /** PR55 — Admin moderation queue 빌드. 작성자 무관, 모든 hidden 댓글. */
+    fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Comment>
 }

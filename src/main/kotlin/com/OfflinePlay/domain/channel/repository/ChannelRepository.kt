@@ -17,6 +17,9 @@ interface ChannelRepository : JpaRepository<Channel, Long> {
     /** PR53 — owner 본인의 자동 숨김 채널. */
     fun findByOwnerAndHiddenAtIsNotNullOrderByHiddenAtDesc(owner: User): List<Channel>
 
+    /** PR55 — Admin moderation queue 빌드. 소유자 무관, 모든 hidden 채널. */
+    fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Channel>
+
     fun existsByOwner(owner: User): Boolean
 
     fun countByOwner(owner: User): Long

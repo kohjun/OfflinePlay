@@ -34,3 +34,44 @@ data class AdminModerationTargetResponse(
      */
     val latestAppealStatus: ReportAppealStatus? = null,
 )
+
+/**
+ * 통합 moderation queue row (PR55).
+ *
+ * Queue 는 3개 source 의 union 으로 빌드:
+ *  - PENDING report 가 1건 이상 있는 (targetType, targetId)
+ *  - hidden = true 인 대상
+ *  - PENDING appeal 이 있는 대상
+ *
+ * 중복은 (targetType, targetId) 키로 merge 되어 row 1개. row 별 [priority] 가 운영자
+ * 처리 순서를 가이드.
+ */
+data class AdminModerationQueueItemResponse(
+    val targetType: ReportTargetType,
+    val targetId: Long,
+    val targetTitle: String,
+    val targetPreview: String,
+    val hidden: Boolean,
+    val hiddenAt: LocalDateTime? = null,
+    val hiddenReason: String? = null,
+    val pendingReportCount: Long,
+    /** 가장 최근 PENDING report. null 이면 신고 자체가 없거나 모두 처리됨. */
+    val latestReportId: Long? = null,
+    val latestReportReason: String? = null,
+    val latestReportCreatedAt: LocalDateTime? = null,
+    /** 가장 최근 PENDING appeal. PENDING 이 없으면 null. */
+    val latestAppealId: Long? = null,
+    val latestAppealStatus: ReportAppealStatus? = null,
+    val latestAppealReason: String? = null,
+    val latestAppealCreatedAt: LocalDateTime? = null,
+    val priority: AdminModerationPriority,
+)
+
+/**
+ * Queue row 우선순위.
+ *
+ *  - HIGH   : 이미 hidden 이거나 PENDING appeal 이 있는 대상 — 운영자 결정이 즉시 필요.
+ *  - MEDIUM : 자동 임계치 (PR51 [ReportService.AUTO_HIDE_THRESHOLDS]) 의 70% 이상 누적된 대상.
+ *  - LOW    : 그 외 PENDING report 가 있는 대상.
+ */
+enum class AdminModerationPriority { HIGH, MEDIUM, LOW }

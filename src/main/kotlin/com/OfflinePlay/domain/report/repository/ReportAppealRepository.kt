@@ -46,4 +46,7 @@ interface ReportAppealRepository : JpaRepository<ReportAppeal, Long> {
         targetType: ReportTargetType,
         targetId: Long,
     ): ReportAppeal?
+
+    /** PR55 — Admin moderation queue 빌드. status 의 모든 row 를 createdAt 내림차순으로. */
+    fun findByStatusOrderByCreatedAtDesc(status: ReportAppealStatus): List<ReportAppeal>
 }

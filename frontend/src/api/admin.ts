@@ -1,5 +1,7 @@
 import { apiClient } from './client'
 import type {
+  AdminModerationPriority,
+  AdminModerationQueueItem,
   AdminModerationTarget,
   Channel,
   CreatorApplication,
@@ -85,4 +87,20 @@ export function unhideModerationTarget(targetType: ReportTargetType, targetId: n
   return apiClient.patch<AdminModerationTarget>(
     `/admin/moderation/${targetType}/${targetId}/unhide`,
   )
+}
+
+/**
+ * GET /api/v1/admin/moderation/queue
+ *
+ * PR55 — 통합 moderation queue. PENDING report / hidden 콘텐츠 / PENDING appeal 3개 source 를
+ * (targetType, targetId) 키로 merge 한 페이지. priority desc + 최근 activity desc 정렬.
+ */
+export function getModerationQueue(params?: {
+  page?: number
+  size?: number
+  targetType?: ReportTargetType
+  hidden?: boolean
+  priority?: AdminModerationPriority
+}) {
+  return apiClient.get<PageResponse<AdminModerationQueueItem>>('/admin/moderation/queue', params)
 }

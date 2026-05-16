@@ -2,6 +2,8 @@ package com.contenido.domain.admin.controller
 
 import com.contenido.domain.admin.dto.AdminChannelResponse
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
+import com.contenido.domain.admin.dto.AdminModerationPriority
+import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
 import com.contenido.domain.admin.service.AdminModerationService
@@ -101,6 +103,20 @@ class AdminController(
         ApiResponse.ok(
             reportAppealService.rejectAppeal(adminUserId, id, request ?: ReviewReportAppealRequest()),
             "이의 제기를 거절했어요.",
+        )
+
+    // ── 통합 moderation queue — PR55 ─────────────────────────────────────────
+
+    @GetMapping("/moderation/queue")
+    fun getModerationQueue(
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int,
+        @RequestParam(required = false) targetType: ReportTargetType?,
+        @RequestParam(required = false) hidden: Boolean?,
+        @RequestParam(required = false) priority: AdminModerationPriority?,
+    ): ApiResponse<PageResponse<AdminModerationQueueItemResponse>> =
+        ApiResponse.ok(
+            PageResponse.of(adminModerationService.getQueue(page, size, targetType, hidden, priority)),
         )
 
     // ── 수동 hide / unhide — PR54 ────────────────────────────────────────────

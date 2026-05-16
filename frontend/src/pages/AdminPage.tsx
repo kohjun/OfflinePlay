@@ -4,6 +4,7 @@ import {
   dismissReport,
   getAdminChannels,
   getCreatorApplications,
+  getModerationQueue,
   getReports,
   hideModerationTarget,
   rejectCreatorApplication,
@@ -19,12 +20,26 @@ import { Badge } from '../components/Badge'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import type {
+  AdminModerationPriority,
+  AdminModerationQueueItem,
   Channel,
   CreatorApplication,
   Report,
   ReportAppeal,
   ReportTargetType,
 } from '../types'
+
+const PRIORITY_LABEL: Record<AdminModerationPriority, string> = {
+  HIGH: '우선',
+  MEDIUM: '주의',
+  LOW: '관찰',
+}
+
+const PRIORITY_TONE: Record<AdminModerationPriority, 'danger' | 'warning' | 'neutral'> = {
+  HIGH: 'danger',
+  MEDIUM: 'warning',
+  LOW: 'neutral',
+}
 
 type ReportFilter = 'ALL' | ReportTargetType
 
@@ -54,6 +69,8 @@ export function AdminPage() {
   const [reportFilter, setReportFilter] = useState<ReportFilter>('ALL')
   // PR52 — 자동 숨김 대상에 대한 이의 제기 큐.
   const [appeals, setAppeals] = useState<ReportAppeal[]>([])
+  // PR55 — 통합 moderation queue. 신고/appeal/hidden 3 source 가 한 row 로 merge 된다.
+  const [queue, setQueue] = useState<AdminModerationQueueItem[]>([])
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
@@ -62,12 +79,14 @@ export function AdminPage() {
       getAdminChannels({ size: 5 }),
       getReports({ size: 20 }),
       getAdminReportAppeals({ size: 20, status: 'PENDING' }),
+      getModerationQueue({ size: 30 }),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
         setAppeals(appealPage.content)
+        setQueue(queuePage.content)
       })
       .catch((error) => {
         showToast({
@@ -116,6 +135,109 @@ export function AdminPage() {
       showToast({
         title: '이의 제기 거절에 실패했어요',
         message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    }
+  }
+
+  // PR55 — 통합 큐의 row 변경 시 queue 만 다시 받아 동기화. 신고/appeal 섹션은 자체 갱신.
+  async function refreshQueue() {
+    try {
+      const queuePage = await getModerationQueue({ size: 30 })
+      setQueue(queuePage.content)
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  async function handleQueueHide(item: AdminModerationQueueItem) {
+    const reason = window.prompt('숨김 사유를 입력해주세요 (필수, 최대 255자)')
+    if (reason === null) return
+    if (reason.trim().length === 0) {
+      showToast({ title: '숨김 사유를 입력해주세요', tone: 'warning' })
+      return
+    }
+    try {
+      await hideModerationTarget(item.targetType, item.targetId, reason.trim())
+      showToast({ title: '대상을 숨김 처리했어요', tone: 'success' })
+      await refreshQueue()
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0
+      const title =
+        status === 409 ? '이미 숨김 처리된 대상이에요' : '숨김 처리에 실패했어요'
+      showToast({ title, tone: 'danger' })
+    }
+  }
+
+  async function handleQueueUnhide(item: AdminModerationQueueItem) {
+    if (!window.confirm('숨김을 해제할까요? 관련 이의 제기는 별도로 처리해주세요.')) return
+    try {
+      await unhideModerationTarget(item.targetType, item.targetId)
+      showToast({ title: '숨김을 해제했어요', tone: 'success' })
+      await refreshQueue()
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0
+      const title =
+        status === 400 || status === 409
+          ? '숨김 처리되지 않은 대상이에요'
+          : '숨김 해제에 실패했어요'
+      showToast({ title, tone: 'danger' })
+    }
+  }
+
+  async function handleQueueResolveReport(item: AdminModerationQueueItem, action: 'RESOLVED' | 'DISMISSED') {
+    if (item.latestReportId == null) return
+    try {
+      action === 'RESOLVED'
+        ? await resolveReport(item.latestReportId)
+        : await dismissReport(item.latestReportId)
+      showToast({
+        title: action === 'RESOLVED' ? '신고를 해결 처리했어요' : '신고를 기각했어요',
+        tone: 'success',
+      })
+      await refreshQueue()
+    } catch (error) {
+      showToast({
+        title: '신고 처리에 실패했어요',
+        message: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+    }
+  }
+
+  async function handleQueueApproveAppeal(item: AdminModerationQueueItem) {
+    if (item.latestAppealId == null) return
+    try {
+      await approveReportAppeal(item.latestAppealId)
+      showToast({ title: '숨김을 해제했어요', tone: 'success' })
+      await refreshQueue()
+    } catch (error) {
+      showToast({
+        title: '이의 제기 승인에 실패했어요',
+        message: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+    }
+  }
+
+  async function handleQueueRejectAppeal(item: AdminModerationQueueItem) {
+    if (item.latestAppealId == null) return
+    const rejectReason = window.prompt('거절 사유를 입력해주세요 (선택)')
+    if (rejectReason === null) return
+    try {
+      await rejectReportAppeal(item.latestAppealId, { rejectReason: rejectReason || null })
+      showToast({ title: '이의 제기를 거절했어요', tone: 'success' })
+      await refreshQueue()
+    } catch (error) {
+      showToast({
+        title: '이의 제기 거절에 실패했어요',
+        message: error instanceof Error ? error.message : undefined,
         tone: 'danger',
       })
     }
@@ -239,7 +361,110 @@ export function AdminPage() {
           <h1>CONTENIDO 운영 콘솔</h1>
         </div>
       </section>
-      {/* TODO(PR-spec-alignment): /admin/stats not yet exposed by backend. */}
+      {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.
+          상세 신고/appeal 섹션은 아래에 그대로 유지되어 전체 목록 조회/필터링용으로 남는다. */}
+      <section className="section">
+        <div className="section-heading">
+          <h2>운영 큐</h2>
+          <span className="muted">{queue.length}건</span>
+        </div>
+        <div className="stack">
+          {queue.length === 0 ? (
+            <p className="muted">처리 대기 중인 항목이 없어요.</p>
+          ) : (
+            queue.map((item) => {
+              const key = `${item.targetType}-${item.targetId}`
+              const appealPending = item.latestAppealStatus === 'PENDING'
+              return (
+                <article className="card admin-card" key={key}>
+                  <div>
+                    <div className="badge-row">
+                      <Badge tone={PRIORITY_TONE[item.priority]}>{PRIORITY_LABEL[item.priority]}</Badge>
+                      <Badge tone="danger">{TARGET_TYPE_LABEL[item.targetType]}</Badge>
+                      {item.hidden ? <Badge tone="warning">자동/수동 숨김</Badge> : null}
+                      {appealPending ? <Badge tone="warning">검토 대기</Badge> : null}
+                    </div>
+                    <strong>{item.targetTitle}</strong>
+                    <p className="muted">“{item.targetPreview}”</p>
+                    {item.hidden && item.hiddenReason ? (
+                      <p className="muted">숨김 사유: {item.hiddenReason}</p>
+                    ) : null}
+                    {item.latestReportReason ? (
+                      <p>
+                        <strong>최근 신고:</strong> {item.latestReportReason}
+                      </p>
+                    ) : null}
+                    {item.latestAppealReason ? (
+                      <p>
+                        <strong>최근 이의 제기:</strong> {item.latestAppealReason}
+                      </p>
+                    ) : null}
+                    <div className="meta-row">
+                      <span>신고 누적 {item.pendingReportCount}건</span>
+                      <span>#{item.targetId}</span>
+                    </div>
+                  </div>
+                  <div className="admin-actions">
+                    {item.hidden ? (
+                      <button
+                        className="button button-secondary"
+                        onClick={() => handleQueueUnhide(item)}
+                        type="button"
+                      >
+                        숨김 해제
+                      </button>
+                    ) : (
+                      <button
+                        className="button button-secondary"
+                        onClick={() => handleQueueHide(item)}
+                        type="button"
+                      >
+                        숨김
+                      </button>
+                    )}
+                    {appealPending ? (
+                      <>
+                        <button
+                          className="button button-secondary"
+                          onClick={() => handleQueueRejectAppeal(item)}
+                          type="button"
+                        >
+                          이의 제기 거절
+                        </button>
+                        <button
+                          className="button button-primary"
+                          onClick={() => handleQueueApproveAppeal(item)}
+                          type="button"
+                        >
+                          이의 제기 승인
+                        </button>
+                      </>
+                    ) : null}
+                    {item.latestReportId != null && !appealPending ? (
+                      <>
+                        <button
+                          className="button button-secondary"
+                          onClick={() => handleQueueResolveReport(item, 'DISMISSED')}
+                          type="button"
+                        >
+                          신고 기각
+                        </button>
+                        <button
+                          className="button button-primary"
+                          onClick={() => handleQueueResolveReport(item, 'RESOLVED')}
+                          type="button"
+                        >
+                          신고 해결
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })
+          )}
+        </div>
+      </section>
       <section className="section">
         <div className="section-heading">
           <h2>기획자 신청</h2>

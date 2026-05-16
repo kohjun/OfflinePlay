@@ -33,6 +33,9 @@ interface PostRepository : JpaRepository<Post, Long> {
     /** PR53 — 작성자 본인의 자동 숨김 공지. */
     fun findByAuthorAndHiddenAtIsNotNullOrderByHiddenAtDesc(author: User): List<Post>
 
+    /** PR55 — Admin moderation queue 빌드. 작성자 무관, 모든 hidden 공지. */
+    fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Post>
+
     @Modifying(clearAutomatically = true)
     @Query("UPDATE Post p SET p.likeCount = p.likeCount + :delta WHERE p.id = :id")
     fun updateLikeCount(@Param("id") id: Long, @Param("delta") delta: Int)

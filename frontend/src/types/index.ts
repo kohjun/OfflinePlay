@@ -395,6 +395,32 @@ export interface AdminModerationTarget {
   latestAppealStatus?: ReportAppealStatus | null
 }
 
+/** PR55 — 통합 moderation queue 우선순위. */
+export type AdminModerationPriority = 'HIGH' | 'MEDIUM' | 'LOW'
+
+/**
+ * PR55 — 신고 / appeal / hidden 3개 source 를 (targetType, targetId) 키로 merge 한 통합 row.
+ * 운영자가 한 페이지에서 우선순위 순으로 처리할 수 있게 모든 컨텍스트를 동봉한다.
+ */
+export interface AdminModerationQueueItem {
+  targetType: ReportTargetType
+  targetId: number
+  targetTitle: string
+  targetPreview: string
+  hidden: boolean
+  hiddenAt?: string | null
+  hiddenReason?: string | null
+  pendingReportCount: number
+  latestReportId?: number | null
+  latestReportReason?: string | null
+  latestReportCreatedAt?: string | null
+  latestAppealId?: number | null
+  latestAppealStatus?: ReportAppealStatus | null
+  latestAppealReason?: string | null
+  latestAppealCreatedAt?: string | null
+  priority: AdminModerationPriority
+}
+
 /**
  * PR53 — 작성자/소유자가 본인 권한의 자동 숨김 콘텐츠를 한눈에 보는 row.
  * backend 가 5개 도메인 (REVIEW/COMMENT/POST/EVENT/CHANNEL) 을 hiddenAt 내림차순으로 통합.

@@ -30,6 +30,9 @@ interface EventRepository : JpaRepository<Event, Long> {
     """)
     fun findHiddenByChannelOwner(@Param("owner") owner: User): List<Event>
 
+    /** PR55 — Admin moderation queue 빌드. 소유자 무관, 모든 hidden 이벤트. */
+    fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Event>
+
     fun findByStatus(status: EventStatus, pageable: Pageable): Page<Event>
 
     fun findByChannel(channel: Channel): List<Event>
