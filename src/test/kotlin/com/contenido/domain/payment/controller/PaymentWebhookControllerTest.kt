@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations
+import org.springframework.data.redis.core.RedisTemplate
 import org.springframework.http.MediaType
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.TestPropertySource
@@ -54,6 +56,12 @@ class PaymentWebhookControllerTest {
     @MockkBean lateinit var paymentService: PaymentService
     @MockkBean(relaxed = true) lateinit var searchSyncService: SearchSyncService
     @MockkBean(relaxed = true) lateinit var notificationService: NotificationService
+    // PR50: 컨텍스트 부팅 시 AuthService/PopularSearchService 등이 RedisTemplate 를,
+    // SearchSyncService 등이 ElasticsearchOperations 를 wire 한다. application-test.yml
+    // 에서 두 autoconfig 를 exclude 했으므로 명시적 mock 으로 채워준다 — 없으면 부팅
+    // 단계에서 멈춘다 (다른 통합 테스트는 이미 이 두 mock 을 들고 있어 통과해 왔음).
+    @MockkBean(relaxed = true) lateinit var redisTemplate: RedisTemplate<String, String>
+    @MockkBean(relaxed = true) lateinit var elasticsearchOperations: ElasticsearchOperations
 
     private val body = """{"idempotencyKey":"abc-123","amount":30000,"status":"PAID","provider":"TOSS"}"""
 

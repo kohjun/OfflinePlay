@@ -110,16 +110,33 @@ HAVING COUNT(*) > 1;
 
 `.github/workflows/ci.yml` — main 푸시/PR 마다 2개 job:
 
-- **backend**: `compileKotlin` + `compileTestKotlin` + service 단위 테스트 (`com.contenido.domain.*.service.*`).
+- **backend**: `compileKotlin` + `compileTestKotlin` + 전체 `./gradlew test` (278 tests).
 - **frontend**: `npm ci` + `npm run build` (tsc -b + vite).
 
-### 알려진 제약 — 전체 backend test hang
+### Spring Boot test 부팅 안정화 (PR50)
 
-전체 `./gradlew test` 는 PR42 이래로 `@SpringBootTest` 부팅 단계에서 hang 되는 인프라 이슈가
-있다. 원인 분리/해결은 후속 PR. 현재 CI 는:
-- service 단위 테스트만 명시 실행 — mockk 기반이라 안정.
-- 통합 테스트가 hang 으로 누락된 영역은 수동 QA 체크리스트 (`docs/manual-qa-checklist.md`) 와
-  운영 readiness probe 가 보강한다.
+PR42 이래 전체 `./gradlew test` 가 `@SpringBootTest` 부팅 단계에서 매달리던 이슈가 해결됐다.
+원인은 3개 축이 겹쳐 있었다:
+
+1. **`PaymentWebhookControllerTest` 가 `RedisTemplate` / `ElasticsearchOperations` mock 누락.**
+   `application-test.yml` 이 RedisAutoConfiguration / ElasticsearchAutoConfiguration 을
+   exclude 하므로 명시적으로 mock 을 제공해야 컨텍스트가 떴다. 다른 통합 테스트
+   (Auth/Channel/Permission) 는 이미 두 mock 을 갖고 있어 통과해 왔다. PR50 이 해당
+   테스트에 `@MockkBean(relaxed = true) RedisTemplate`, `ElasticsearchOperations` 두 줄을
+   추가했다.
+
+2. **`EventStatusScheduler` 의 `@Scheduled` 가 테스트 컨텍스트에서도 등록되어 non-daemon
+   `ThreadPoolTaskScheduler` thread 를 잡았다.** 다중 `@SpringBootTest` 클래스가 누적되면
+   JVM 종료가 분 단위로 매달리는 원인. PR50 이 `@Profile("!test")` 로 prod/local 에서만
+   등록되게 했다 — 운영 동작 변화 없음.
+
+3. **테스트 풀의 graceful shutdown 미설정.** `application-test.yml` 의
+   `spring.task.execution.shutdown.await-termination=true` (5s) +
+   `spring.task.scheduling.shutdown.await-termination=true` (5s) + 풀 크기를 작게 (1~2)
+   잡아 컨텍스트 close 시 thread 청소가 보장된다.
+
+검증: `./gradlew.bat test --console=plain --no-daemon` → 53s, 278/278 green
+(failures=0, errors=0, skipped=0).
 
 ### 게이트 통과 기준
 
@@ -141,7 +158,6 @@ HAVING COUNT(*) > 1;
 ## 7. 후속 과제
 
 - 신고 누적 자동 비공개 정책 (별도 PR).
-- 전체 `./gradlew test` hang 원인 분리 — 인프라 PR (Redis / Elasticsearch / @SpringBootTest
-  부팅 sequence 점검).
+- ~~전체 `./gradlew test` hang 원인 분리~~ → PR50 에서 해결됨, 위 §5 참고.
 - Actuator metrics/prometheus 노출 — 인증 게이트 (basic auth 또는 internal-only path) 와 함께.
 - Flyway V2 — 운영 첫 검증 후 mismatch 보정.

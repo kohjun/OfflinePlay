@@ -13,12 +13,12 @@ concurrency:
 
 jobs:
   # -------------------------------------------------------------
-  # Backend — Kotlin 컴파일 + 안정적인 단위 테스트 서브셋.
-  # 전체 ./gradlew test 는 @SpringBootTest 부팅 hang 인프라 이슈가 있어
-  # service 단위 테스트만 명시 실행한다 (docs/deploy-checklist.md 참고).
+  # Backend — Kotlin 컴파일 + 전체 ./gradlew test (PR50 에서 hang 해결).
+  # 278 tests (단위 + @SpringBootTest 통합). 자세한 안정화 내용은
+  # docs/deploy-checklist.md §5 참고.
   # -------------------------------------------------------------
   backend:
-    name: Backend (compile + unit tests)
+    name: Backend (compile + full test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,9 +45,8 @@ jobs:
       - name: Compile (main + test)
         run: ./gradlew compileKotlin compileTestKotlin --no-daemon
 
-      - name: Unit tests (service layer only)
-        # 인프라 hang 분리 PR 에서 전체 ./gradlew test 로 확장 예정.
-        run: ./gradlew test --tests "com.contenido.domain.*.service.*" --no-daemon
+      - name: Full test suite
+        run: ./gradlew test --no-daemon
 
       - name: Upload test reports on failure
         if: failure()
