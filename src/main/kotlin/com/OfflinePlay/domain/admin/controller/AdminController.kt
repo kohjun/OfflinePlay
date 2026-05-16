@@ -10,12 +10,16 @@ import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
 import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
+import com.contenido.domain.admin.dto.AuditLogArchivePreviewResponse
+import com.contenido.domain.admin.dto.AuditLogArchiveResultResponse
 import com.contenido.domain.admin.dto.AuditLogRetentionPolicyResponse
+import com.contenido.domain.admin.dto.ExecuteAuditLogArchiveRequest
 import com.contenido.domain.admin.dto.ModerationAuditLogResponse
 import com.contenido.domain.admin.dto.ModerationThresholdResponse
 import com.contenido.domain.admin.dto.UpdateModerationThresholdsRequest
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.service.AdminModerationService
+import com.contenido.domain.admin.service.ModerationAuditLogArchiveService
 import com.contenido.domain.admin.service.ModerationAuditLogRetentionService
 import com.contenido.domain.admin.service.ModerationAuditLogService
 import com.contenido.domain.admin.service.ModerationThresholdService
@@ -49,6 +53,7 @@ class AdminController(
     private val moderationThresholdService: ModerationThresholdService,
     private val moderationAuditLogService: ModerationAuditLogService,
     private val moderationAuditLogRetentionService: ModerationAuditLogRetentionService,
+    private val moderationAuditLogArchiveService: ModerationAuditLogArchiveService,
 ) {
 
     // ── 유저 관리 ──────────────────────────────────────────────────────────────
@@ -296,4 +301,27 @@ class AdminController(
         @RequestParam(required = false) retentionDays: Long?,
     ): ApiResponse<AuditLogRetentionPolicyResponse> =
         ApiResponse.ok(moderationAuditLogRetentionService.getRetentionPolicy(retentionDays))
+
+    // ── 운영 감사 로그 archive — PR66 ────────────────────────────────────────
+
+    /** archive 실행 전 영향 범위 미리보기. */
+    @GetMapping("/moderation/audit-log-retention/archive-preview")
+    fun getAuditLogArchivePreview(
+        @RequestParam(required = false) retentionDays: Long?,
+    ): ApiResponse<AuditLogArchivePreviewResponse> =
+        ApiResponse.ok(moderationAuditLogArchiveService.previewArchive(retentionDays))
+
+    /**
+     * archive 실행. expectedCutoffAt / expectedCandidateCount stale 가드 + confirmText='ARCHIVE'.
+     * 한 번에 최대 1000건. 결과로 archive 한 건수와 남은 후보 수를 반환.
+     */
+    @PostMapping("/moderation/audit-log-retention/archive")
+    fun executeAuditLogArchive(
+        @AuthenticationPrincipal adminUserId: Long,
+        @Valid @RequestBody request: ExecuteAuditLogArchiveRequest,
+    ): ApiResponse<AuditLogArchiveResultResponse> =
+        ApiResponse.ok(
+            moderationAuditLogArchiveService.executeArchive(adminUserId, request),
+            "오래된 감사 로그를 아카이브했어요.",
+        )
 }

@@ -3,8 +3,10 @@ import {
   approveCreatorApplication,
   banChannelForModeration,
   dismissReport,
+  executeAuditLogArchive,
   exportModerationAuditLogs,
   getAdminChannels,
+  getAuditLogArchivePreview,
   getAuditLogRetentionPolicy,
   getCreatorApplications,
   getModerationAuditLog,
@@ -32,6 +34,7 @@ import type {
   AdminModerationPriority,
   AdminModerationQueueItem,
   AdminModerationStats,
+  AuditLogArchivePreview,
   AuditLogRetentionPolicy,
   Channel,
   CreatorApplication,
@@ -255,6 +258,11 @@ export function AdminPage() {
   const [retentionDraft, setRetentionDraft] = useState<string>('')
   const [retentionLoading, setRetentionLoading] = useState(false)
   const [retentionError, setRetentionError] = useState<string | null>(null)
+  // PR66 — archive 미리보기 / 실행. preview 없이는 archive 버튼 활성화 X.
+  const [archivePreview, setArchivePreview] = useState<AuditLogArchivePreview | null>(null)
+  const [archivePreviewLoading, setArchivePreviewLoading] = useState(false)
+  const [archiveExecuting, setArchiveExecuting] = useState(false)
+  const [archiveConfirmText, setArchiveConfirmText] = useState('')
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -279,8 +287,9 @@ export function AdminPage() {
       getModerationThresholds(),
       getModerationAuditLogs({ size: AUDIT_PAGE_SIZE }),
       getAuditLogRetentionPolicy(),
+      getAuditLogArchivePreview(),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes, retentionRes]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes, retentionRes, archivePreviewRes]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
@@ -293,6 +302,7 @@ export function AdminPage() {
         setAuditIsLast(auditPageRes.isLast)
         setRetentionPolicy(retentionRes)
         setRetentionDraft(String(retentionRes.retentionDays))
+        setArchivePreview(archivePreviewRes)
         setThresholdDraft({
           REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
           COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
@@ -619,6 +629,81 @@ export function AdminPage() {
       setRetentionError(error instanceof Error ? error.message : '계산에 실패했어요.')
     } finally {
       setRetentionLoading(false)
+    }
+  }
+
+  // PR66 — archive 미리보기 재계산. retentionDraft 의 override 가 있으면 그대로 전달. 결과는
+  // archivePreview 상태에 보관 — 실행 시 expectedCutoffAt / expectedCandidateCount echo 에 사용.
+  async function handleArchivePreview() {
+    const override = parsePositiveLong(retentionDraft)
+    setArchivePreviewLoading(true)
+    setRetentionError(null)
+    try {
+      const res = await getAuditLogArchivePreview(override)
+      setArchivePreview(res)
+    } catch (error) {
+      setRetentionError(error instanceof Error ? error.message : '미리보기 실패.')
+    } finally {
+      setArchivePreviewLoading(false)
+    }
+  }
+
+  // PR66 — archive 실행. server stale 가드를 위해 archivePreview 의 cutoffAt / candidateCount 를
+  // 그대로 echo. confirmText 정확 일치 'ARCHIVE'. 성공 시 preview + retention 새로 받아 화면 갱신.
+  async function handleArchiveExecute() {
+    if (!archivePreview || archivePreview.willArchiveCount <= 0) return
+    if (archiveConfirmText !== 'ARCHIVE') {
+      showToast({
+        title: '확인 텍스트를 입력해주세요',
+        message: 'ARCHIVE 를 그대로 입력하면 실행됩니다.',
+        tone: 'warning',
+      })
+      return
+    }
+    setArchiveExecuting(true)
+    try {
+      const result = await executeAuditLogArchive({
+        retentionDays: archivePreview.retentionDays,
+        expectedCutoffAt: archivePreview.cutoffAt,
+        expectedCandidateCount: archivePreview.candidateCount,
+        confirmText: archiveConfirmText,
+      })
+      showToast({
+        title: `${result.archivedCount}건을 아카이브했어요`,
+        message:
+          result.remainingCandidateCount > 0
+            ? `남은 후보 ${result.remainingCandidateCount}건. 미리보기를 다시 받아 진행하세요.`
+            : '대상이 모두 아카이브됐어요.',
+        tone: 'success',
+      })
+      setArchiveConfirmText('')
+      // 잔여 후보가 있으면 다시 archive 가능하도록 preview + retention 갱신.
+      const [nextPreview, nextRetention] = await Promise.all([
+        getAuditLogArchivePreview(archivePreview.retentionDays),
+        getAuditLogRetentionPolicy(archivePreview.retentionDays),
+      ])
+      setArchivePreview(nextPreview)
+      setRetentionPolicy(nextRetention)
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0
+      const title =
+        status === 409
+          ? '미리보기 결과가 변경됐어요'
+          : status === 400
+          ? '요청을 확인해주세요'
+          : '아카이브 실행에 실패했어요'
+      showToast({
+        title,
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+      // stale 시 preview 강제 새로 받기.
+      if (status === 409) await handleArchivePreview()
+    } finally {
+      setArchiveExecuting(false)
     }
   }
 
@@ -1249,7 +1334,66 @@ export function AdminPage() {
             >
               {retentionLoading ? '계산 중…' : '미리 계산'}
             </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={handleArchivePreview}
+              disabled={archivePreviewLoading}
+            >
+              {archivePreviewLoading ? '아카이브 미리보기 중…' : '아카이브 미리보기'}
+            </button>
           </div>
+          {/* PR66 — archive 실행 영역. 안전 가드: preview 존재 + willArchiveCount > 0 + confirmText='ARCHIVE'. */}
+          {archivePreview ? (
+            <div className="ct-archive-panel">
+              <p className="muted" style={{ marginBottom: '8px' }}>
+                삭제가 아니라 별도 아카이브 테이블로 이동합니다. 한 번에 최대{' '}
+                {archivePreview.archiveLimit.toLocaleString()}건. 후속 PR 에서 archive 조회 UI 가
+                추가됩니다.
+              </p>
+              <div className="ct-archive-summary">
+                <span>
+                  대상 후보 <strong>{archivePreview.candidateCount.toLocaleString()}</strong>건 /
+                  이번에 옮길 수 있는 양 <strong>{archivePreview.willArchiveCount.toLocaleString()}</strong>건
+                </span>
+                <span className="muted">cutoffAt: {new Date(archivePreview.cutoffAt).toLocaleString()}</span>
+              </div>
+              <label className="ct-audit-filter" style={{ marginTop: '10px' }}>
+                <span>
+                  확인 텍스트 (정확히 <code>ARCHIVE</code> 입력)
+                </span>
+                <input
+                  type="text"
+                  inputMode="text"
+                  maxLength={16}
+                  autoCapitalize="characters"
+                  placeholder="ARCHIVE"
+                  value={archiveConfirmText}
+                  onChange={(e) => setArchiveConfirmText(e.target.value)}
+                  disabled={archiveExecuting || archivePreview.willArchiveCount <= 0}
+                />
+              </label>
+              <div className="admin-actions" style={{ marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={handleArchiveExecute}
+                  disabled={
+                    archiveExecuting ||
+                    archivePreview.willArchiveCount <= 0 ||
+                    archiveConfirmText !== 'ARCHIVE'
+                  }
+                  title="archive table 로 이동 (hard delete 아님)"
+                >
+                  {archiveExecuting
+                    ? '아카이브 중…'
+                    : archivePreview.willArchiveCount <= 0
+                    ? '대상 없음'
+                    : `${archivePreview.willArchiveCount.toLocaleString()}건 아카이브 실행`}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
       {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.

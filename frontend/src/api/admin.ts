@@ -6,9 +6,12 @@ import type {
   AdminModerationQueueItem,
   AdminModerationStats,
   AdminModerationTarget,
+  AuditLogArchivePreview,
+  AuditLogArchiveResult,
   AuditLogRetentionPolicy,
   Channel,
   CreatorApplication,
+  ExecuteAuditLogArchiveRequest,
   ModerationAuditAction,
   ModerationAuditLog,
   ModerationThreshold,
@@ -228,4 +231,31 @@ export function exportModerationAuditLogs(params?: {
 export function getAuditLogRetentionPolicy(retentionDays?: number) {
   const params = retentionDays != null ? { retentionDays } : undefined
   return apiClient.get<AuditLogRetentionPolicy>('/admin/moderation/audit-log-retention', params)
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-log-retention/archive-preview
+ *
+ * PR66 — archive 실행 전 미리보기. willArchiveCount = min(candidateCount, archiveLimit=1000).
+ * 실제 이동은 발생하지 않음.
+ */
+export function getAuditLogArchivePreview(retentionDays?: number) {
+  const params = retentionDays != null ? { retentionDays } : undefined
+  return apiClient.get<AuditLogArchivePreview>(
+    '/admin/moderation/audit-log-retention/archive-preview',
+    params,
+  )
+}
+
+/**
+ * POST /api/v1/admin/moderation/audit-log-retention/archive
+ *
+ * PR66 — archive 실행. preview 의 cutoffAt / candidateCount 를 echo 해서 stale 가드 +
+ * confirmText='ARCHIVE'. 한 번에 최대 1000건. hard delete 아님.
+ */
+export function executeAuditLogArchive(request: ExecuteAuditLogArchiveRequest) {
+  return apiClient.post<AuditLogArchiveResult>(
+    '/admin/moderation/audit-log-retention/archive',
+    request,
+  )
 }

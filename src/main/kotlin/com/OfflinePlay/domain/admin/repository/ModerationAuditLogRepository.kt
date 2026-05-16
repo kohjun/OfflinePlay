@@ -1,6 +1,7 @@
 package com.contenido.domain.admin.repository
 
 import com.contenido.domain.admin.entity.ModerationAuditLog
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor
 import java.time.LocalDateTime
@@ -27,4 +28,13 @@ interface ModerationAuditLogRepository :
 
     /** PR64 — 가장 최근 audit log 1건. row 가 0건이면 null. */
     fun findFirstByOrderByCreatedAtDesc(): ModerationAuditLog?
+
+    /**
+     * PR66 — archive 대상 fetch. cutoffAt 이전 row 를 createdAt ASC 로 [pageable] 만큼.
+     * 호출자가 Pageable.ofSize(1000) 등으로 1회 batch 크기를 강제.
+     */
+    fun findByCreatedAtBeforeOrderByCreatedAtAsc(
+        cutoffAt: LocalDateTime,
+        pageable: Pageable,
+    ): List<ModerationAuditLog>
 }

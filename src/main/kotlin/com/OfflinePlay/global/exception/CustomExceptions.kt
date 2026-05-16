@@ -356,3 +356,18 @@ class ModerationAuditLogNotFoundException : ContENIDOException(
 class InvalidRetentionRangeException(message: String) : ContENIDOException(
     HttpStatus.BAD_REQUEST, message,
 )
+
+/** PR66 — archive 실행 시 confirmText 가 정확히 일치하지 않음. */
+class AuditLogArchiveConfirmationRequiredException : ContENIDOException(
+    HttpStatus.BAD_REQUEST,
+    "감사 로그 아카이브를 실행하려면 confirmText 에 정확히 'ARCHIVE' 를 입력해야 합니다.",
+)
+
+/**
+ * PR66 — preview 시점과 execute 시점 사이에 새 로그가 들어와 expectedCandidateCount /
+ * expectedCutoffAt 이 어긋남. stale 상태에서 부정확한 양을 archive 하지 않도록 차단.
+ */
+class AuditLogArchiveStaleException : ContENIDOException(
+    HttpStatus.CONFLICT,
+    "아카이브 대상이 변경됐어요. 미리보기를 다시 받아 주세요.",
+)

@@ -1130,6 +1130,22 @@ textarea {
   outline: none;
 }
 
+/* PR66 — archive 실행 panel. retention card 안에서 분리된 시각적 블록. */
+.ct-archive-panel {
+  background: var(--surface-muted, #f5f5f7);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  margin-top: 16px;
+  padding: 12px;
+}
+
+.ct-archive-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 13px;
+}
+
 /* PR64 — 감사 로그 retention 카드. 2~3 컬럼 그리드 + 셀별 라벨/값 스택. */
 .ct-retention-grid {
   display: grid;

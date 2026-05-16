@@ -40,6 +40,12 @@ enum class ModerationAuditAction {
 
     /** 신고 DISMISSED 처리. */
     REPORT_DISMISSED,
+
+    /**
+     * PR66 — 운영자가 오래된 audit log row 를 archive table 로 이동시켰을 때 active 테이블에
+     * 남기는 액션. afterValue 에 archived count / cutoffAt / 잔여 후보 수 JSON 동봉.
+     */
+    AUDIT_LOGS_ARCHIVED,
 }
 
 @Entity

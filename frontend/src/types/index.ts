@@ -506,6 +506,37 @@ export interface AuditLogRetentionPolicy {
 }
 
 /**
+ * PR66 — archive 실행 전 미리보기. willArchiveCount = min(candidateCount, archiveLimit).
+ */
+export interface AuditLogArchivePreview {
+  retentionDays: number
+  cutoffAt: string
+  candidateCount: number
+  archiveLimit: number
+  willArchiveCount: number
+  oldestAuditLogCreatedAt: string | null
+  newestAuditLogCreatedAt: string | null
+}
+
+/**
+ * PR66 — archive 실행 요청. confirmText 는 정확히 'ARCHIVE'. preview 의 cutoffAt /
+ * candidateCount 를 그대로 echo 해서 server 가 stale 가드.
+ */
+export interface ExecuteAuditLogArchiveRequest {
+  retentionDays?: number
+  expectedCutoffAt: string
+  expectedCandidateCount: number
+  confirmText: string
+}
+
+/** PR66 — archive 실행 결과. */
+export interface AuditLogArchiveResult {
+  archivedCount: number
+  cutoffAt: string
+  remainingCandidateCount: number
+}
+
+/**
  * PR60 — partial update. null/undefined 필드는 변경하지 않음. 1..100 범위.
  */
 export interface UpdateModerationThresholdsRequest {
