@@ -10,9 +10,12 @@ import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
 import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
+import com.contenido.domain.admin.dto.ModerationAuditLogResponse
 import com.contenido.domain.admin.dto.ModerationThresholdResponse
 import com.contenido.domain.admin.dto.UpdateModerationThresholdsRequest
+import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.service.AdminModerationService
+import com.contenido.domain.admin.service.ModerationAuditLogService
 import com.contenido.domain.admin.service.ModerationThresholdService
 import org.springframework.format.annotation.DateTimeFormat
 import java.time.LocalDateTime
@@ -37,6 +40,7 @@ class AdminController(
     private val reportAppealService: ReportAppealService,
     private val adminModerationService: AdminModerationService,
     private val moderationThresholdService: ModerationThresholdService,
+    private val moderationAuditLogService: ModerationAuditLogService,
 ) {
 
     // ── 유저 관리 ──────────────────────────────────────────────────────────────
@@ -80,12 +84,18 @@ class AdminController(
         ApiResponse.ok(PageResponse.of(adminService.getReports(page, size, targetType)))
 
     @PatchMapping("/reports/{id}/resolve")
-    fun resolveReport(@PathVariable id: Long): ApiResponse<ReportResponse> =
-        ApiResponse.ok(adminService.resolveReport(id), "신고를 해결 처리했습니다.")
+    fun resolveReport(
+        @AuthenticationPrincipal adminUserId: Long,
+        @PathVariable id: Long,
+    ): ApiResponse<ReportResponse> =
+        ApiResponse.ok(adminService.resolveReport(adminUserId, id), "신고를 해결 처리했습니다.")
 
     @PatchMapping("/reports/{id}/dismiss")
-    fun dismissReport(@PathVariable id: Long): ApiResponse<ReportResponse> =
-        ApiResponse.ok(adminService.dismissReport(id), "신고를 기각 처리했습니다.")
+    fun dismissReport(
+        @AuthenticationPrincipal adminUserId: Long,
+        @PathVariable id: Long,
+    ): ApiResponse<ReportResponse> =
+        ApiResponse.ok(adminService.dismissReport(adminUserId, id), "신고를 기각 처리했습니다.")
 
     // ── 이의 제기(appeal) 관리 — PR52 ────────────────────────────────────────
 
@@ -143,22 +153,24 @@ class AdminController(
 
     @PatchMapping("/moderation/{targetType}/{targetId}/hide")
     fun hideTarget(
+        @AuthenticationPrincipal adminUserId: Long,
         @PathVariable targetType: ReportTargetType,
         @PathVariable targetId: Long,
         @Valid @RequestBody request: AdminHideTargetRequest,
     ): ApiResponse<AdminModerationTargetResponse> =
         ApiResponse.ok(
-            adminModerationService.hideTarget(targetType, targetId, request),
+            adminModerationService.hideTarget(adminUserId, targetType, targetId, request),
             "대상을 숨김 처리했어요.",
         )
 
     @PatchMapping("/moderation/{targetType}/{targetId}/unhide")
     fun unhideTarget(
+        @AuthenticationPrincipal adminUserId: Long,
         @PathVariable targetType: ReportTargetType,
         @PathVariable targetId: Long,
     ): ApiResponse<AdminModerationTargetResponse> =
         ApiResponse.ok(
-            adminModerationService.unhideTarget(targetType, targetId),
+            adminModerationService.unhideTarget(adminUserId, targetType, targetId),
             "숨김을 해제했어요.",
         )
 
@@ -166,20 +178,22 @@ class AdminController(
 
     @PatchMapping("/moderation/channels/{channelId}/ban")
     fun banChannelForModeration(
+        @AuthenticationPrincipal adminUserId: Long,
         @PathVariable channelId: Long,
         @Valid @RequestBody request: AdminBanChannelRequest,
     ): ApiResponse<AdminChannelBanResponse> =
         ApiResponse.ok(
-            adminModerationService.banChannelForModeration(channelId, request),
+            adminModerationService.banChannelForModeration(adminUserId, channelId, request),
             "채널을 제재하고 관련 콘텐츠를 숨겼어요.",
         )
 
     @PatchMapping("/moderation/channels/{channelId}/unban")
     fun unbanChannelForModeration(
+        @AuthenticationPrincipal adminUserId: Long,
         @PathVariable channelId: Long,
     ): ApiResponse<AdminChannelBanResponse> =
         ApiResponse.ok(
-            adminModerationService.unbanChannelForModeration(channelId),
+            adminModerationService.unbanChannelForModeration(adminUserId, channelId),
             "채널 제재를 해제했어요.",
         )
 
@@ -191,10 +205,25 @@ class AdminController(
 
     @PatchMapping("/moderation/thresholds")
     fun updateModerationThresholds(
+        @AuthenticationPrincipal adminUserId: Long,
         @Valid @RequestBody request: UpdateModerationThresholdsRequest,
     ): ApiResponse<List<ModerationThresholdResponse>> =
         ApiResponse.ok(
-            moderationThresholdService.updateThresholds(request),
+            moderationThresholdService.updateThresholds(adminUserId, request),
             "임계치를 갱신했어요.",
+        )
+
+    // ── 운영 감사 로그 — PR61 ────────────────────────────────────────────────
+
+    @GetMapping("/moderation/audit-logs")
+    fun getModerationAuditLogs(
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int,
+        @RequestParam(required = false) action: ModerationAuditAction?,
+        @RequestParam(required = false) targetType: ReportTargetType?,
+        @RequestParam(required = false) targetId: Long?,
+    ): ApiResponse<PageResponse<ModerationAuditLogResponse>> =
+        ApiResponse.ok(
+            PageResponse.of(moderationAuditLogService.list(page, size, action, targetType, targetId)),
         )
 }

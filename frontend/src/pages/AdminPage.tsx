@@ -5,6 +5,7 @@ import {
   dismissReport,
   getAdminChannels,
   getCreatorApplications,
+  getModerationAuditLogs,
   getModerationQueue,
   getModerationStats,
   getModerationThresholds,
@@ -30,6 +31,8 @@ import type {
   AdminModerationStats,
   Channel,
   CreatorApplication,
+  ModerationAuditAction,
+  ModerationAuditLog,
   ModerationThreshold,
   Report,
   ReportAppeal,
@@ -67,6 +70,42 @@ const TARGET_TYPE_LABEL: Record<ReportTargetType, string> = {
   COMMENT: '댓글',
   REVIEW: '후기',
 }
+
+const AUDIT_ACTION_LABEL: Record<ModerationAuditAction, string> = {
+  THRESHOLD_UPDATED: '임계치 변경',
+  TARGET_HIDDEN: '수동 숨김',
+  TARGET_UNHIDDEN: '숨김 해제',
+  CHANNEL_BANNED: '채널 제재',
+  CHANNEL_UNBANNED: '채널 제재 해제',
+  APPEAL_APPROVED: '이의 제기 승인',
+  APPEAL_REJECTED: '이의 제기 거절',
+  REPORT_RESOLVED: '신고 해결',
+  REPORT_DISMISSED: '신고 기각',
+}
+
+const AUDIT_ACTION_TONE: Record<ModerationAuditAction, 'danger' | 'warning' | 'success' | 'neutral' | 'primary'> = {
+  THRESHOLD_UPDATED: 'primary',
+  TARGET_HIDDEN: 'danger',
+  TARGET_UNHIDDEN: 'success',
+  CHANNEL_BANNED: 'danger',
+  CHANNEL_UNBANNED: 'success',
+  APPEAL_APPROVED: 'success',
+  APPEAL_REJECTED: 'warning',
+  REPORT_RESOLVED: 'success',
+  REPORT_DISMISSED: 'neutral',
+}
+
+type AuditFilter = 'ALL' | ModerationAuditAction
+
+const AUDIT_FILTERS: Array<{ value: AuditFilter; label: string }> = [
+  { value: 'ALL', label: '전체' },
+  { value: 'TARGET_HIDDEN', label: '수동 숨김' },
+  { value: 'TARGET_UNHIDDEN', label: '숨김 해제' },
+  { value: 'CHANNEL_BANNED', label: '채널 제재' },
+  { value: 'APPEAL_APPROVED', label: '이의 제기 승인' },
+  { value: 'APPEAL_REJECTED', label: '이의 제기 거절' },
+  { value: 'THRESHOLD_UPDATED', label: '임계치 변경' },
+]
 
 /**
  * PR57 — 운영 지표 line chart. 외부 라이브러리 없이 inline SVG polyline 으로 3선:
@@ -136,6 +175,9 @@ export function AdminPage() {
   const [queue, setQueue] = useState<AdminModerationQueueItem[]>([])
   // PR57 — 운영 지표 (최근 30일 default).
   const [stats, setStats] = useState<AdminModerationStats | null>(null)
+  // PR61 — 운영 감사 로그 (최신 20건). action 필터 칩으로 좁힘.
+  const [auditLogs, setAuditLogs] = useState<ModerationAuditLog[]>([])
+  const [auditFilter, setAuditFilter] = useState<AuditFilter>('ALL')
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -158,8 +200,9 @@ export function AdminPage() {
       getModerationQueue({ size: 30 }),
       getModerationStats(),
       getModerationThresholds(),
+      getModerationAuditLogs({ size: 20 }),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPage]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
@@ -167,6 +210,7 @@ export function AdminPage() {
         setQueue(queuePage.content)
         setStats(statsRes)
         setThresholds(thresholdsRes)
+        setAuditLogs(auditPage.content)
         setThresholdDraft({
           REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
           COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
@@ -195,6 +239,18 @@ export function AdminPage() {
         /* non-fatal — 초기 로드 toast 가 이미 떴거나 일시 오류 */
       })
   }, [reportFilter, user?.role])
+
+  // PR61 — audit 필터 변경 시 해당 action 만 다시 받는다.
+  useEffect(() => {
+    if (user?.role !== 'ADMIN') return
+    const params: Parameters<typeof getModerationAuditLogs>[0] =
+      auditFilter === 'ALL' ? { size: 20 } : { size: 20, action: auditFilter }
+    getModerationAuditLogs(params)
+      .then((page) => setAuditLogs(page.content))
+      .catch(() => {
+        /* non-fatal */
+      })
+  }, [auditFilter, user?.role])
 
   async function handleApproveAppeal(id: number) {
     try {
@@ -674,6 +730,56 @@ export function AdminPage() {
           </div>
         </section>
       ) : null}
+      {/* PR61 — 운영 감사 로그. 최신 20건 + action 필터 칩. before/after 는 JSON 문자열을
+          접어 한 줄로 표시. 상세 보기는 후속 PR — MVP 는 감사 가능성 보장에 집중. */}
+      <section className="section">
+        <div className="section-heading">
+          <h2>운영 감사 로그</h2>
+          <span className="muted">최신 {auditLogs.length}건</span>
+        </div>
+        <div className="badge-row" style={{ gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
+          {AUDIT_FILTERS.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              className={`chip${auditFilter === filter.value ? ' is-active' : ''}`}
+              onClick={() => setAuditFilter(filter.value)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+        {auditLogs.length === 0 ? (
+          <p className="muted">감사 로그가 없어요.</p>
+        ) : (
+          <ul className="stack">
+            {auditLogs.map((log) => (
+              <article className="card admin-card" key={log.id}>
+                <div>
+                  <div className="badge-row">
+                    <Badge tone={AUDIT_ACTION_TONE[log.action]}>{AUDIT_ACTION_LABEL[log.action]}</Badge>
+                    {log.targetType ? (
+                      <Badge tone="neutral">{TARGET_TYPE_LABEL[log.targetType]}</Badge>
+                    ) : null}
+                    {log.targetId != null ? (
+                      <span className="muted">#{log.targetId}</span>
+                    ) : null}
+                  </div>
+                  <strong>{log.actorNickname}</strong>
+                  {log.reason ? <p className="muted">사유: {log.reason}</p> : null}
+                  {log.beforeValue ? (
+                    <p className="muted ct-audit-snippet">before: {log.beforeValue}</p>
+                  ) : null}
+                  {log.afterValue ? (
+                    <p className="muted ct-audit-snippet">after: {log.afterValue}</p>
+                  ) : null}
+                  <span className="muted">{new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+              </article>
+            ))}
+          </ul>
+        )}
+      </section>
       {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.
           상세 신고/appeal 섹션은 아래에 그대로 유지되어 전체 목록 조회/필터링용으로 남는다. */}
       <section className="section">

@@ -1089,6 +1089,15 @@ textarea {
   gap: 8px;
 }
 
+/* PR61 — 감사 로그 before/after JSON 한 줄 표시 (모바일에서 길어도 가로 스크롤 없이 잘림). */
+.ct-audit-snippet {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* PR60 — 자동 hide 임계치 5칸 그리드. 모바일 420px 에서 한 줄에 안 들어가면 자동 wrap. */
 .ct-admin-thresholds {
   display: grid;

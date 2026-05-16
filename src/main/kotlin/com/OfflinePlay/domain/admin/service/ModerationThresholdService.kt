@@ -2,6 +2,7 @@ package com.contenido.domain.admin.service
 
 import com.contenido.domain.admin.dto.ModerationThresholdResponse
 import com.contenido.domain.admin.dto.UpdateModerationThresholdsRequest
+import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.entity.ModerationThresholdSetting
 import com.contenido.domain.admin.repository.ModerationThresholdSettingRepository
 import com.contenido.domain.report.entity.ReportTargetType
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional
 @Transactional(readOnly = true)
 class ModerationThresholdService(
     private val moderationThresholdSettingRepository: ModerationThresholdSettingRepository,
+    private val moderationAuditLogService: ModerationAuditLogService,
 ) {
 
     companion object {
@@ -58,9 +60,15 @@ class ModerationThresholdService(
     /**
      * 부분 갱신. null 인 필드는 변경하지 않음. 모든 필드가 null 이면 no-op.
      * row 가 아직 없는 targetType 은 새로 만든다 (V4 seed 누락/롤백 안전판).
+     *
+     * PR61 — 실제로 변경된 필드가 있을 때만 audit log THRESHOLD_UPDATED 를 1건 기록한다.
+     * before/after 는 변경된 type 만 담은 부분 맵 JSON 으로 저장.
      */
     @Transactional
-    fun updateThresholds(request: UpdateModerationThresholdsRequest): List<ModerationThresholdResponse> {
+    fun updateThresholds(
+        actorId: Long,
+        request: UpdateModerationThresholdsRequest,
+    ): List<ModerationThresholdResponse> {
         val updates: Map<ReportTargetType, Int> = buildMap {
             request.review?.let { put(ReportTargetType.REVIEW, it) }
             request.comment?.let { put(ReportTargetType.COMMENT, it) }
@@ -68,21 +76,47 @@ class ModerationThresholdService(
             request.event?.let { put(ReportTargetType.EVENT, it) }
             request.channel?.let { put(ReportTargetType.CHANNEL, it) }
         }
-        if (updates.isNotEmpty()) {
-            updates.forEach { (type, value) ->
-                require(value in MIN_VALUE..MAX_VALUE) {
-                    "임계치는 ${MIN_VALUE}~${MAX_VALUE} 사이여야 합니다."
-                }
-                val existing = moderationThresholdSettingRepository.findById(type).orElse(null)
-                if (existing != null) {
-                    existing.update(value)
-                } else {
-                    moderationThresholdSettingRepository.save(
-                        ModerationThresholdSetting(targetType = type, thresholdValue = value),
-                    )
-                }
+        if (updates.isEmpty()) return getThresholds()
+
+        // 범위 가드를 가장 먼저 — DB I/O 전에 차단해 audit 노이즈 / 부분 갱신을 막는다.
+        updates.forEach { (_, value) ->
+            require(value in MIN_VALUE..MAX_VALUE) {
+                "임계치는 ${MIN_VALUE}~${MAX_VALUE} 사이여야 합니다."
             }
         }
+
+        // 변경 전 값 snapshot — diff 계산용. row 없으면 DEFAULTS fallback (실제 운영에 의미 있는 값).
+        val before: Map<ReportTargetType, Int> = updates.keys.associateWith { type ->
+            moderationThresholdSettingRepository.findById(type)
+                .map { it.thresholdValue }
+                .orElseGet { DEFAULTS.getValue(type) }
+        }
+
+        updates.forEach { (type, value) ->
+            val existing = moderationThresholdSettingRepository.findById(type).orElse(null)
+            if (existing != null) {
+                existing.update(value)
+            } else {
+                moderationThresholdSettingRepository.save(
+                    ModerationThresholdSetting(targetType = type, thresholdValue = value),
+                )
+            }
+        }
+
+        // 실제 변경된 필드만 기록. 동일 값 set 은 audit 노이즈가 되므로 skip.
+        val effectiveChanges = updates.filter { (type, value) -> before[type] != value }
+        if (effectiveChanges.isNotEmpty()) {
+            val effectiveBefore = effectiveChanges.keys.associateWith { before.getValue(it) }
+            moderationAuditLogService.record(
+                actorId = actorId,
+                action = ModerationAuditAction.THRESHOLD_UPDATED,
+                targetType = null,
+                targetId = null,
+                beforeValue = effectiveBefore,
+                afterValue = effectiveChanges,
+            )
+        }
+
         return getThresholds()
     }
 

@@ -2,6 +2,7 @@ package com.contenido.domain.admin.service
 
 import com.contenido.domain.admin.dto.AdminChannelResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
+import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.event.repository.EventRepository
@@ -36,6 +37,7 @@ class AdminService(
     private val postRepository: PostRepository,
     private val commentRepository: CommentRepository,
     private val reviewRepository: ReviewRepository,
+    private val moderationAuditLogService: ModerationAuditLogService,
 ) {
 
     companion object {
@@ -86,16 +88,31 @@ class AdminService(
     }
 
     @Transactional
-    fun resolveReport(reportId: Long): ReportResponse {
+    fun resolveReport(actorId: Long, reportId: Long): ReportResponse {
         val report = findPendingReport(reportId)
         report.resolve()
+        // PR61 — report 도메인 단위 단순 처리지만 ADMIN 액션이라 같이 추적.
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = ModerationAuditAction.REPORT_RESOLVED,
+            targetType = report.targetType,
+            targetId = report.targetId,
+            afterValue = mapOf("reportId" to report.id),
+        )
         return report.toResponseWithPreview()
     }
 
     @Transactional
-    fun dismissReport(reportId: Long): ReportResponse {
+    fun dismissReport(actorId: Long, reportId: Long): ReportResponse {
         val report = findPendingReport(reportId)
         report.dismiss()
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = ModerationAuditAction.REPORT_DISMISSED,
+            targetType = report.targetType,
+            targetId = report.targetId,
+            afterValue = mapOf("reportId" to report.id),
+        )
         return report.toResponseWithPreview()
     }
 

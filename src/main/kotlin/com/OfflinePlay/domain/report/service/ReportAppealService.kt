@@ -1,5 +1,7 @@
 package com.contenido.domain.report.service
 
+import com.contenido.domain.admin.entity.ModerationAuditAction
+import com.contenido.domain.admin.service.ModerationAuditLogService
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.interaction.repository.CommentRepository
@@ -56,6 +58,7 @@ class ReportAppealService(
     private val postRepository: PostRepository,
     private val commentRepository: CommentRepository,
     private val reviewRepository: ReviewRepository,
+    private val moderationAuditLogService: ModerationAuditLogService,
 ) {
 
     companion object {
@@ -148,6 +151,15 @@ class ReportAppealService(
         // 대상이 그 사이 삭제됐을 수 있다 — unhide 시도하되 대상이 없으면 graceful skip.
         unhideTarget(appeal.targetType, appeal.targetId)
         appeal.approve(admin)
+        // PR61 — 같은 트랜잭션에 audit. afterValue 로 appeal id 보존 (운영자 추적용).
+        moderationAuditLogService.record(
+            actorId = adminUserId,
+            action = ModerationAuditAction.APPEAL_APPROVED,
+            targetType = appeal.targetType,
+            targetId = appeal.targetId,
+            afterValue = mapOf("appealId" to appeal.id),
+            reason = appeal.reason,
+        )
         return appeal.toResponse(
             targetPreview = resolvePreview(appeal.targetType, appeal.targetId),
             targetHidden = isTargetHidden(appeal.targetType, appeal.targetId),
@@ -159,6 +171,14 @@ class ReportAppealService(
         val admin = userRepository.findById(adminUserId).orElseThrow { UserNotFoundException() }
         val appeal = findPendingAppeal(appealId)
         appeal.reject(admin, request.rejectReason)
+        moderationAuditLogService.record(
+            actorId = adminUserId,
+            action = ModerationAuditAction.APPEAL_REJECTED,
+            targetType = appeal.targetType,
+            targetId = appeal.targetId,
+            afterValue = mapOf("appealId" to appeal.id),
+            reason = appeal.rejectReason ?: request.rejectReason,
+        )
         return appeal.toResponse(
             targetPreview = resolvePreview(appeal.targetType, appeal.targetId),
             targetHidden = isTargetHidden(appeal.targetType, appeal.targetId),

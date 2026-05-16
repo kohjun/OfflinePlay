@@ -33,6 +33,9 @@ class AdminServiceTest {
     @MockK lateinit var postRepository: com.contenido.domain.post.repository.PostRepository
     @MockK lateinit var commentRepository: com.contenido.domain.interaction.repository.CommentRepository
     @MockK lateinit var reviewRepository: com.contenido.domain.review.repository.ReviewRepository
+    // PR61 — resolve/dismiss 가 audit log 를 기록. 본 테스트는 audit 호출 자체는 무시 (record 가
+    // 정상 동작한다고 가정). audit-specific 동작은 ModerationAuditLogServiceTest 에서 검증.
+    @MockK(relaxed = true) lateinit var moderationAuditLogService: ModerationAuditLogService
 
     private lateinit var adminService: AdminService
 
@@ -46,6 +49,7 @@ class AdminServiceTest {
             postRepository = postRepository,
             commentRepository = commentRepository,
             reviewRepository = reviewRepository,
+            moderationAuditLogService = moderationAuditLogService,
         )
         // PR48: toResponseWithPreview 가 모든 resolve/dismiss/getReports 경로에서 호출되므로
         // 기본 stub — 대상 미존재 시 preview/rating 모두 null.
@@ -63,7 +67,7 @@ class AdminServiceTest {
         val report = createReport(id = 1L, status = ReportStatus.PENDING)
         every { reportRepository.findById(1L) } returns Optional.of(report)
 
-        val result = adminService.resolveReport(1L)
+        val result = adminService.resolveReport(99L, 1L)
 
         assertThat(result.status).isEqualTo(ReportStatus.RESOLVED)
         assertThat(report.status).isEqualTo(ReportStatus.RESOLVED)
@@ -73,7 +77,7 @@ class AdminServiceTest {
     fun `resolveReport 존재하지 않는 신고 예외`() {
         every { reportRepository.findById(99L) } returns Optional.empty()
 
-        assertThrows<ReportNotFoundException> { adminService.resolveReport(99L) }
+        assertThrows<ReportNotFoundException> { adminService.resolveReport(99L, 99L) }
     }
 
     @Test
@@ -81,7 +85,7 @@ class AdminServiceTest {
         val report = createReport(id = 1L, status = ReportStatus.RESOLVED)
         every { reportRepository.findById(1L) } returns Optional.of(report)
 
-        assertThrows<ReportAlreadyProcessedException> { adminService.resolveReport(1L) }
+        assertThrows<ReportAlreadyProcessedException> { adminService.resolveReport(99L, 1L) }
     }
 
     @Test
@@ -89,7 +93,7 @@ class AdminServiceTest {
         val report = createReport(id = 1L, status = ReportStatus.DISMISSED)
         every { reportRepository.findById(1L) } returns Optional.of(report)
 
-        assertThrows<ReportAlreadyProcessedException> { adminService.resolveReport(1L) }
+        assertThrows<ReportAlreadyProcessedException> { adminService.resolveReport(99L, 1L) }
     }
 
     // ── dismissReport ─────────────────────────────────────────────────────────
@@ -99,7 +103,7 @@ class AdminServiceTest {
         val report = createReport(id = 1L, status = ReportStatus.PENDING)
         every { reportRepository.findById(1L) } returns Optional.of(report)
 
-        val result = adminService.dismissReport(1L)
+        val result = adminService.dismissReport(99L, 1L)
 
         assertThat(result.status).isEqualTo(ReportStatus.DISMISSED)
         assertThat(report.status).isEqualTo(ReportStatus.DISMISSED)
@@ -109,7 +113,7 @@ class AdminServiceTest {
     fun `dismissReport 존재하지 않는 신고 예외`() {
         every { reportRepository.findById(99L) } returns Optional.empty()
 
-        assertThrows<ReportNotFoundException> { adminService.dismissReport(99L) }
+        assertThrows<ReportNotFoundException> { adminService.dismissReport(99L, 99L) }
     }
 
     @Test
@@ -117,7 +121,7 @@ class AdminServiceTest {
         val report = createReport(id = 1L, status = ReportStatus.RESOLVED)
         every { reportRepository.findById(1L) } returns Optional.of(report)
 
-        assertThrows<ReportAlreadyProcessedException> { adminService.dismissReport(1L) }
+        assertThrows<ReportAlreadyProcessedException> { adminService.dismissReport(99L, 1L) }
     }
 
     // ── PR48: targetPreview / targetRating 매핑 ──────────────────────────────
@@ -149,7 +153,7 @@ class AdminServiceTest {
         every { reportRepository.findById(7L) } returns Optional.of(report)
         every { reviewRepository.findById(55L) } returns Optional.of(review)
 
-        val result = adminService.resolveReport(7L)
+        val result = adminService.resolveReport(99L, 7L)
 
         assertThat(result.targetType).isEqualTo(ReportTargetType.REVIEW)
         assertThat(result.targetPreview).isEqualTo("신고 대상 후기 본문")
@@ -162,7 +166,7 @@ class AdminServiceTest {
         every { reportRepository.findById(8L) } returns Optional.of(report)
         // setUp 의 기본 stub: reviewRepository.findById(any()) returns Optional.empty()
 
-        val result = adminService.resolveReport(8L)
+        val result = adminService.resolveReport(99L, 8L)
 
         assertThat(result.targetPreview).isNull()
         assertThat(result.targetRating).isNull()
@@ -203,7 +207,7 @@ class AdminServiceTest {
         every { reportRepository.findById(9L) } returns Optional.of(report)
         every { reviewRepository.findById(60L) } returns Optional.of(review)
 
-        val result = adminService.resolveReport(9L)
+        val result = adminService.resolveReport(99L, 9L)
 
         assertThat(result.targetHidden).isTrue()
         assertThat(result.autoModerated).isTrue()
@@ -240,7 +244,7 @@ class AdminServiceTest {
         every { reportRepository.findById(10L) } returns Optional.of(report)
         every { reviewRepository.findById(61L) } returns Optional.of(review)
 
-        val result = adminService.resolveReport(10L)
+        val result = adminService.resolveReport(99L, 10L)
 
         assertThat(result.targetHidden).isTrue()
         assertThat(result.autoModerated).isFalse()  // 자동 사유 아니므로 false

@@ -11,6 +11,7 @@ import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminRiskyChannelResponse
 import com.contenido.domain.admin.dto.ChannelRiskLevel
+import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.event.repository.EventRepository
@@ -61,6 +62,7 @@ class AdminModerationService(
     private val reportAppealRepository: ReportAppealRepository,
     private val notificationService: NotificationService,
     private val moderationThresholdService: ModerationThresholdService,
+    private val moderationAuditLogService: ModerationAuditLogService,
 ) {
 
     companion object {
@@ -78,6 +80,7 @@ class AdminModerationService(
 
     @Transactional
     fun hideTarget(
+        actorId: Long,
         targetType: ReportTargetType,
         targetId: Long,
         request: AdminHideTargetRequest,
@@ -85,17 +88,34 @@ class AdminModerationService(
         val ctx = loadContext(targetType, targetId)
         if (ctx.hidden) throw TargetAlreadyHiddenException()
         applyHide(targetType, targetId, request.reason)
+        // PR61 — 같은 트랜잭션에 audit. record 가 실패하면 hide 도 rollback.
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = ModerationAuditAction.TARGET_HIDDEN,
+            targetType = targetType,
+            targetId = targetId,
+            reason = request.reason,
+        )
         return loadContext(targetType, targetId).toResponse()
     }
 
     @Transactional
     fun unhideTarget(
+        actorId: Long,
         targetType: ReportTargetType,
         targetId: Long,
     ): AdminModerationTargetResponse {
         val ctx = loadContext(targetType, targetId)
         if (!ctx.hidden) throw TargetNotHiddenException()
         applyUnhide(targetType, targetId)
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = ModerationAuditAction.TARGET_UNHIDDEN,
+            targetType = targetType,
+            targetId = targetId,
+            // unhide 자체에는 입력 reason 이 없으므로 직전 hide 의 사유를 컨텍스트로 남긴다.
+            reason = ctx.hiddenReason,
+        )
         return loadContext(targetType, targetId).toResponse()
     }
 
@@ -110,7 +130,11 @@ class AdminModerationService(
      *    후속 PR.
      */
     @Transactional
-    fun banChannelForModeration(channelId: Long, request: AdminBanChannelRequest): AdminChannelBanResponse {
+    fun banChannelForModeration(
+        actorId: Long,
+        channelId: Long,
+        request: AdminBanChannelRequest,
+    ): AdminChannelBanResponse {
         val channel = channelRepository.findById(channelId).orElseThrow { ChannelNotFoundException() }
         if (channel.isHidden) throw TargetAlreadyHiddenException()
 
@@ -160,6 +184,20 @@ class AdminModerationService(
             )
         }
 
+        // PR61 — ban 은 cascade 영향이 커서 카운트를 audit after 에 그대로 보존한다.
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = ModerationAuditAction.CHANNEL_BANNED,
+            targetType = ReportTargetType.CHANNEL,
+            targetId = channel.id,
+            afterValue = mapOf(
+                "cascadedEventCount" to eventCount,
+                "cascadedPostCount" to postCount,
+                "cascadedReviewCount" to reviewCount,
+            ),
+            reason = request.reason,
+        )
+
         return AdminChannelBanResponse(
             channelId = channel.id,
             channelName = channel.name,
@@ -179,9 +217,12 @@ class AdminModerationService(
      * 따로 처리.
      */
     @Transactional
-    fun unbanChannelForModeration(channelId: Long): AdminChannelBanResponse {
+    fun unbanChannelForModeration(actorId: Long, channelId: Long): AdminChannelBanResponse {
         val channel = channelRepository.findById(channelId).orElseThrow { ChannelNotFoundException() }
         if (!channel.isHidden) throw TargetNotHiddenException()
+
+        // 해제 직전 사유 보존 — audit 컨텍스트.
+        val priorReason = channel.hiddenReason
 
         channel.unhide()
         channel.activate()
@@ -199,6 +240,14 @@ class AdminModerationService(
                 targetId = channel.id,
             )
         }
+
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = ModerationAuditAction.CHANNEL_UNBANNED,
+            targetType = ReportTargetType.CHANNEL,
+            targetId = channel.id,
+            reason = priorReason,
+        )
 
         return AdminChannelBanResponse(
             channelId = channel.id,

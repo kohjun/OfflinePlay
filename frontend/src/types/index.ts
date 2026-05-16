@@ -460,6 +460,34 @@ export interface ModerationThreshold {
 }
 
 /**
+ * PR61 — 운영 감사 로그. ADMIN 의 강한 운영 액션 (수동 hide/unhide, 채널 ban/unban,
+ * appeal 처리, threshold 변경 등) 을 append-only 로 기록.
+ */
+export type ModerationAuditAction =
+  | 'THRESHOLD_UPDATED'
+  | 'TARGET_HIDDEN'
+  | 'TARGET_UNHIDDEN'
+  | 'CHANNEL_BANNED'
+  | 'CHANNEL_UNBANNED'
+  | 'APPEAL_APPROVED'
+  | 'APPEAL_REJECTED'
+  | 'REPORT_RESOLVED'
+  | 'REPORT_DISMISSED'
+
+export interface ModerationAuditLog {
+  id: number
+  actorId: number
+  actorNickname: string
+  action: ModerationAuditAction
+  targetType: ReportTargetType | null
+  targetId: number | null
+  beforeValue: string | null
+  afterValue: string | null
+  reason: string | null
+  createdAt: string
+}
+
+/**
  * PR60 — partial update. null/undefined 필드는 변경하지 않음. 1..100 범위.
  */
 export interface UpdateModerationThresholdsRequest {

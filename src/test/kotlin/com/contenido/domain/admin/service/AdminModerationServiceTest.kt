@@ -2,6 +2,7 @@ package com.contenido.domain.admin.service
 
 import com.contenido.domain.admin.dto.AdminBanChannelRequest
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
+import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.notification.entity.NotificationType
 import com.contenido.domain.notification.service.NotificationService
 import com.contenido.domain.admin.dto.AdminModerationPriority
@@ -55,8 +56,13 @@ class AdminModerationServiceTest {
     @MockK lateinit var reportAppealRepository: ReportAppealRepository
     @MockK(relaxed = true) lateinit var notificationService: NotificationService
     @MockK lateinit var moderationThresholdService: ModerationThresholdService
+    // PR61 — hide/unhide/ban/unban 가 audit 를 기록. 상세 검증은 별도 테스트에서.
+    @MockK(relaxed = true) lateinit var moderationAuditLogService: ModerationAuditLogService
 
     private lateinit var service: AdminModerationService
+
+    /** PR61 — admin actor id placeholder. */
+    private val ACTOR_ID: Long = 99L
 
     @BeforeEach
     fun setUp() {
@@ -70,6 +76,7 @@ class AdminModerationServiceTest {
             reportAppealRepository = reportAppealRepository,
             notificationService = notificationService,
             moderationThresholdService = moderationThresholdService,
+            moderationAuditLogService = moderationAuditLogService,
         )
         // PR60 — computePriority 가 DB 임계치를 조회하므로 PR51 default 로 stub.
         every { moderationThresholdService.thresholdFor(ReportTargetType.REVIEW) } returns 3
@@ -111,7 +118,7 @@ class AdminModerationServiceTest {
         every { reviewRepository.findById(50L) } returns Optional.of(review)
 
         val response = service.hideTarget(
-            ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("정책 위반 명백"),
+            ACTOR_ID, ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("정책 위반 명백"),
         )
 
         assertThat(review.isHidden).isTrue()
@@ -131,7 +138,7 @@ class AdminModerationServiceTest {
         every { reviewRepository.findById(50L) } returns Optional.of(review)
 
         assertThrows<TargetAlreadyHiddenException> {
-            service.hideTarget(ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("덮어쓰기 시도"))
+            service.hideTarget(ACTOR_ID, ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("덮어쓰기 시도"))
         }
         // 기존 사유 보존.
         assertThat(review.hiddenReason).isEqualTo(ReportService.AUTO_HIDE_REASON)
@@ -142,7 +149,7 @@ class AdminModerationServiceTest {
         every { reviewRepository.findById(404L) } returns Optional.empty()
 
         assertThrows<ReportTargetNotFoundException> {
-            service.hideTarget(ReportTargetType.REVIEW, 404L, AdminHideTargetRequest("x"))
+            service.hideTarget(ACTOR_ID, ReportTargetType.REVIEW, 404L, AdminHideTargetRequest("x"))
         }
     }
 
@@ -161,7 +168,7 @@ class AdminModerationServiceTest {
         every { postRepository.findById(60L) } returns Optional.of(post)
 
         val response = service.hideTarget(
-            ReportTargetType.POST, 60L, AdminHideTargetRequest("스팸 광고"),
+            ACTOR_ID, ReportTargetType.POST, 60L, AdminHideTargetRequest("스팸 광고"),
         )
 
         assertThat(post.isHidden).isTrue()
@@ -193,7 +200,7 @@ class AdminModerationServiceTest {
         } returns pendingAppeal
 
         val response = service.hideTarget(
-            ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("수동 hide"),
+            ACTOR_ID, ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("수동 hide"),
         )
 
         // PR54 정책: 수동 hide 가 appeal 상태를 자동 변경하지 않는다.
@@ -212,7 +219,7 @@ class AdminModerationServiceTest {
 
         every { reviewRepository.findById(50L) } returns Optional.of(review)
 
-        val response = service.unhideTarget(ReportTargetType.REVIEW, 50L)
+        val response = service.unhideTarget(ACTOR_ID, ReportTargetType.REVIEW, 50L)
 
         assertThat(review.isHidden).isFalse()
         assertThat(review.hiddenReason).isNull()
@@ -227,7 +234,7 @@ class AdminModerationServiceTest {
         every { reviewRepository.findById(50L) } returns Optional.of(review)
 
         assertThrows<TargetNotHiddenException> {
-            service.unhideTarget(ReportTargetType.REVIEW, 50L)
+            service.unhideTarget(ACTOR_ID, ReportTargetType.REVIEW, 50L)
         }
     }
 
@@ -236,7 +243,7 @@ class AdminModerationServiceTest {
         every { channelRepository.findById(999L) } returns Optional.empty()
 
         assertThrows<ReportTargetNotFoundException> {
-            service.unhideTarget(ReportTargetType.CHANNEL, 999L)
+            service.unhideTarget(ACTOR_ID, ReportTargetType.CHANNEL, 999L)
         }
     }
 
@@ -265,7 +272,7 @@ class AdminModerationServiceTest {
             )
         } returns pendingAppeal
 
-        val response = service.unhideTarget(ReportTargetType.REVIEW, 50L)
+        val response = service.unhideTarget(ACTOR_ID, ReportTargetType.REVIEW, 50L)
 
         // PR54 정책: 수동 unhide 가 appeal 자동 승인하지 않는다.
         assertThat(pendingAppeal.status).isEqualTo(ReportAppealStatus.PENDING)
@@ -504,7 +511,7 @@ class AdminModerationServiceTest {
 
         every { commentRepository.findById(70L) } returns Optional.of(comment)
 
-        val response = service.unhideTarget(ReportTargetType.COMMENT, 70L)
+        val response = service.unhideTarget(ACTOR_ID, ReportTargetType.COMMENT, 70L)
 
         assertThat(comment.isHidden).isFalse()
         assertThat(response.targetType).isEqualTo(ReportTargetType.COMMENT)
@@ -695,7 +702,7 @@ class AdminModerationServiceTest {
         every { postRepository.findByChannel(channel) } returns listOf(post)
         every { reviewRepository.findByEventChannelId(10L) } returns listOf(review1)
 
-        val response = service.banChannelForModeration(10L, AdminBanChannelRequest("정책 위반"))
+        val response = service.banChannelForModeration(ACTOR_ID, 10L, AdminBanChannelRequest("정책 위반"))
 
         // channel 자체.
         assertThat(channel.isHidden).isTrue()
@@ -724,7 +731,7 @@ class AdminModerationServiceTest {
         every { channelRepository.findById(10L) } returns Optional.of(channel)
 
         assertThrows<TargetAlreadyHiddenException> {
-            service.banChannelForModeration(10L, AdminBanChannelRequest("덮어쓰기"))
+            service.banChannelForModeration(ACTOR_ID, 10L, AdminBanChannelRequest("덮어쓰기"))
         }
         // 기존 사유 보존.
         assertThat(channel.hiddenReason).isEqualTo("기존")
@@ -735,7 +742,7 @@ class AdminModerationServiceTest {
         every { channelRepository.findById(404L) } returns Optional.empty()
 
         assertThrows<ChannelNotFoundException> {
-            service.banChannelForModeration(404L, AdminBanChannelRequest("x"))
+            service.banChannelForModeration(ACTOR_ID, 404L, AdminBanChannelRequest("x"))
         }
     }
 
@@ -748,7 +755,7 @@ class AdminModerationServiceTest {
 
         every { channelRepository.findById(10L) } returns Optional.of(channel)
 
-        val response = service.unbanChannelForModeration(10L)
+        val response = service.unbanChannelForModeration(ACTOR_ID, 10L)
 
         assertThat(channel.isHidden).isFalse()
         assertThat(channel.isActive).isTrue()
@@ -768,7 +775,7 @@ class AdminModerationServiceTest {
         every { channelRepository.findById(10L) } returns Optional.of(channel)
 
         assertThrows<TargetNotHiddenException> {
-            service.unbanChannelForModeration(10L)
+            service.unbanChannelForModeration(ACTOR_ID, 10L)
         }
     }
 
@@ -785,7 +792,7 @@ class AdminModerationServiceTest {
         every { postRepository.findByChannel(channel) } returns emptyList()
         every { reviewRepository.findByEventChannelId(10L) } returns emptyList()
 
-        service.banChannelForModeration(10L, AdminBanChannelRequest("정책 위반"))
+        service.banChannelForModeration(ACTOR_ID, 10L, AdminBanChannelRequest("정책 위반"))
 
         // owner.id 로 CHANNEL_BANNED 알림 발송. message 에 cascade 카운트 포함.
         io.mockk.verify(exactly = 1) {
@@ -814,7 +821,7 @@ class AdminModerationServiceTest {
             notificationService.notify(any(), any(), any(), any(), any(), any())
         } throws RuntimeException("redis down")
 
-        val response = service.banChannelForModeration(10L, AdminBanChannelRequest("정책"))
+        val response = service.banChannelForModeration(ACTOR_ID, 10L, AdminBanChannelRequest("정책"))
 
         assertThat(channel.isHidden).isTrue()
         assertThat(channel.isActive).isFalse()
@@ -830,7 +837,7 @@ class AdminModerationServiceTest {
 
         every { channelRepository.findById(10L) } returns Optional.of(channel)
 
-        service.unbanChannelForModeration(10L)
+        service.unbanChannelForModeration(ACTOR_ID, 10L)
 
         io.mockk.verify(exactly = 1) {
             notificationService.notify(
@@ -917,6 +924,103 @@ class AdminModerationServiceTest {
             ReflectionTestUtils.setField(this, "createdAt", now)
             ReflectionTestUtils.setField(this, "updatedAt", now)
             hide(ReportService.AUTO_HIDE_REASON)
+        }
+    }
+
+    // ── PR61 audit ────────────────────────────────────────────────────────────
+
+    @Test
+    fun `hideTarget 성공 시 TARGET_HIDDEN audit 기록 (actor + target + reason)`() {
+        val author = createUser(id = 5L)
+        val review = createReview(id = 50L, author = author)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+
+        service.hideTarget(
+            ACTOR_ID, ReportTargetType.REVIEW, 50L, AdminHideTargetRequest("정책 위반"),
+        )
+
+        io.mockk.verify(exactly = 1) {
+            moderationAuditLogService.record(
+                actorId = ACTOR_ID,
+                action = ModerationAuditAction.TARGET_HIDDEN,
+                targetType = ReportTargetType.REVIEW,
+                targetId = 50L,
+                beforeValue = null,
+                afterValue = null,
+                reason = "정책 위반",
+            )
+        }
+    }
+
+    @Test
+    fun `unhideTarget 성공 시 TARGET_UNHIDDEN audit 기록 (직전 hide 사유 보존)`() {
+        val author = createUser(id = 5L)
+        val review = createReview(id = 50L, author = author).apply {
+            hide("부적절 콘텐츠")
+        }
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+
+        service.unhideTarget(ACTOR_ID, ReportTargetType.REVIEW, 50L)
+
+        io.mockk.verify(exactly = 1) {
+            moderationAuditLogService.record(
+                actorId = ACTOR_ID,
+                action = ModerationAuditAction.TARGET_UNHIDDEN,
+                targetType = ReportTargetType.REVIEW,
+                targetId = 50L,
+                beforeValue = null,
+                afterValue = null,
+                reason = "부적절 콘텐츠",
+            )
+        }
+    }
+
+    @Test
+    fun `banChannelForModeration 성공 시 CHANNEL_BANNED audit 기록 (cascade 카운트 포함)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+        every { eventRepository.findByChannel(channel) } returns emptyList()
+        every { postRepository.findByChannel(channel) } returns emptyList()
+        every { reviewRepository.findByEventChannelId(10L) } returns emptyList()
+
+        service.banChannelForModeration(ACTOR_ID, 10L, AdminBanChannelRequest("운영 정책 위반"))
+
+        io.mockk.verify(exactly = 1) {
+            moderationAuditLogService.record(
+                actorId = ACTOR_ID,
+                action = ModerationAuditAction.CHANNEL_BANNED,
+                targetType = ReportTargetType.CHANNEL,
+                targetId = 10L,
+                beforeValue = null,
+                afterValue = mapOf(
+                    "cascadedEventCount" to 0,
+                    "cascadedPostCount" to 0,
+                    "cascadedReviewCount" to 0,
+                ),
+                reason = "운영 정책 위반",
+            )
+        }
+    }
+
+    @Test
+    fun `unbanChannelForModeration 성공 시 CHANNEL_UNBANNED audit 기록`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner).apply { hide("선행 ban 사유") }
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+
+        service.unbanChannelForModeration(ACTOR_ID, 10L)
+
+        io.mockk.verify(exactly = 1) {
+            moderationAuditLogService.record(
+                actorId = ACTOR_ID,
+                action = ModerationAuditAction.CHANNEL_UNBANNED,
+                targetType = ReportTargetType.CHANNEL,
+                targetId = 10L,
+                beforeValue = null,
+                afterValue = null,
+                reason = "선행 ban 사유",
+            )
         }
     }
 }

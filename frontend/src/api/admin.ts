@@ -8,6 +8,8 @@ import type {
   AdminModerationTarget,
   Channel,
   CreatorApplication,
+  ModerationAuditAction,
+  ModerationAuditLog,
   ModerationThreshold,
   PageResponse,
   Report,
@@ -165,4 +167,20 @@ export function getModerationThresholds() {
  */
 export function updateModerationThresholds(request: UpdateModerationThresholdsRequest) {
   return apiClient.patch<ModerationThreshold[]>('/admin/moderation/thresholds', request)
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-logs
+ *
+ * PR61 — ADMIN 의 운영 액션 (수동 hide/unhide, 채널 ban/unban, appeal 처리, threshold 변경,
+ * report resolve/dismiss) 을 시간 역순으로 조회. append-only — 수정/삭제 API 없음.
+ */
+export function getModerationAuditLogs(params?: {
+  page?: number
+  size?: number
+  action?: ModerationAuditAction
+  targetType?: ReportTargetType
+  targetId?: number
+}) {
+  return apiClient.get<PageResponse<ModerationAuditLog>>('/admin/moderation/audit-logs', params)
 }

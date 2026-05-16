@@ -59,6 +59,9 @@ class ReportAppealServiceTest {
     @MockK lateinit var postRepository: PostRepository
     @MockK lateinit var commentRepository: CommentRepository
     @MockK lateinit var reviewRepository: ReviewRepository
+    // PR61 — approveAppeal/rejectAppeal 가 audit 를 기록.
+    @MockK(relaxed = true)
+    lateinit var moderationAuditLogService: com.contenido.domain.admin.service.ModerationAuditLogService
 
     private lateinit var service: ReportAppealService
 
@@ -72,6 +75,7 @@ class ReportAppealServiceTest {
             postRepository = postRepository,
             commentRepository = commentRepository,
             reviewRepository = reviewRepository,
+            moderationAuditLogService = moderationAuditLogService,
         )
         // PR56 — createAppeal 가 cooldown 검사 시 호출. 별도 케이스에서 override.
         // 기본은 "이전 appeal 없음" → cooldown 가드 통과.
