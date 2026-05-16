@@ -30,6 +30,12 @@ interface ReviewRepository : JpaRepository<Review, Long> {
     /** PR55 — Admin moderation queue 빌드. 작성자 무관, 모든 hidden review. */
     fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Review>
 
+    /** PR57 — analytics 범위 조회 (hidden 발생 시점 기준). */
+    fun findByHiddenAtBetween(
+        from: java.time.LocalDateTime,
+        to: java.time.LocalDateTime,
+    ): List<Review>
+
     /** 한 이벤트의 평균 별점. 후기가 없으면 null. */
     @Query("SELECT AVG(r.rating) FROM Review r WHERE r.event.id = :eventId")
     fun averageRatingByEventId(@Param("eventId") eventId: Long): Double?

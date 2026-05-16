@@ -1,7 +1,9 @@
 import { apiClient } from './client'
 import type {
+  AdminModerationGranularity,
   AdminModerationPriority,
   AdminModerationQueueItem,
+  AdminModerationStats,
   AdminModerationTarget,
   Channel,
   CreatorApplication,
@@ -103,4 +105,18 @@ export function getModerationQueue(params?: {
   priority?: AdminModerationPriority
 }) {
   return apiClient.get<PageResponse<AdminModerationQueueItem>>('/admin/moderation/queue', params)
+}
+
+/**
+ * GET /api/v1/admin/moderation/stats
+ *
+ * PR57 — 운영 지표. default 기간 = 최근 30일 (backend 측 기본값).
+ * granularity 는 day 만 지원. 위험 채널 Top 5 동봉.
+ */
+export function getModerationStats(params?: {
+  from?: string
+  to?: string
+  granularity?: AdminModerationGranularity
+}) {
+  return apiClient.get<AdminModerationStats>('/admin/moderation/stats', params)
 }

@@ -398,6 +398,43 @@ export interface AdminModerationTarget {
 /** PR55 — 통합 moderation queue 우선순위. */
 export type AdminModerationPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 
+/** PR57 — Analytics 시계열 granularity. day 만 지원. */
+export type AdminModerationGranularity = 'DAY'
+
+/** PR57 — 위험 채널 등급. */
+export type ChannelRiskLevel = 'WATCH' | 'RISK'
+
+/** PR57 — 한 bucket(=하루) 의 운영 집계. */
+export interface AdminModerationStatsPoint {
+  date: string // ISO date (yyyy-MM-dd)
+  reportCount: number
+  autoHideCount: number
+  manualHideCount: number
+  appealSubmittedCount: number
+  appealApprovedCount: number
+  appealRejectedCount: number
+}
+
+/** PR57 — 위험 채널 row. hiddenCount >= 5 이면 RISK, 1~4 면 WATCH. */
+export interface AdminRiskyChannel {
+  channelId: number
+  channelName: string
+  ownerNickname: string
+  hiddenCount: number
+  pendingReportCount?: number | null
+  riskLevel: ChannelRiskLevel
+}
+
+/** PR57 — 운영 지표 응답. series 시계열 + totals 합계 + riskyChannels Top 5. */
+export interface AdminModerationStats {
+  from: string
+  to: string
+  granularity: AdminModerationGranularity
+  series: AdminModerationStatsPoint[]
+  totals: AdminModerationStatsPoint
+  riskyChannels: AdminRiskyChannel[]
+}
+
 /**
  * PR55 — 신고 / appeal / hidden 3개 source 를 (targetType, targetId) 키로 merge 한 통합 row.
  * 운영자가 한 페이지에서 우선순위 순으로 처리할 수 있게 모든 컨텍스트를 동봉한다.

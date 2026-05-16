@@ -32,4 +32,10 @@ interface CommentRepository : JpaRepository<Comment, Long> {
 
     /** PR55 — Admin moderation queue 빌드. 작성자 무관, 모든 hidden 댓글. */
     fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Comment>
+
+    /** PR57 — analytics 범위 조회. */
+    fun findByHiddenAtBetween(
+        from: java.time.LocalDateTime,
+        to: java.time.LocalDateTime,
+    ): List<Comment>
 }

@@ -2,11 +2,15 @@ package com.contenido.domain.admin.controller
 
 import com.contenido.domain.admin.dto.AdminChannelResponse
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
+import com.contenido.domain.admin.dto.AdminModerationGranularity
 import com.contenido.domain.admin.dto.AdminModerationPriority
 import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
+import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
 import com.contenido.domain.admin.service.AdminModerationService
+import org.springframework.format.annotation.DateTimeFormat
+import java.time.LocalDateTime
 import com.contenido.domain.admin.service.AdminService
 import com.contenido.domain.report.dto.ReportAppealResponse
 import com.contenido.domain.report.dto.ReportResponse
@@ -104,6 +108,16 @@ class AdminController(
             reportAppealService.rejectAppeal(adminUserId, id, request ?: ReviewReportAppealRequest()),
             "이의 제기를 거절했어요.",
         )
+
+    // ── 운영 지표 — PR57 ─────────────────────────────────────────────────────
+
+    @GetMapping("/moderation/stats")
+    fun getModerationStats(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) from: LocalDateTime?,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) to: LocalDateTime?,
+        @RequestParam(required = false) granularity: AdminModerationGranularity?,
+    ): ApiResponse<AdminModerationStatsResponse> =
+        ApiResponse.ok(adminModerationService.getStats(from, to, granularity))
 
     // ── 통합 moderation queue — PR55 ─────────────────────────────────────────
 

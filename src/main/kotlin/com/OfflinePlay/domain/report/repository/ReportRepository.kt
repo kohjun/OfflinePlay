@@ -51,4 +51,7 @@ interface ReportRepository : JpaRepository<Report, Long> {
      * 집계. 운영 트래픽에서 PENDING 신고 양은 매니지블 — 더 커지면 native group-by 로 최적화.
      */
     fun findByStatusOrderByCreatedAtDesc(status: ReportStatus): List<Report>
+
+    /** PR57 — analytics 범위 조회. 서비스 단에서 day bucket 으로 그룹화. */
+    fun findByCreatedAtBetween(from: java.time.LocalDateTime, to: java.time.LocalDateTime): List<Report>
 }

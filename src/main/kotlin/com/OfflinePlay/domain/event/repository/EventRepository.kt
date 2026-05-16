@@ -33,6 +33,9 @@ interface EventRepository : JpaRepository<Event, Long> {
     /** PR55 — Admin moderation queue 빌드. 소유자 무관, 모든 hidden 이벤트. */
     fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Event>
 
+    /** PR57 — analytics 범위 조회. */
+    fun findByHiddenAtBetween(from: LocalDateTime, to: LocalDateTime): List<Event>
+
     fun findByStatus(status: EventStatus, pageable: Pageable): Page<Event>
 
     fun findByChannel(channel: Channel): List<Event>

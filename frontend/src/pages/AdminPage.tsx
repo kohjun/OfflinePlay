@@ -5,6 +5,7 @@ import {
   getAdminChannels,
   getCreatorApplications,
   getModerationQueue,
+  getModerationStats,
   getReports,
   hideModerationTarget,
   rejectCreatorApplication,
@@ -22,6 +23,7 @@ import { useToast } from '../hooks/useToast'
 import type {
   AdminModerationPriority,
   AdminModerationQueueItem,
+  AdminModerationStats,
   Channel,
   CreatorApplication,
   Report,
@@ -60,6 +62,61 @@ const TARGET_TYPE_LABEL: Record<ReportTargetType, string> = {
   REVIEW: '후기',
 }
 
+/**
+ * PR57 — 운영 지표 line chart. 외부 라이브러리 없이 inline SVG polyline 으로 3선:
+ *   - 신고 (coral)
+ *   - 자동 + 수동 숨김 합 (보라)
+ *   - 이의 제기 제출 (회색)
+ * 모든 시리즈를 정규화해 같은 0..1 범위로 그린 뒤 위/아래 padding 으로 표시.
+ */
+function ModerationStatsChart({
+  points,
+}: {
+  points: AdminModerationStats['series']
+}) {
+  if (points.length === 0) {
+    return <p className="muted">기간 내 데이터가 없어요.</p>
+  }
+  const width = 520
+  const height = 120
+  const padX = 8
+  const padY = 8
+  const innerW = width - padX * 2
+  const innerH = height - padY * 2
+
+  const reportSeries = points.map((p) => p.reportCount)
+  const hideSeries = points.map((p) => p.autoHideCount + p.manualHideCount)
+  const appealSeries = points.map((p) => p.appealSubmittedCount)
+  const max = Math.max(1, ...reportSeries, ...hideSeries, ...appealSeries)
+
+  const toPath = (series: number[]): string =>
+    series
+      .map((v, i) => {
+        const x = padX + (points.length === 1 ? innerW / 2 : (innerW * i) / (points.length - 1))
+        const y = padY + innerH - (v / max) * innerH
+        return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`
+      })
+      .join(' ')
+
+  return (
+    <div className="ct-admin-stats-chart" role="img" aria-label="최근 30일 운영 지표 추세">
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none">
+        {/* 축 line (subtle) */}
+        <line x1={padX} y1={height - padY} x2={width - padX} y2={height - padY} stroke="#E5E7EB" strokeWidth="1" />
+        <path d={toPath(reportSeries)} fill="none" stroke="#FA5252" strokeWidth="2" />
+        <path d={toPath(hideSeries)} fill="none" stroke="#7C3AED" strokeWidth="2" />
+        <path d={toPath(appealSeries)} fill="none" stroke="#9CA3AF" strokeWidth="2" />
+      </svg>
+      <div className="badge-row" style={{ gap: '12px', marginTop: '6px' }}>
+        <span className="muted" style={{ color: '#FA5252' }}>신고</span>
+        <span className="muted" style={{ color: '#7C3AED' }}>숨김</span>
+        <span className="muted" style={{ color: '#9CA3AF' }}>이의 제기</span>
+        <span className="muted">최대 {max}</span>
+      </div>
+    </div>
+  )
+}
+
 export function AdminPage() {
   const { user } = useAuth()
   const { showToast } = useToast()
@@ -71,6 +128,8 @@ export function AdminPage() {
   const [appeals, setAppeals] = useState<ReportAppeal[]>([])
   // PR55 — 통합 moderation queue. 신고/appeal/hidden 3 source 가 한 row 로 merge 된다.
   const [queue, setQueue] = useState<AdminModerationQueueItem[]>([])
+  // PR57 — 운영 지표 (최근 30일 default).
+  const [stats, setStats] = useState<AdminModerationStats | null>(null)
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
@@ -80,13 +139,15 @@ export function AdminPage() {
       getReports({ size: 20 }),
       getAdminReportAppeals({ size: 20, status: 'PENDING' }),
       getModerationQueue({ size: 30 }),
+      getModerationStats(),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
         setAppeals(appealPage.content)
         setQueue(queuePage.content)
+        setStats(statsRes)
       })
       .catch((error) => {
         showToast({
@@ -361,6 +422,56 @@ export function AdminPage() {
           <h1>CONTENIDO 운영 콘솔</h1>
         </div>
       </section>
+      {/* PR57 — 운영 지표. 최근 30일 시계열 + totals + 위험 채널 Top 5.
+          차트는 외부 라이브러리 없이 inline SVG polyline 으로 그린다. */}
+      {stats ? (
+        <section className="section">
+          <div className="section-heading">
+            <h2>운영 지표</h2>
+            <span className="muted">최근 30일</span>
+          </div>
+          {/* totals — 6 칸 카드 그리드. */}
+          <div
+            className="badge-row"
+            style={{ gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}
+          >
+            <span className="muted">총 신고 {stats.totals.reportCount}건</span>
+            <span className="muted">자동 숨김 {stats.totals.autoHideCount}건</span>
+            <span className="muted">수동 숨김 {stats.totals.manualHideCount}건</span>
+            <span className="muted">이의 제기 {stats.totals.appealSubmittedCount}건</span>
+            <span className="muted">승인 {stats.totals.appealApprovedCount}건</span>
+            <span className="muted">거절 {stats.totals.appealRejectedCount}건</span>
+          </div>
+          {/* 시계열 라인 차트 — reports + hidden + appeals 3선. SVG polyline. */}
+          <ModerationStatsChart points={stats.series} />
+          {/* 위험 채널 Top N. */}
+          <div className="section-heading" style={{ marginTop: '16px' }}>
+            <h3>위험 채널</h3>
+            <span className="muted">{stats.riskyChannels.length}건</span>
+          </div>
+          {stats.riskyChannels.length === 0 ? (
+            <p className="muted">위험 신호가 있는 채널이 없어요.</p>
+          ) : (
+            <ul className="stack">
+              {stats.riskyChannels.map((ch) => (
+                <article className="card" key={ch.channelId}>
+                  <div className="badge-row">
+                    <Badge tone={ch.riskLevel === 'RISK' ? 'danger' : 'warning'}>
+                      {ch.riskLevel === 'RISK' ? '위험' : '관찰'}
+                    </Badge>
+                    <span className="muted">채널 #{ch.channelId}</span>
+                  </div>
+                  <strong>{ch.channelName}</strong>
+                  <div className="meta-row">
+                    <span>owner: {ch.ownerNickname}</span>
+                    <span>숨김 콘텐츠 {ch.hiddenCount}건</span>
+                  </div>
+                </article>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
       {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.
           상세 신고/appeal 섹션은 아래에 그대로 유지되어 전체 목록 조회/필터링용으로 남는다. */}
       <section className="section">

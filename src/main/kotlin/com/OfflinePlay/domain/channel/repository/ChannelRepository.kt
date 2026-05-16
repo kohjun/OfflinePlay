@@ -20,6 +20,12 @@ interface ChannelRepository : JpaRepository<Channel, Long> {
     /** PR55 — Admin moderation queue 빌드. 소유자 무관, 모든 hidden 채널. */
     fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Channel>
 
+    /** PR57 — analytics 범위 조회. */
+    fun findByHiddenAtBetween(
+        from: java.time.LocalDateTime,
+        to: java.time.LocalDateTime,
+    ): List<Channel>
+
     fun existsByOwner(owner: User): Boolean
 
     fun countByOwner(owner: User): Long

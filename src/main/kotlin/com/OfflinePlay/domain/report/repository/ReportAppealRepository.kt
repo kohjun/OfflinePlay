@@ -49,4 +49,19 @@ interface ReportAppealRepository : JpaRepository<ReportAppeal, Long> {
 
     /** PR55 — Admin moderation queue 빌드. status 의 모든 row 를 createdAt 내림차순으로. */
     fun findByStatusOrderByCreatedAtDesc(status: ReportAppealStatus): List<ReportAppeal>
+
+    /** PR57 — analytics. 제출 시점 기준 범위 조회 (appealSubmittedCount 집계용). */
+    fun findByCreatedAtBetween(
+        from: java.time.LocalDateTime,
+        to: java.time.LocalDateTime,
+    ): List<ReportAppeal>
+
+    /**
+     * PR57 — analytics. 처리 시점 기준 범위 조회 (APPROVED/REJECTED 카운트용). reviewedAt 이
+     * null 인 PENDING 은 자동 제외 (Spring Data JPA 가 "Between" 조건에서 null 컬럼 매칭 X).
+     */
+    fun findByReviewedAtBetween(
+        from: java.time.LocalDateTime,
+        to: java.time.LocalDateTime,
+    ): List<ReportAppeal>
 }

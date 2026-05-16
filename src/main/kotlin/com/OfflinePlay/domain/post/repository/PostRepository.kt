@@ -36,6 +36,12 @@ interface PostRepository : JpaRepository<Post, Long> {
     /** PR55 — Admin moderation queue 빌드. 작성자 무관, 모든 hidden 공지. */
     fun findByHiddenAtIsNotNullOrderByHiddenAtDesc(): List<Post>
 
+    /** PR57 — analytics 범위 조회. */
+    fun findByHiddenAtBetween(
+        from: java.time.LocalDateTime,
+        to: java.time.LocalDateTime,
+    ): List<Post>
+
     @Modifying(clearAutomatically = true)
     @Query("UPDATE Post p SET p.likeCount = p.likeCount + :delta WHERE p.id = :id")
     fun updateLikeCount(@Param("id") id: Long, @Param("delta") delta: Int)
