@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
-import { explore } from '../api/explore'
+import { explore, getPopularSearches, type PopularKeyword } from '../api/explore'
 import {
   subscribeChannel,
   unsubscribeChannel,
@@ -58,10 +58,56 @@ const PAGE_SIZE = 20
 
 type ResultTab = 'events' | 'channels'
 
+// PR45 — 가격 / 일정 preset chip. preset 만 노출하고 backend 에는 명시적 minFee/maxFee/startFrom/startTo 로 변환.
+type FeePreset = 'ALL' | 'FREE' | 'PAID'
+type DatePreset = 'ALL' | 'TODAY' | 'WEEK' | 'MONTH'
+
+const FEE_PRESETS: Array<{ value: FeePreset; label: string }> = [
+  { value: 'ALL', label: '가격 전체' },
+  { value: 'FREE', label: '무료' },
+  { value: 'PAID', label: '유료' },
+]
+
+const DATE_PRESETS: Array<{ value: DatePreset; label: string }> = [
+  { value: 'ALL', label: '일정 전체' },
+  { value: 'TODAY', label: '오늘' },
+  { value: 'WEEK', label: '이번 주' },
+  { value: 'MONTH', label: '이번 달' },
+]
+
+function feeRange(preset: FeePreset): { minFee?: number; maxFee?: number } {
+  // 무료 = 0..0, 유료 = 1.. (상한 없음), 전체 = undefined
+  if (preset === 'FREE') return { minFee: 0, maxFee: 0 }
+  if (preset === 'PAID') return { minFee: 1 }
+  return {}
+}
+
+function dateRange(preset: DatePreset): { startFrom?: string; startTo?: string } {
+  if (preset === 'ALL') return {}
+  const now = new Date()
+  const startFrom = now.toISOString()
+  const end = new Date(now)
+  if (preset === 'TODAY') {
+    end.setHours(23, 59, 59, 999)
+  } else if (preset === 'WEEK') {
+    // 이번 주 일요일 23:59:59 (월=1 ~ 일=0). 일요일이면 그 날 끝.
+    const day = end.getDay()
+    const diff = day === 0 ? 0 : 7 - day
+    end.setDate(end.getDate() + diff)
+    end.setHours(23, 59, 59, 999)
+  } else if (preset === 'MONTH') {
+    end.setMonth(end.getMonth() + 1, 0)  // 다음 달 0일 = 이번 달 말일
+    end.setHours(23, 59, 59, 999)
+  }
+  return { startFrom, startTo: end.toISOString() }
+}
+
 interface Filters {
   keyword: string
   category: ChannelCategory | null
   contentType: ContentType | null
+  fee: FeePreset
+  date: DatePreset
 }
 
 /**
@@ -94,18 +140,33 @@ function readFiltersFromUrl(): Filters {
     /* sessionStorage 사용 불가 — non-fatal */
   }
 
+  const feeRaw = (search.get('fee') ?? 'ALL') as FeePreset
+  const dateRaw = (search.get('date') ?? 'ALL') as DatePreset
+  const fee: FeePreset = (['ALL', 'FREE', 'PAID'] as FeePreset[]).includes(feeRaw) ? feeRaw : 'ALL'
+  const date: DatePreset = (['ALL', 'TODAY', 'WEEK', 'MONTH'] as DatePreset[]).includes(dateRaw) ? dateRaw : 'ALL'
+
   return {
     keyword,
     category: CATEGORY_VALUES.includes(category as ChannelCategory) ? (category as ChannelCategory) : null,
     contentType: CONTENT_TYPE_VALUES.includes(contentType as ContentType) ? (contentType as ContentType) : null,
+    fee,
+    date,
   }
 }
 
-function buildSearch(keyword: string, category: ChannelCategory | null, contentType: ContentType | null): string {
+function buildSearch(
+  keyword: string,
+  category: ChannelCategory | null,
+  contentType: ContentType | null,
+  fee: FeePreset,
+  date: DatePreset,
+): string {
   const params = new URLSearchParams()
   if (keyword) params.set('keyword', keyword)
   if (category) params.set('category', category)
   if (contentType) params.set('type', contentType)
+  if (fee !== 'ALL') params.set('fee', fee)
+  if (date !== 'ALL') params.set('date', date)
   const qs = params.toString()
   return qs ? `?${qs}` : ''
 }
@@ -119,7 +180,26 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
   const [activeKeyword, setActiveKeyword] = useState<string>(initial.keyword)
   const [category, setCategory] = useState<ChannelCategory | null>(initial.category)
   const [contentType, setContentType] = useState<ContentType | null>(initial.contentType)
+  const [feePreset, setFeePreset] = useState<FeePreset>(initial.fee)
+  const [datePreset, setDatePreset] = useState<DatePreset>(initial.date)
   const [tab, setTab] = useState<ResultTab>('events')
+
+  // PR45: 인기 검색어 chip — 첫 마운트 시 1회만 fetch.
+  const [popular, setPopular] = useState<PopularKeyword[]>([])
+  useEffect(() => {
+    let alive = true
+    getPopularSearches(8)
+      .then((data) => {
+        if (alive) setPopular(data)
+      })
+      .catch(() => {
+        // 비활성/redis 미가용 등의 케이스 — 정적 fallback 은 empty state 에서 사용.
+        if (alive) setPopular([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // 결과: 탭별로 page/items/hasMore 를 따로 관리한다.
   const [events, setEvents] = useState<Event[]>([])
@@ -136,14 +216,26 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
 
   // 첫 페이지 fetch — 필터 변경 시 호출. 페이지를 0 으로 리셋한다.
   const fetchFirstPage = useCallback(
-    async (kw: string, cat: ChannelCategory | null, ct: ContentType | null) => {
+    async (
+      kw: string,
+      cat: ChannelCategory | null,
+      ct: ContentType | null,
+      fee: FeePreset,
+      date: DatePreset,
+    ) => {
       setLoading(true)
       setError(null)
       try {
+        const { minFee, maxFee } = feeRange(fee)
+        const { startFrom, startTo } = dateRange(date)
         const result = await explore({
           keyword: kw || undefined,
           category: cat ?? undefined,
           contentType: ct ?? undefined,
+          minFee,
+          maxFee,
+          startFrom,
+          startTo,
           page: 0,
           size: PAGE_SIZE,
         })
@@ -168,7 +260,7 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
 
   // 마운트 시 URL 정규화만 — sessionStorage 마이그레이션 흔적도 URL 로 반영.
   useEffect(() => {
-    const desired = `/explore${buildSearch(initial.keyword, initial.category, initial.contentType)}`
+    const desired = `/explore${buildSearch(initial.keyword, initial.category, initial.contentType, initial.fee, initial.date)}`
     if (window.location.pathname + window.location.search !== desired) {
       window.history.replaceState({}, '', desired)
     }
@@ -184,13 +276,13 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
       skipNextUrlSync.current = false
     }
     if (shouldPush) {
-      const next = `/explore${buildSearch(activeKeyword, category, contentType)}`
+      const next = `/explore${buildSearch(activeKeyword, category, contentType, feePreset, datePreset)}`
       if (window.location.pathname + window.location.search !== next) {
         window.history.pushState({}, '', next)
       }
     }
-    fetchFirstPage(activeKeyword, category, contentType)
-  }, [activeKeyword, category, contentType, fetchFirstPage])
+    fetchFirstPage(activeKeyword, category, contentType, feePreset, datePreset)
+  }, [activeKeyword, category, contentType, feePreset, datePreset, fetchFirstPage])
 
   // popstate (브라우저 뒤로/앞으로) → URL 에서 필터 재구성 후 state 동기화.
   useEffect(() => {
@@ -201,7 +293,9 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
       setActiveKeyword(next.keyword)
       setCategory(next.category)
       setContentType(next.contentType)
-      fetchFirstPage(next.keyword, next.category, next.contentType)
+      setFeePreset(next.fee)
+      setDatePreset(next.date)
+      fetchFirstPage(next.keyword, next.category, next.contentType, next.fee, next.date)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -230,6 +324,8 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
     setActiveKeyword('')
     setCategory(null)
     setContentType(null)
+    setFeePreset('ALL')
+    setDatePreset('ALL')
   }
 
   async function handleLoadMore() {
@@ -239,10 +335,16 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
     const nextPage = (isEvents ? eventsPage : channelsPage) + 1
     setLoadingMore(true)
     try {
+      const { minFee, maxFee } = feeRange(feePreset)
+      const { startFrom, startTo } = dateRange(datePreset)
       const result = await explore({
         keyword: activeKeyword || undefined,
         category: category ?? undefined,
         contentType: contentType ?? undefined,
+        minFee,
+        maxFee,
+        startFrom,
+        startTo,
         page: nextPage,
         size: PAGE_SIZE,
       })
@@ -312,8 +414,15 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
   }
 
   const totalCount = events.length + channels.length
-  const hasAnyFilter = Boolean(activeKeyword || category || contentType)
+  const hasAnyFilter = Boolean(
+    activeKeyword || category || contentType || feePreset !== 'ALL' || datePreset !== 'ALL',
+  )
   const tabHasMore = tab === 'events' ? eventsHasMore : channelsHasMore
+
+  function applyPopular(keyword: string) {
+    setKeywordInput(keyword)
+    setActiveKeyword(keyword)
+  }
 
   return (
     <main className="page ct-explore-page">
@@ -344,7 +453,7 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
         </button>
       </form>
 
-      {(activeKeyword || category || contentType) ? (
+      {(activeKeyword || category || contentType || feePreset !== 'ALL' || datePreset !== 'ALL') ? (
         <div className="ct-explore-context" role="status">
           {activeKeyword ? (
             <span className="ct-explore-context-chip">
@@ -385,7 +494,52 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
               </button>
             </span>
           ) : null}
+          {feePreset !== 'ALL' ? (
+            <span className="ct-explore-context-chip">
+              가격: <strong>{FEE_PRESETS.find((f) => f.value === feePreset)?.label}</strong>
+              <button
+                type="button"
+                className="ct-explore-context-clear"
+                onClick={() => setFeePreset('ALL')}
+                aria-label="가격 필터 지우기"
+              >
+                ×
+              </button>
+            </span>
+          ) : null}
+          {datePreset !== 'ALL' ? (
+            <span className="ct-explore-context-chip">
+              일정: <strong>{DATE_PRESETS.find((d) => d.value === datePreset)?.label}</strong>
+              <button
+                type="button"
+                className="ct-explore-context-clear"
+                onClick={() => setDatePreset('ALL')}
+                aria-label="일정 필터 지우기"
+              >
+                ×
+              </button>
+            </span>
+          ) : null}
         </div>
+      ) : null}
+
+      {popular.length > 0 && !activeKeyword ? (
+        <section className="ct-explore-popular" aria-label="인기 검색어">
+          <span className="muted">인기 검색어</span>
+          <div className="ct-explore-popular-chips">
+            {popular.map((p, idx) => (
+              <button
+                key={p.keyword}
+                type="button"
+                className="chip ct-explore-popular-chip"
+                onClick={() => applyPopular(p.keyword)}
+              >
+                <span className="ct-explore-popular-rank">{idx + 1}</span>
+                {p.keyword}
+              </button>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <nav className="ct-explore-types" role="tablist" aria-label="콘텐츠 유형">
@@ -399,6 +553,33 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
             onClick={() => handleToggleContentType(ct.value)}
           >
             {ct.label}
+          </button>
+        ))}
+      </nav>
+
+      <nav className="ct-chip-row" role="tablist" aria-label="가격대 / 일정">
+        {FEE_PRESETS.map((f) => (
+          <button
+            key={f.value}
+            type="button"
+            role="tab"
+            aria-selected={feePreset === f.value}
+            className={`chip ${feePreset === f.value ? 'is-active' : ''}`}
+            onClick={() => setFeePreset(f.value)}
+          >
+            {f.label}
+          </button>
+        ))}
+        {DATE_PRESETS.map((d) => (
+          <button
+            key={d.value}
+            type="button"
+            role="tab"
+            aria-selected={datePreset === d.value}
+            className={`chip ${datePreset === d.value ? 'is-active' : ''}`}
+            onClick={() => setDatePreset(d.value)}
+          >
+            {d.label}
           </button>
         ))}
       </nav>
@@ -454,7 +635,7 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
             <button
               type="button"
               className="button button-primary"
-              onClick={() => fetchFirstPage(activeKeyword, category, contentType)}
+              onClick={() => fetchFirstPage(activeKeyword, category, contentType, feePreset, datePreset)}
             >
               다시 시도
             </button>
@@ -470,15 +651,15 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
               <div className="ct-explore-empty-suggestions" aria-label="추천 검색어">
                 <span className="muted">함께 찾아본 검색어</span>
                 <div className="ct-explore-empty-chips">
-                  {['주말 모임', '러닝 크루', '와인 클래스', '보드게임'].map((kw) => (
+                  {(popular.length > 0
+                    ? popular.slice(0, 4).map((p) => p.keyword)
+                    : ['주말 모임', '러닝 크루', '와인 클래스', '보드게임']
+                  ).map((kw) => (
                     <button
                       key={kw}
                       type="button"
                       className="chip"
-                      onClick={() => {
-                        setKeywordInput(kw)
-                        setActiveKeyword(kw)
-                      }}
+                      onClick={() => applyPopular(kw)}
                     >
                       {kw}
                     </button>

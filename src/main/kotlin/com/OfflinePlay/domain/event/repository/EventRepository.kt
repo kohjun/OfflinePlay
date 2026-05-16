@@ -49,8 +49,17 @@ interface EventRepository : JpaRepository<Event, Long> {
     fun updateStatusToClosed(now: LocalDateTime): Int
 
     /**
-     * Explore 페이지용 LIKE 검색. 모든 파라미터가 null/blank 면 전체를 반환한다.
+     * Explore 페이지용 다중 속성 LIKE/범위 검색. 모든 파라미터가 null/blank 면 전체 반환.
      * Elasticsearch 의존 없이 항상 동작한다.
+     *
+     * 필터 축 (PR45 확장):
+     *  - keyword: title/description LIKE (case-insensitive)
+     *  - category / contentType: 정확 매칭
+     *  - location: LIKE (예: "서울", "강남")
+     *  - minFee / maxFee: 참가비 범위 (참여비 0=무료 도 포함). 둘 다 null 이면 무시.
+     *  - startFrom / startTo: 시작 시각 범위 (null 가능). 기본은 controller 가 now() 부터.
+     *  - excludeClosed: true 면 status='CLOSED' 제외
+     *  - excludeFull:   true 면 currentParticipants >= maxParticipants 제외
      */
     @Query("""
         SELECT e FROM Event e
@@ -59,12 +68,27 @@ interface EventRepository : JpaRepository<Event, Long> {
                OR LOWER(e.description) LIKE LOWER(CONCAT('%', :keyword, '%')))
           AND (:category IS NULL OR e.channel.category = :category)
           AND (:contentType IS NULL OR e.contentType = :contentType)
-        ORDER BY e.startAt DESC
+          AND (:location IS NULL OR :location = ''
+               OR LOWER(e.location) LIKE LOWER(CONCAT('%', :location, '%')))
+          AND (:minFee IS NULL OR e.participationFee >= :minFee)
+          AND (:maxFee IS NULL OR e.participationFee <= :maxFee)
+          AND (:startFrom IS NULL OR e.startAt >= :startFrom)
+          AND (:startTo IS NULL OR e.startAt < :startTo)
+          AND (:excludeClosed = false OR e.status <> 'CLOSED')
+          AND (:excludeFull = false OR e.currentParticipants < e.maxParticipants)
+        ORDER BY e.startAt ASC
     """)
     fun searchForExplore(
         @Param("keyword") keyword: String?,
         @Param("category") category: ChannelCategory?,
         @Param("contentType") contentType: ContentType?,
+        @Param("location") location: String?,
+        @Param("minFee") minFee: Long?,
+        @Param("maxFee") maxFee: Long?,
+        @Param("startFrom") startFrom: LocalDateTime?,
+        @Param("startTo") startTo: LocalDateTime?,
+        @Param("excludeClosed") excludeClosed: Boolean,
+        @Param("excludeFull") excludeFull: Boolean,
         pageable: Pageable,
     ): Page<Event>
 }

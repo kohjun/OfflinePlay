@@ -3285,6 +3285,45 @@ textarea {
   margin-top: 4px;
 }
 
+.ct-explore-popular {
+  display: grid;
+  gap: 8px;
+  margin: 0 16px;
+}
+
+.ct-explore-popular > .muted {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ct-explore-popular-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ct-explore-popular-chip {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.ct-explore-popular-rank {
+  background: var(--c-primary-soft);
+  border-radius: 999px;
+  color: var(--c-primary);
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 800;
+  height: 18px;
+  line-height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  text-align: center;
+}
+
 .ct-explore-empty-suggestions .muted {
   font-size: 11px;
   font-weight: 600;

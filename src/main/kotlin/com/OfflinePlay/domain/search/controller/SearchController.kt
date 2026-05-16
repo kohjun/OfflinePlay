@@ -2,6 +2,7 @@ package com.contenido.domain.search.controller
 
 import com.contenido.domain.search.dto.SearchChannelResponse
 import com.contenido.domain.search.dto.SearchContentResponse
+import com.contenido.domain.search.service.PopularSearchService
 import com.contenido.domain.search.service.SearchService
 import com.contenido.global.response.ApiResponse
 import org.springframework.data.domain.Page
@@ -14,7 +15,20 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/v1/search")
 class SearchController(
     private val searchService: SearchService,
+    private val popularSearchService: PopularSearchService,
 ) {
+
+    /**
+     * GET /api/v1/search/popular?limit=10
+     *
+     * Redis sorted set 기반 7일 rolling 인기 검색어 top-N. 비로그인 허용.
+     * Explore 페이지가 빈 검색 결과/초기 진입 시 추천 검색어 칩으로 노출.
+     */
+    @GetMapping("/popular")
+    fun popular(
+        @RequestParam(defaultValue = "10") limit: Int,
+    ): ApiResponse<List<PopularSearchService.PopularKeyword>> =
+        ApiResponse.ok(popularSearchService.topKeywords(limit))
 
     /**
      * GET /api/v1/search/channels
