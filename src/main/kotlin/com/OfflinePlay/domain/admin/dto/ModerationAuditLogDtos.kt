@@ -107,3 +107,27 @@ data class ArchivedModerationAuditLogResponse(
     val archivedAt: LocalDateTime,
     val archivedBy: Long,
 )
+
+/**
+ * PR68 — scheduler 현재 설정. 기본 enabled=false, cron `0 30 3 * * *`.
+ *  - updatedBy 가 null 이면 한 번도 운영자가 토글하지 않은 상태 — scheduler 가 ON 이어도 archive
+ *    실행 시 actor 가 없어 skip + 경고 로그.
+ */
+data class AuditLogRetentionSchedulerResponse(
+    val enabled: Boolean,
+    val cron: String,
+    val updatedBy: Long?,
+    val updatedAt: LocalDateTime,
+)
+
+/**
+ * PR68 — scheduler 부분 갱신 요청. enabled / cron 각각 optional.
+ *  - cron 은 Spring 6-field 형식 (예: `0 30 3 * * *`). 본 PR 은 server 측에서 형식까지 깊게
+ *    검증하지는 않고 길이만 제한 — 잘못 입력하면 ApplicationContext refresh 단계가 아니라 다음
+ *    schedule poll 에서 실패 로그. 후속 PR 에서 사전 parse 추가 가능.
+ */
+data class UpdateAuditLogRetentionSchedulerRequest(
+    val enabled: Boolean? = null,
+    @field:Size(max = 64)
+    val cron: String? = null,
+)

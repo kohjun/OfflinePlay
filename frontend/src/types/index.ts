@@ -557,6 +557,20 @@ export interface ArchivedModerationAuditLog {
   archivedBy: number
 }
 
+/** PR68 — audit log retention scheduler 현재 설정. 기본 enabled=false. */
+export interface AuditLogRetentionScheduler {
+  enabled: boolean
+  cron: string
+  updatedBy: number | null
+  updatedAt: string
+}
+
+/** PR68 — scheduler 부분 갱신. enabled / cron 둘 다 optional. */
+export interface UpdateAuditLogRetentionSchedulerRequest {
+  enabled?: boolean
+  cron?: string
+}
+
 /**
  * PR60 — partial update. null/undefined 필드는 변경하지 않음. 1..100 범위.
  */

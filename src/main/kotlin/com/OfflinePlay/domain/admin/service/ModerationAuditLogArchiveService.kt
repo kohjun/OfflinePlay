@@ -105,41 +105,10 @@ class ModerationAuditLogArchiveService(
         }
 
         val admin = userRepository.findById(adminUserId).orElseThrow { UserNotFoundException() }
-
-        val pageable = PageRequest.of(0, ARCHIVE_LIMIT)
-        val batch = moderationAuditLogRepository
-            .findByCreatedAtBeforeOrderByCreatedAtAsc(cutoffAt, pageable)
-
-        // archive 복사 — actorNicknameSnapshot 으로 archive 시점 nickname 보존.
-        batch.forEach { src ->
-            moderationAuditLogArchiveRepository.save(
-                ModerationAuditLogArchive(
-                    originalId = src.id,
-                    actor = src.actor,
-                    actorNicknameSnapshot = src.actor.nickname,
-                    action = src.action,
-                    targetType = src.targetType,
-                    targetId = src.targetId,
-                    beforeValue = src.beforeValue,
-                    afterValue = src.afterValue,
-                    reason = src.reason,
-                    originalCreatedAt = src.createdAt,
-                    archivedBy = admin,
-                )
-            )
-        }
-        // active 에서 제거. deleteAll 은 한 번에 SQL DELETE in batch 로 처리.
-        if (batch.isNotEmpty()) {
-            moderationAuditLogRepository.deleteAll(batch)
-            // 다음 단계의 record() 가 active 테이블에 새 row 를 넣기 전에 flush 가 필요할 수 있어
-            // JPA 가 알아서 처리하도록 명시 호출하지 않음 — 같은 트랜잭션이라 일관성 보장.
-        }
-
-        val archivedCount = batch.size.toLong()
-        val remaining = moderationAuditLogRepository.countByCreatedAtBefore(cutoffAt)
+        val (archivedCount, remaining) = doArchiveBatch(cutoffAt, admin)
 
         // active 에 archive 액션 audit 기록. 본 row 의 createdAt 은 now() 이므로 cutoffAt 이후 →
-        // 같은 batch 에 포함되지 않음 (이미 위에서 deleteAll 완료).
+        // 같은 batch 에 포함되지 않음 (이미 doArchiveBatch 안에서 deleteAll 완료).
         moderationAuditLogService.record(
             actorId = adminUserId,
             action = ModerationAuditAction.AUDIT_LOGS_ARCHIVED,
@@ -155,6 +124,62 @@ class ModerationAuditLogArchiveService(
             cutoffAt = cutoffAt,
             remainingCandidateCount = remaining,
         )
+    }
+
+    /**
+     * PR68 — scheduler 진입점. 수동 [executeArchive] 와 동일한 archive batch 로직을 공유하지만:
+     *  - confirmText / stale 검사 없음 (자동 실행이라 round-trip 이 없음).
+     *  - audit 기록 없음 — system actor 모델이 없어 active 테이블에 AUDIT_LOGS_ARCHIVED 를 남기지
+     *    않는다. 운영 추적성은 application log (slf4j) 가 책임진다.
+     *  - retentionDays 는 항상 [ModerationAuditLogRetentionService.DEFAULT_RETENTION_DAYS].
+     *
+     * [actorId] 는 archive table 의 `archived_by` 자리로 사용 (scheduler 를 토글한 마지막 ADMIN).
+     */
+    @Transactional
+    fun executeScheduledArchive(actorId: Long): AuditLogArchiveResultResponse {
+        val admin = userRepository.findById(actorId).orElseThrow { UserNotFoundException() }
+        val cutoffAt = LocalDateTime.now()
+            .minusDays(ModerationAuditLogRetentionService.DEFAULT_RETENTION_DAYS)
+        val (archivedCount, remaining) = doArchiveBatch(cutoffAt, admin)
+        return AuditLogArchiveResultResponse(
+            archivedCount = archivedCount,
+            cutoffAt = cutoffAt,
+            remainingCandidateCount = remaining,
+        )
+    }
+
+    /**
+     * archive batch 핵심 로직. [executeArchive] / [executeScheduledArchive] 가 공유.
+     * 반환값 = (archivedCount, remainingCandidateCount).
+     */
+    private fun doArchiveBatch(
+        cutoffAt: LocalDateTime,
+        archivedBy: com.contenido.domain.user.entity.User,
+    ): Pair<Long, Long> {
+        val pageable = PageRequest.of(0, ARCHIVE_LIMIT)
+        val batch = moderationAuditLogRepository
+            .findByCreatedAtBeforeOrderByCreatedAtAsc(cutoffAt, pageable)
+        batch.forEach { src ->
+            moderationAuditLogArchiveRepository.save(
+                ModerationAuditLogArchive(
+                    originalId = src.id,
+                    actor = src.actor,
+                    actorNicknameSnapshot = src.actor.nickname,
+                    action = src.action,
+                    targetType = src.targetType,
+                    targetId = src.targetId,
+                    beforeValue = src.beforeValue,
+                    afterValue = src.afterValue,
+                    reason = src.reason,
+                    originalCreatedAt = src.createdAt,
+                    archivedBy = archivedBy,
+                )
+            )
+        }
+        if (batch.isNotEmpty()) moderationAuditLogRepository.deleteAll(batch)
+        val archivedCount = batch.size.toLong()
+        val remaining = moderationAuditLogRepository.countByCreatedAtBefore(cutoffAt)
+        return archivedCount to remaining
     }
 
     // ── PR67: archived audit log browse ──────────────────────────────────────

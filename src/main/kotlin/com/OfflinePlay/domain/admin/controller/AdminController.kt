@@ -14,12 +14,15 @@ import com.contenido.domain.admin.dto.ArchivedModerationAuditLogResponse
 import com.contenido.domain.admin.dto.AuditLogArchivePreviewResponse
 import com.contenido.domain.admin.dto.AuditLogArchiveResultResponse
 import com.contenido.domain.admin.dto.AuditLogRetentionPolicyResponse
+import com.contenido.domain.admin.dto.AuditLogRetentionSchedulerResponse
 import com.contenido.domain.admin.dto.ExecuteAuditLogArchiveRequest
+import com.contenido.domain.admin.dto.UpdateAuditLogRetentionSchedulerRequest
 import com.contenido.domain.admin.dto.ModerationAuditLogResponse
 import com.contenido.domain.admin.dto.ModerationThresholdResponse
 import com.contenido.domain.admin.dto.UpdateModerationThresholdsRequest
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.service.AdminModerationService
+import com.contenido.domain.admin.service.AuditLogRetentionSchedulerService
 import com.contenido.domain.admin.service.ModerationAuditLogArchiveService
 import com.contenido.domain.admin.service.ModerationAuditLogRetentionService
 import com.contenido.domain.admin.service.ModerationAuditLogService
@@ -55,6 +58,7 @@ class AdminController(
     private val moderationAuditLogService: ModerationAuditLogService,
     private val moderationAuditLogRetentionService: ModerationAuditLogRetentionService,
     private val moderationAuditLogArchiveService: ModerationAuditLogArchiveService,
+    private val auditLogRetentionSchedulerService: AuditLogRetentionSchedulerService,
 ) {
 
     // ── 유저 관리 ──────────────────────────────────────────────────────────────
@@ -388,4 +392,20 @@ class AdminController(
         @PathVariable originalId: Long,
     ): ApiResponse<ArchivedModerationAuditLogResponse> =
         ApiResponse.ok(moderationAuditLogArchiveService.getArchived(originalId))
+
+    // ── audit log retention scheduler — PR68 ─────────────────────────────────
+
+    @GetMapping("/moderation/audit-log-retention/scheduler")
+    fun getAuditLogRetentionScheduler(): ApiResponse<AuditLogRetentionSchedulerResponse> =
+        ApiResponse.ok(auditLogRetentionSchedulerService.getSettings())
+
+    @PatchMapping("/moderation/audit-log-retention/scheduler")
+    fun updateAuditLogRetentionScheduler(
+        @AuthenticationPrincipal adminUserId: Long,
+        @Valid @RequestBody request: UpdateAuditLogRetentionSchedulerRequest,
+    ): ApiResponse<AuditLogRetentionSchedulerResponse> =
+        ApiResponse.ok(
+            auditLogRetentionSchedulerService.updateSettings(adminUserId, request),
+            "스케줄러 설정을 갱신했어요.",
+        )
 }

@@ -11,6 +11,7 @@ import {
   getArchivedModerationAuditLogs,
   getAuditLogArchivePreview,
   getAuditLogRetentionPolicy,
+  getAuditLogRetentionScheduler,
   getCreatorApplications,
   getModerationAuditLog,
   getModerationAuditLogs,
@@ -23,6 +24,7 @@ import {
   resolveReport,
   unbanChannelForModeration,
   unhideModerationTarget,
+  updateAuditLogRetentionScheduler,
   updateModerationThresholds,
 } from '../api/admin'
 import {
@@ -40,6 +42,7 @@ import type {
   ArchivedModerationAuditLog,
   AuditLogArchivePreview,
   AuditLogRetentionPolicy,
+  AuditLogRetentionScheduler,
   Channel,
   CreatorApplication,
   ModerationAuditAction,
@@ -281,6 +284,9 @@ export function AdminPage() {
   const [archivePreviewLoading, setArchivePreviewLoading] = useState(false)
   const [archiveExecuting, setArchiveExecuting] = useState(false)
   const [archiveConfirmText, setArchiveConfirmText] = useState('')
+  // PR68 — archive scheduler 토글. 기본 OFF. cron 은 표시 only (다음 부팅 후 반영).
+  const [schedulerSettings, setSchedulerSettings] = useState<AuditLogRetentionScheduler | null>(null)
+  const [schedulerSaving, setSchedulerSaving] = useState(false)
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -306,8 +312,9 @@ export function AdminPage() {
       getModerationAuditLogs({ size: AUDIT_PAGE_SIZE }),
       getAuditLogRetentionPolicy(),
       getAuditLogArchivePreview(),
+      getAuditLogRetentionScheduler(),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes, retentionRes, archivePreviewRes]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes, retentionRes, archivePreviewRes, schedulerRes]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
@@ -321,6 +328,7 @@ export function AdminPage() {
         setRetentionPolicy(retentionRes)
         setRetentionDraft(String(retentionRes.retentionDays))
         setArchivePreview(archivePreviewRes)
+        setSchedulerSettings(schedulerRes)
         setThresholdDraft({
           REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
           COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
@@ -770,6 +778,34 @@ export function AdminPage() {
       })
     } finally {
       setArchivedExporting(false)
+    }
+  }
+
+  // PR68 — scheduler enabled 토글. cron 은 기본값을 유지 (display only). updatedBy 는 backend
+  // 가 호출 admin 으로 박는다. 성공 시 화면의 settings 상태 갱신 + 토스트.
+  async function handleSchedulerToggle(nextEnabled: boolean) {
+    if (schedulerSaving) return
+    setSchedulerSaving(true)
+    try {
+      const updated = await updateAuditLogRetentionScheduler({ enabled: nextEnabled })
+      setSchedulerSettings(updated)
+      showToast({
+        title: nextEnabled
+          ? '아카이브 스케줄러를 켰어요'
+          : '아카이브 스케줄러를 껐어요',
+        message: nextEnabled
+          ? `매일 ${updated.cron} 시간대에 자동으로 archive 합니다 (다음 부팅 후 cron 변경 반영).`
+          : '자동 archive 가 멈췄어요. 수동 archive 는 계속 가능합니다.',
+        tone: nextEnabled ? 'success' : 'info',
+      })
+    } catch (error) {
+      showToast({
+        title: '스케줄러 설정에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSchedulerSaving(false)
     }
   }
 
@@ -1684,6 +1720,49 @@ export function AdminPage() {
                     : archivePreview.willArchiveCount <= 0
                     ? '대상 없음'
                     : `${archivePreview.willArchiveCount.toLocaleString()}건 아카이브 실행`}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {/* PR68 — archive 스케줄러 toggle. 기본 OFF. cron 은 표시 only (다음 부팅 후 반영). */}
+          {schedulerSettings ? (
+            <div className="ct-archive-panel" style={{ marginTop: '12px' }}>
+              <p className="muted" style={{ marginBottom: '8px' }}>
+                자동 아카이브 스케줄러 — 기본 OFF. 수동 아카이브와 같은 로직을 사용하며,
+                <strong> hard delete 는 발생하지 않습니다.</strong> cron 변경은 다음 부팅 후 반영됩니다.
+              </p>
+              <div className="ct-archive-summary">
+                <span>
+                  상태:{' '}
+                  <strong>
+                    {schedulerSettings.enabled ? '켜짐 (매일 자동 archive)' : '꺼짐 (수동만)'}
+                  </strong>
+                </span>
+                <span className="muted">cron: {schedulerSettings.cron}</span>
+                {schedulerSettings.updatedBy != null ? (
+                  <span className="muted">
+                    마지막 변경 ADMIN #{schedulerSettings.updatedBy} ·{' '}
+                    {new Date(schedulerSettings.updatedAt).toLocaleString()}
+                  </span>
+                ) : (
+                  <span className="muted">아직 토글한 ADMIN 이 없어 자동 archive 가 동작하지 않아요.</span>
+                )}
+              </div>
+              <div className="admin-actions" style={{ marginTop: '10px' }}>
+                <button
+                  type="button"
+                  className={`button ${
+                    schedulerSettings.enabled ? 'button-secondary' : 'button-primary'
+                  }`}
+                  onClick={() => handleSchedulerToggle(!schedulerSettings.enabled)}
+                  disabled={schedulerSaving}
+                  title="자동 아카이브 스케줄러 ON/OFF"
+                >
+                  {schedulerSaving
+                    ? '저장 중…'
+                    : schedulerSettings.enabled
+                    ? '스케줄러 끄기'
+                    : '스케줄러 켜기'}
                 </button>
               </div>
             </div>

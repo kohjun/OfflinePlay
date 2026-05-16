@@ -10,6 +10,7 @@ import type {
   AuditLogArchivePreview,
   AuditLogArchiveResult,
   AuditLogRetentionPolicy,
+  AuditLogRetentionScheduler,
   Channel,
   CreatorApplication,
   ExecuteAuditLogArchiveRequest,
@@ -19,6 +20,7 @@ import type {
   PageResponse,
   Report,
   ReportTargetType,
+  UpdateAuditLogRetentionSchedulerRequest,
   UpdateModerationThresholdsRequest,
   User,
 } from '../types'
@@ -307,4 +309,27 @@ export function exportArchivedModerationAuditLogs(params?: {
   to?: string
 }) {
   return apiClient.getBlob('/admin/moderation/audit-logs/archive/export', params)
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-log-retention/scheduler
+ *
+ * PR68 — scheduler 현재 설정. 기본 enabled=false. cron 변경은 다음 부팅 후 반영.
+ */
+export function getAuditLogRetentionScheduler() {
+  return apiClient.get<AuditLogRetentionScheduler>(
+    '/admin/moderation/audit-log-retention/scheduler',
+  )
+}
+
+/**
+ * PATCH /api/v1/admin/moderation/audit-log-retention/scheduler
+ *
+ * PR68 — scheduler enabled/cron 부분 갱신. updatedBy 는 호출 admin 으로 자동 박힘.
+ */
+export function updateAuditLogRetentionScheduler(request: UpdateAuditLogRetentionSchedulerRequest) {
+  return apiClient.patch<AuditLogRetentionScheduler>(
+    '/admin/moderation/audit-log-retention/scheduler',
+    request,
+  )
 }

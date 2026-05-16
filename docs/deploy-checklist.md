@@ -173,6 +173,38 @@ V4 마이그레이션(`V4__add_moderation_threshold_settings.sql`) 이 위 5 row
 - 임계치 변경 시점에 누적 PENDING 신고가 새 임계치를 이미 넘은 항목을 일괄 재평가하는 옵션은
   운영팀 합의 후 별도 PR.
 
+### Audit log archive scheduler (PR68)
+
+PR66 의 수동 archive + PR67 의 archive 조회 위에 옵션 스케줄러를 얹는다.
+
+| 항목 | 값 |
+| --- | --- |
+| 기본 상태 | **OFF** (`audit_log_retention_scheduler_settings.enabled = false` seed) |
+| 기본 cron | `0 30 3 * * *` (매일 03:30 KST, Asia/Seoul) |
+| 한 번 실행 한도 | 1000건 (PR66 ARCHIVE_LIMIT 재사용) |
+| 실패 처리 | application log warn/error, 다음 tick 정상 동작 |
+| audit 기록 | scheduler 실행은 audit log 에 남기지 않음 (system actor 미지원). 수동 archive 만 `AUDIT_LOGS_ARCHIVED` 기록 |
+| test profile | `@Profile("!test")` 로 bean 미등록 → SpringBootTest hang 방지 (PR50 패턴 준수) |
+
+운영 절차:
+1. ADMIN 콘솔의 "감사 로그 보존 정책" 카드 → 스케줄러 영역에서 **켜기** 클릭.
+2. 토글한 ADMIN 의 id 가 `updated_by` 로 박힘 → 자동 archive 시 archive row 의 `archived_by` 로 재사용.
+3. 매 cron tick 마다 service 가 settings 를 읽어 enabled=true 이면 archive 실행.
+4. 결과는 application log: `audit-log-retention scheduler: archived={} cutoffAt={} remaining={}`.
+
+cron 변경:
+- DB 의 `cron` 컬럼은 표시 / 후속 PR 대비 보존. **현재는 application.yml 의
+  `audit-log-retention.scheduler.cron` 또는 default `0 30 3 * * *` 가 실제 schedule 을 결정**.
+- 따라서 cron 을 실시간 바꾸려면 application property 변경 + 재부팅이 필요. 동적 재등록은 후속 PR.
+
+확인 방법:
+- archive table 행 수 모니터링:
+  ```sql
+  SELECT COUNT(*) FROM moderation_audit_log_archive;
+  SELECT MAX(archived_at) FROM moderation_audit_log_archive;
+  ```
+- ADMIN 콘솔 "아카이브" 탭 (PR67) 에서 최신 archived row 직접 확인.
+
 ## 7. Moderation audit log 보존 정책 (PR64)
 
 PR61~63 에서 운영 액션을 `moderation_audit_logs` 테이블에 append-only 로 남기게 됐다.
