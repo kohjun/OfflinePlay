@@ -2,6 +2,8 @@ package com.contenido.domain.admin.service
 
 import com.contenido.domain.admin.dto.AdminBanChannelRequest
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
+import com.contenido.domain.notification.entity.NotificationType
+import com.contenido.domain.notification.service.NotificationService
 import com.contenido.domain.admin.dto.AdminModerationPriority
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
@@ -51,6 +53,7 @@ class AdminModerationServiceTest {
     @MockK lateinit var channelRepository: ChannelRepository
     @MockK lateinit var reportRepository: ReportRepository
     @MockK lateinit var reportAppealRepository: ReportAppealRepository
+    @MockK(relaxed = true) lateinit var notificationService: NotificationService
 
     private lateinit var service: AdminModerationService
 
@@ -64,6 +67,7 @@ class AdminModerationServiceTest {
             channelRepository = channelRepository,
             reportRepository = reportRepository,
             reportAppealRepository = reportAppealRepository,
+            notificationService = notificationService,
         )
         // 응답 빌딩에 항상 사용되는 기본 stub.
         every { reportRepository.countByTargetTypeAndTargetIdAndStatus(any(), any(), any()) } returns 0L
@@ -757,6 +761,78 @@ class AdminModerationServiceTest {
 
         assertThrows<TargetNotHiddenException> {
             service.unbanChannelForModeration(10L)
+        }
+    }
+
+    // ── PR59: owner notification ─────────────────────────────────────────────
+
+    @Test
+    fun `banChannelForModeration 성공 시 channel owner 에게 CHANNEL_BANNED 알림 발송`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+        val event = createEvent(id = 100L, channel = channel)
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+        every { eventRepository.findByChannel(channel) } returns listOf(event)
+        every { postRepository.findByChannel(channel) } returns emptyList()
+        every { reviewRepository.findByEventChannelId(10L) } returns emptyList()
+
+        service.banChannelForModeration(10L, AdminBanChannelRequest("정책 위반"))
+
+        // owner.id 로 CHANNEL_BANNED 알림 발송. message 에 cascade 카운트 포함.
+        io.mockk.verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = listOf(1L),
+                type = NotificationType.CHANNEL_BANNED,
+                title = any(),
+                message = match { it.contains("이벤트 1개") && it.contains("정책 위반") },
+                targetType = "channels",
+                targetId = 10L,
+            )
+        }
+    }
+
+    @Test
+    fun `banChannelForModeration notification 실패해도 ban 트랜잭션은 성공`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+        every { eventRepository.findByChannel(channel) } returns emptyList()
+        every { postRepository.findByChannel(channel) } returns emptyList()
+        every { reviewRepository.findByEventChannelId(10L) } returns emptyList()
+        // notification 자체에서 예외 던져도 ban 흐름 깨지면 안 됨.
+        every {
+            notificationService.notify(any(), any(), any(), any(), any(), any())
+        } throws RuntimeException("redis down")
+
+        val response = service.banChannelForModeration(10L, AdminBanChannelRequest("정책"))
+
+        assertThat(channel.isHidden).isTrue()
+        assertThat(channel.isActive).isFalse()
+        assertThat(response.hidden).isTrue()
+    }
+
+    @Test
+    fun `unbanChannelForModeration 성공 시 channel owner 에게 CHANNEL_UNBANNED 알림 발송`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner).apply {
+            hide("정책 위반"); deactivate()
+        }
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+
+        service.unbanChannelForModeration(10L)
+
+        io.mockk.verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = listOf(1L),
+                type = NotificationType.CHANNEL_UNBANNED,
+                title = any(),
+                message = any(),
+                targetType = "channels",
+                targetId = 10L,
+            )
         }
     }
 

@@ -20,6 +20,10 @@ enum class NotificationType {
     TICKET_ISSUED,
     /** 현장 체크인 완료 — 참가자(buyer)에게 발송. */
     TICKET_CHECKED_IN,
+    /** PR59 — ADMIN 이 채널을 제재 — channel.owner 에게 즉시 발송. cascade 영향 카운트 포함. */
+    CHANNEL_BANNED,
+    /** PR59 — ADMIN 이 채널 제재를 해제 — channel.owner 에게 발송. */
+    CHANNEL_UNBANNED,
 }
 
 @Entity

@@ -15,6 +15,8 @@ import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.interaction.repository.CommentRepository
+import com.contenido.domain.notification.entity.NotificationType
+import com.contenido.domain.notification.service.NotificationService
 import com.contenido.domain.post.repository.PostRepository
 import com.contenido.domain.report.entity.ReportAppealStatus
 import com.contenido.domain.report.entity.ReportStatus
@@ -57,6 +59,7 @@ class AdminModerationService(
     private val channelRepository: ChannelRepository,
     private val reportRepository: ReportRepository,
     private val reportAppealRepository: ReportAppealRepository,
+    private val notificationService: NotificationService,
 ) {
 
     companion object {
@@ -137,6 +140,25 @@ class AdminModerationService(
             }
         }
 
+        // PR59 — channel.owner 에게 즉시 알림. cascade 영향 카운트를 message 에 포함.
+        // notification 실패가 ban 트랜잭션을 깨뜨리지 않도록 runCatching (기존 패턴).
+        runCatching {
+            notificationService.notify(
+                receiverIds = listOf(channel.owner.id),
+                type = NotificationType.CHANNEL_BANNED,
+                title = "채널이 운영 정책으로 숨김 처리되었습니다.",
+                message = buildBanMessage(
+                    channelName = channel.name,
+                    reason = request.reason,
+                    eventCount = eventCount,
+                    postCount = postCount,
+                    reviewCount = reviewCount,
+                ),
+                targetType = "channels",
+                targetId = channel.id,
+            )
+        }
+
         return AdminChannelBanResponse(
             channelId = channel.id,
             channelName = channel.name,
@@ -163,6 +185,20 @@ class AdminModerationService(
         channel.unhide()
         channel.activate()
 
+        // PR59 — owner 에게 해제 사실 알림. 소속 콘텐츠는 자동 복구되지 않음을 message 에 안내.
+        runCatching {
+            notificationService.notify(
+                receiverIds = listOf(channel.owner.id),
+                type = NotificationType.CHANNEL_UNBANNED,
+                title = "채널 숨김이 해제되었어요.",
+                message = "“${channel.name}” 채널이 다시 활성화됐어요. " +
+                    "이전에 숨김 처리됐던 이벤트/공지/후기는 자동으로 복구되지 않으니 필요한 항목은 " +
+                    "운영팀에 문의해주세요.",
+                targetType = "channels",
+                targetId = channel.id,
+            )
+        }
+
         return AdminChannelBanResponse(
             channelId = channel.id,
             channelName = channel.name,
@@ -174,6 +210,25 @@ class AdminModerationService(
             cascadedPostCount = 0,
             cascadedReviewCount = 0,
         )
+    }
+
+    /** PR59 — ban 알림 message 빌더. cascade 카운트가 0 이면 해당 토큰 제외. */
+    private fun buildBanMessage(
+        channelName: String,
+        reason: String,
+        eventCount: Int,
+        postCount: Int,
+        reviewCount: Int,
+    ): String {
+        val cascadeTokens = listOfNotNull(
+            ("이벤트 ${eventCount}개").takeIf { eventCount > 0 },
+            ("공지 ${postCount}개").takeIf { postCount > 0 },
+            ("후기 ${reviewCount}개").takeIf { reviewCount > 0 },
+        )
+        val cascadeSuffix = if (cascadeTokens.isEmpty()) ""
+        else " ${cascadeTokens.joinToString(", ")}가 함께 숨김 처리됐어요."
+        return "“${channelName}” 채널이 운영 정책 위반으로 숨김 처리됐어요 (사유: ${reason}).$cascadeSuffix " +
+            "이의 제기는 마이페이지 > 내 이의 제기 또는 크리에이터 스튜디오 > 숨김 처리된 콘텐츠에서 신청할 수 있어요."
     }
 
     /**

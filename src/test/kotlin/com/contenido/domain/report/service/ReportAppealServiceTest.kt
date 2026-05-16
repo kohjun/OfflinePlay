@@ -201,6 +201,37 @@ class ReportAppealServiceTest {
     }
 
     @Test
+    fun `createAppeal CHANNEL owner 본인이 hidden 채널 appeal 성공 (PR59 회귀)`() {
+        val owner = createUser(id = 5L, role = UserRole.CREATOR)
+        val hiddenChannel = createChannel(id = 10L, owner = owner).apply {
+            hide(ReportService.AUTO_HIDE_REASON)
+        }
+
+        every { userRepository.findById(5L) } returns Optional.of(owner)
+        every { channelRepository.findById(10L) } returns Optional.of(hiddenChannel)
+        every {
+            reportAppealRepository.existsByRequesterAndTargetTypeAndTargetIdAndStatus(
+                owner, ReportTargetType.CHANNEL, 10L, ReportAppealStatus.PENDING,
+            )
+        } returns false
+        every { reportAppealRepository.save(any<ReportAppeal>()) } answers {
+            firstArg<ReportAppeal>().also {
+                ReflectionTestUtils.setField(it, "id", 500L)
+                val now = LocalDateTime.now()
+                ReflectionTestUtils.setField(it, "createdAt", now)
+                ReflectionTestUtils.setField(it, "updatedAt", now)
+            }
+        }
+
+        val response = service.createAppeal(
+            5L, CreateReportAppealRequest(ReportTargetType.CHANNEL, 10L, "이의 제기"),
+        )
+
+        assertThat(response.targetType).isEqualTo(ReportTargetType.CHANNEL)
+        assertThat(response.status).isEqualTo(ReportAppealStatus.PENDING)
+    }
+
+    @Test
     fun `createAppeal CHANNEL 은 owner 가 본인이 아니면 AppealNotAllowed`() {
         val owner = createUser(id = 5L, role = UserRole.CREATOR)
         val intruder = createUser(id = 7L)

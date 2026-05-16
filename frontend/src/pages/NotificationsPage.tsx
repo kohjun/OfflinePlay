@@ -69,6 +69,11 @@ interface NotificationsPageProps {
  *
  * NEW_POST 는 targetType="channels" 인데 채널 상세의 공지 탭으로 직행해야 하므로
  * `?tab=posts` 쿼리를 붙인다.
+ *
+ * PR59 — CHANNEL_BANNED 는 채널이 hidden 처리된 직후라 owner 가 채널 상세로 진입해도 404 가
+ * 난다. owner (CREATOR/ADMIN) 는 Creator Studio 의 "숨김 처리된 콘텐츠" 섹션으로, 그 외에는
+ * MyPage 의 "내 이의 제기" 진입점으로 유도. CHANNEL_UNBANNED 는 다시 활성화된 상태라 일반
+ * 채널 상세로 진입.
  */
 function pathForTarget(
   targetType: string,
@@ -80,7 +85,11 @@ function pathForTarget(
     case 'events':
       return `/events/${targetId}`
     case 'channels':
-      return type === 'NEW_POST' ? `/channels/${targetId}?tab=posts` : `/channels/${targetId}`
+      if (type === 'NEW_POST') return `/channels/${targetId}?tab=posts`
+      if (type === 'CHANNEL_BANNED') {
+        return viewerRole === 'CREATOR' || viewerRole === 'ADMIN' ? '/creator' : '/my'
+      }
+      return `/channels/${targetId}`
     case 'tickets':
       return `/tickets/${targetId}`
     case 'creator-applications':
