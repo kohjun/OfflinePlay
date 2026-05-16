@@ -371,3 +371,8 @@ class AuditLogArchiveStaleException : ContENIDOException(
     HttpStatus.CONFLICT,
     "아카이브 대상이 변경됐어요. 미리보기를 다시 받아 주세요.",
 )
+
+/** PR67 — archive 단건 상세 조회 시 originalId 가 존재하지 않음. */
+class ArchivedModerationAuditLogNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "아카이브된 감사 로그를 찾을 수 없습니다."
+)

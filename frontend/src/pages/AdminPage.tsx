@@ -4,8 +4,11 @@ import {
   banChannelForModeration,
   dismissReport,
   executeAuditLogArchive,
+  exportArchivedModerationAuditLogs,
   exportModerationAuditLogs,
   getAdminChannels,
+  getArchivedModerationAuditLog,
+  getArchivedModerationAuditLogs,
   getAuditLogArchivePreview,
   getAuditLogRetentionPolicy,
   getCreatorApplications,
@@ -34,6 +37,7 @@ import type {
   AdminModerationPriority,
   AdminModerationQueueItem,
   AdminModerationStats,
+  ArchivedModerationAuditLog,
   AuditLogArchivePreview,
   AuditLogRetentionPolicy,
   Channel,
@@ -239,6 +243,20 @@ export function AdminPage() {
   const [queue, setQueue] = useState<AdminModerationQueueItem[]>([])
   // PR57 — 운영 지표 (최근 30일 default).
   const [stats, setStats] = useState<AdminModerationStats | null>(null)
+  // PR67 — active 로그 / 아카이브 로그 탭 전환. 필터/페이지 상태는 탭별 분리.
+  const [auditTab, setAuditTab] = useState<'active' | 'archived'>('active')
+  // PR67 — archive 탭 전용 상태. active 와 mirroring 하되, expandedArchivedIds 의 키는 originalId.
+  const [archivedLogs, setArchivedLogs] = useState<ArchivedModerationAuditLog[]>([])
+  const [archivedPage, setArchivedPage] = useState(0)
+  const [archivedTotalPages, setArchivedTotalPages] = useState(0)
+  const [archivedIsLast, setArchivedIsLast] = useState(true)
+  const [archivedLoading, setArchivedLoading] = useState(false)
+  const [archivedError, setArchivedError] = useState<string | null>(null)
+  const [expandedArchivedIds, setExpandedArchivedIds] = useState<Set<number>>(new Set())
+  const [archivedDetailCache, setArchivedDetailCache] = useState<Record<number, ArchivedModerationAuditLog>>({})
+  const [archivedDetailLoading, setArchivedDetailLoading] = useState<Set<number>>(new Set())
+  const [archivedDetailErrors, setArchivedDetailErrors] = useState<Record<number, string>>({})
+  const [archivedExporting, setArchivedExporting] = useState(false)
   // PR61 — 운영 감사 로그. PR62 에서 다축 필터 + 페이지네이션 + 본문 확장 추가.
   const [auditLogs, setAuditLogs] = useState<ModerationAuditLog[]>([])
   const [auditFilters, setAuditFilters] = useState<AuditFiltersForm>(EMPTY_AUDIT_FILTERS)
@@ -333,10 +351,10 @@ export function AdminPage() {
   }, [reportFilter, user?.role])
 
   // PR62 — audit 필터/페이지 변경 시 다시 받는다. 빈 문자열은 undefined 로 변환해
-  // backend 가 해당 필드를 무시하게 한다. targetId/actorId 는 number 변환 실패 시 보내지 않음
-  // (validation 토스트는 reset 버튼 외에는 굳이 띄우지 않음 — 사용자가 입력 중일 수 있음).
+  // backend 가 해당 필드를 무시하게 한다. PR67 부터는 audit 탭이 active 일 때만 동작.
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
+    if (auditTab !== 'active') return
     let alive = true
     setAuditLoading(true)
     setAuditError(null)
@@ -369,7 +387,54 @@ export function AdminPage() {
     }
   }, [
     user?.role,
+    auditTab,
     auditPage,
+    auditFilters.action,
+    auditFilters.targetType,
+    auditFilters.targetId,
+    auditFilters.actorId,
+    auditFilters.from,
+    auditFilters.to,
+  ])
+
+  // PR67 — archive 탭 effect. 필터는 active 와 동일 form 을 공유하지만 페이지 / 결과는 분리.
+  useEffect(() => {
+    if (user?.role !== 'ADMIN') return
+    if (auditTab !== 'archived') return
+    let alive = true
+    setArchivedLoading(true)
+    setArchivedError(null)
+    const params: Parameters<typeof getArchivedModerationAuditLogs>[0] = {
+      page: archivedPage,
+      size: AUDIT_PAGE_SIZE,
+      action: auditFilters.action || undefined,
+      targetType: auditFilters.targetType || undefined,
+      targetId: parsePositiveLong(auditFilters.targetId),
+      actorId: parsePositiveLong(auditFilters.actorId),
+      from: auditFilters.from.trim() || undefined,
+      to: auditFilters.to.trim() || undefined,
+    }
+    getArchivedModerationAuditLogs(params)
+      .then((page) => {
+        if (!alive) return
+        setArchivedLogs(page.content)
+        setArchivedTotalPages(page.totalPages)
+        setArchivedIsLast(page.isLast)
+      })
+      .catch((error) => {
+        if (!alive) return
+        setArchivedError(error instanceof Error ? error.message : '불러오지 못했어요.')
+      })
+      .finally(() => {
+        if (alive) setArchivedLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [
+    user?.role,
+    auditTab,
+    archivedPage,
     auditFilters.action,
     auditFilters.targetType,
     auditFilters.targetId,
@@ -629,6 +694,82 @@ export function AdminPage() {
       setRetentionError(error instanceof Error ? error.message : '계산에 실패했어요.')
     } finally {
       setRetentionLoading(false)
+    }
+  }
+
+  // PR67 — archive row 상세 토글. active 와 동일 패턴 — originalId 기준 캐시.
+  async function handleArchivedExpand(originalId: number) {
+    if (expandedArchivedIds.has(originalId)) {
+      setExpandedArchivedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(originalId)
+        return next
+      })
+      return
+    }
+    setExpandedArchivedIds((prev) => {
+      const next = new Set(prev)
+      next.add(originalId)
+      return next
+    })
+    if (archivedDetailCache[originalId] || archivedDetailLoading.has(originalId)) return
+    setArchivedDetailLoading((prev) => {
+      const next = new Set(prev)
+      next.add(originalId)
+      return next
+    })
+    try {
+      const detail = await getArchivedModerationAuditLog(originalId)
+      setArchivedDetailCache((prev) => ({ ...prev, [originalId]: detail }))
+      setArchivedDetailErrors((prev) => {
+        if (!(originalId in prev)) return prev
+        const next = { ...prev }
+        delete next[originalId]
+        return next
+      })
+    } catch (error) {
+      setArchivedDetailErrors((prev) => ({
+        ...prev,
+        [originalId]: error instanceof Error ? error.message : '상세를 불러오지 못했어요.',
+      }))
+    } finally {
+      setArchivedDetailLoading((prev) => {
+        const next = new Set(prev)
+        next.delete(originalId)
+        return next
+      })
+    }
+  }
+
+  // PR67 — archive CSV export. filename moderation-audit-logs-archive.csv.
+  async function handleExportArchivedAuditLogs() {
+    if (archivedExporting) return
+    setArchivedExporting(true)
+    try {
+      const blob = await exportArchivedModerationAuditLogs({
+        action: auditFilters.action || undefined,
+        targetType: auditFilters.targetType || undefined,
+        targetId: parsePositiveLong(auditFilters.targetId),
+        actorId: parsePositiveLong(auditFilters.actorId),
+        from: auditFilters.from.trim() || undefined,
+        to: auditFilters.to.trim() || undefined,
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'moderation-audit-logs-archive.csv'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      showToast({
+        title: '아카이브 내보내기에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setArchivedExporting(false)
     }
   }
 
@@ -1040,13 +1181,37 @@ export function AdminPage() {
           </div>
         </section>
       ) : null}
-      {/* PR61 신설, PR62 에서 다축 필터 + 페이지네이션 + before/after 확장, PR63 에서 CSV export + 단건 상세 fetch. */}
+      {/* PR61 신설, PR62 에서 다축 필터 + 페이지네이션 + before/after 확장, PR63 에서 CSV export + 단건 상세 fetch.
+          PR67 에서 active / archived 탭 전환 + archive CSV export. */}
       <section className="section">
         <div className="section-heading">
           <h2>운영 감사 로그</h2>
           <span className="muted">
-            {auditTotalPages > 0 ? `${auditPage + 1} / ${auditTotalPages} 페이지` : '결과 없음'}
+            {auditTab === 'active'
+              ? auditTotalPages > 0
+                ? `${auditPage + 1} / ${auditTotalPages} 페이지`
+                : '결과 없음'
+              : archivedTotalPages > 0
+              ? `${archivedPage + 1} / ${archivedTotalPages} 페이지 · 읽기 전용`
+              : '결과 없음 · 읽기 전용'}
           </span>
+        </div>
+        {/* PR67 — 탭 segmented control. 필터/페이지/expand 상태는 탭별 분리. */}
+        <div className="badge-row" style={{ gap: '6px', marginBottom: '12px' }}>
+          <button
+            type="button"
+            className={`chip${auditTab === 'active' ? ' is-active' : ''}`}
+            onClick={() => setAuditTab('active')}
+          >
+            현재 로그
+          </button>
+          <button
+            type="button"
+            className={`chip${auditTab === 'archived' ? ' is-active' : ''}`}
+            onClick={() => setAuditTab('archived')}
+          >
+            아카이브
+          </button>
         </div>
         <div className="ct-audit-filters">
           <label className="ct-audit-filter">
@@ -1057,6 +1222,7 @@ export function AdminPage() {
                 const next = e.target.value as ModerationAuditAction | ''
                 setAuditFilters((prev) => ({ ...prev, action: next }))
                 setAuditPage(0)
+                setArchivedPage(0)
               }}
             >
               <option value="">전체</option>
@@ -1073,6 +1239,7 @@ export function AdminPage() {
                 const next = e.target.value as ReportTargetType | ''
                 setAuditFilters((prev) => ({ ...prev, targetType: next }))
                 setAuditPage(0)
+                setArchivedPage(0)
               }}
             >
               <option value="">전체</option>
@@ -1094,6 +1261,7 @@ export function AdminPage() {
                 const v = e.target.value
                 setAuditFilters((prev) => ({ ...prev, targetId: v }))
                 setAuditPage(0)
+                setArchivedPage(0)
               }}
             />
           </label>
@@ -1110,6 +1278,7 @@ export function AdminPage() {
                 const v = e.target.value
                 setAuditFilters((prev) => ({ ...prev, actorId: v }))
                 setAuditPage(0)
+                setArchivedPage(0)
               }}
             />
           </label>
@@ -1122,6 +1291,7 @@ export function AdminPage() {
                 const v = e.target.value
                 setAuditFilters((prev) => ({ ...prev, from: v }))
                 setAuditPage(0)
+                setArchivedPage(0)
               }}
             />
           </label>
@@ -1134,6 +1304,7 @@ export function AdminPage() {
                 const v = e.target.value
                 setAuditFilters((prev) => ({ ...prev, to: v }))
                 setAuditPage(0)
+                setArchivedPage(0)
               }}
             />
           </label>
@@ -1145,27 +1316,43 @@ export function AdminPage() {
             onClick={() => {
               setAuditFilters(EMPTY_AUDIT_FILTERS)
               setAuditPage(0)
+              setArchivedPage(0)
             }}
-            disabled={auditLoading}
+            disabled={auditTab === 'active' ? auditLoading : archivedLoading}
           >
             필터 초기화
           </button>
-          {/* PR63 — 현재 필터 그대로 CSV (최대 1000건) 다운로드. 결과가 비어 있어도 헤더만 들어간
-              CSV 가 다운로드되므로 disabled 는 진행 중일 때만. */}
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={handleExportAuditLogs}
-            disabled={auditExporting || auditLoading}
-            title="현재 필터 조건의 감사 로그 (최대 1000건) 를 CSV 로 내보냅니다."
-          >
-            {auditExporting ? '내보내는 중…' : 'CSV 내보내기'}
-          </button>
+          {/* PR63 active export / PR67 archive export — 탭에 따라 호출 분기. */}
+          {auditTab === 'active' ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={handleExportAuditLogs}
+              disabled={auditExporting || auditLoading}
+              title="현재 필터 조건의 감사 로그 (최대 1000건) 를 CSV 로 내보냅니다."
+            >
+              {auditExporting ? '내보내는 중…' : 'CSV 내보내기'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={handleExportArchivedAuditLogs}
+              disabled={archivedExporting || archivedLoading}
+              title="현재 필터 조건의 아카이브 (최대 1000건) 를 CSV 로 내보냅니다."
+            >
+              {archivedExporting ? '내보내는 중…' : '아카이브 CSV 내보내기'}
+            </button>
+          )}
         </div>
-        {auditError ? (
+        {auditTab === 'active' && auditError ? (
           <p className="muted" role="alert">불러오기 실패: {auditError}</p>
         ) : null}
-        {auditLoading ? (
+        {auditTab === 'archived' && archivedError ? (
+          <p className="muted" role="alert">불러오기 실패: {archivedError}</p>
+        ) : null}
+        {auditTab === 'active' ? (
+          auditLoading ? (
           <p className="muted">불러오는 중…</p>
         ) : auditLogs.length === 0 ? (
           <p className="muted">조건에 맞는 감사 로그가 없어요.</p>
@@ -1243,8 +1430,95 @@ export function AdminPage() {
               )
             })}
           </ul>
+        )
+        ) : archivedLoading ? (
+          <p className="muted">불러오는 중…</p>
+        ) : archivedLogs.length === 0 ? (
+          <p className="muted">조건에 맞는 아카이브가 없어요.</p>
+        ) : (
+          /* PR67 — archive row. originalId 가 PK. read-only — 액션 버튼은 상세만. */
+          <ul className="stack">
+            {archivedLogs.map((log) => {
+              const expanded = expandedArchivedIds.has(log.originalId)
+              const hasDetail = !!(log.beforeValue || log.afterValue)
+              const detail = archivedDetailCache[log.originalId]
+              const detailLoading = archivedDetailLoading.has(log.originalId)
+              const detailError = archivedDetailErrors[log.originalId]
+              const display = detail ?? log
+              return (
+                <article className="card admin-card" key={log.originalId}>
+                  <div>
+                    <div className="badge-row">
+                      <Badge tone={AUDIT_ACTION_TONE[log.action]}>{AUDIT_ACTION_LABEL[log.action]}</Badge>
+                      {log.targetType ? (
+                        <Badge tone="neutral">{TARGET_TYPE_LABEL[log.targetType]}</Badge>
+                      ) : null}
+                      {log.targetId != null ? (
+                        <span className="muted">#{log.targetId}</span>
+                      ) : null}
+                      <Badge tone="neutral">읽기 전용</Badge>
+                    </div>
+                    <strong>
+                      {log.actorNicknameSnapshot}{' '}
+                      <span className="muted">(#{log.actorId})</span>
+                    </strong>
+                    {log.reason ? <p className="muted">사유: {log.reason}</p> : null}
+                    {hasDetail && !expanded ? (
+                      <>
+                        {log.beforeValue ? (
+                          <p className="muted ct-audit-snippet">before: {log.beforeValue}</p>
+                        ) : null}
+                        {log.afterValue ? (
+                          <p className="muted ct-audit-snippet">after: {log.afterValue}</p>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {hasDetail && expanded ? (
+                      <div className="ct-audit-detail">
+                        {detailLoading && !detail ? (
+                          <span className="muted">상세 불러오는 중…</span>
+                        ) : null}
+                        {detailError ? (
+                          <span className="muted" role="alert">상세 조회 실패: {detailError}</span>
+                        ) : null}
+                        {display.beforeValue ? (
+                          <>
+                            <span className="muted">before</span>
+                            <pre className="ct-audit-detail-pre">{prettyAuditValue(display.beforeValue)}</pre>
+                          </>
+                        ) : null}
+                        {display.afterValue ? (
+                          <>
+                            <span className="muted">after</span>
+                            <pre className="ct-audit-detail-pre">{prettyAuditValue(display.afterValue)}</pre>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <span className="muted">
+                      원본: {new Date(log.originalCreatedAt).toLocaleString()} · 아카이브:{' '}
+                      {new Date(log.archivedAt).toLocaleString()} (#{log.archivedBy})
+                    </span>
+                  </div>
+                  {hasDetail ? (
+                    <div className="admin-actions">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => handleArchivedExpand(log.originalId)}
+                        disabled={detailLoading}
+                      >
+                        {expanded ? '접기' : detailLoading ? '불러오는 중…' : '상세'}
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })}
+          </ul>
         )}
-        {auditTotalPages > 1 ? (
+        {/* PR67 — 페이지네이션 탭별 분기. active/archived 각자 자신의 totalPages/isLast 로 제어. */}
+        {auditTab === 'active' && auditTotalPages > 1 ? (
           <div className="admin-actions" style={{ marginTop: '12px', justifyContent: 'space-between' }}>
             <button
               type="button"
@@ -1259,6 +1533,26 @@ export function AdminPage() {
               className="button button-secondary"
               onClick={() => setAuditPage((p) => p + 1)}
               disabled={auditIsLast || auditLoading}
+            >
+              다음
+            </button>
+          </div>
+        ) : null}
+        {auditTab === 'archived' && archivedTotalPages > 1 ? (
+          <div className="admin-actions" style={{ marginTop: '12px', justifyContent: 'space-between' }}>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => setArchivedPage((p) => Math.max(0, p - 1))}
+              disabled={archivedPage === 0 || archivedLoading}
+            >
+              이전
+            </button>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => setArchivedPage((p) => p + 1)}
+              disabled={archivedIsLast || archivedLoading}
             >
               다음
             </button>

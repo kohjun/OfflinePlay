@@ -10,12 +10,15 @@ import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.exception.ArchivedModerationAuditLogNotFoundException
 import com.contenido.global.exception.AuditLogArchiveConfirmationRequiredException
 import com.contenido.global.exception.AuditLogArchiveStaleException
 import com.contenido.global.exception.InvalidRetentionRangeException
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.junit5.MockKExtension
+import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
@@ -23,7 +26,10 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.ExtendWith
+import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.Pageable
+import org.springframework.data.domain.Sort
+import org.springframework.data.jpa.domain.Specification
 import org.springframework.test.util.ReflectionTestUtils
 import java.time.LocalDateTime
 import java.util.Optional
@@ -275,4 +281,185 @@ class ModerationAuditLogArchiveServiceTest {
             ReflectionTestUtils.setField(this, "createdAt", createdAt)
         }
     }
+
+    // ── PR67: browse / detail / export ───────────────────────────────────────
+
+    /**
+     * archive service 의 list/export 는 moderationAuditLogService.parseRangeBoundary / csvEscape
+     * 에 위임 — relaxed mock 으로 두면 둘 다 default(null/"") 를 반환해 동작이 깨진다. 본 PR67
+     * 테스트군이 시작될 때 실제 로직과 동치인 answers 를 한 번에 stub.
+     */
+    private fun stubAuditServiceHelpers() {
+        every { moderationAuditLogService.parseRangeBoundary(any(), any()) } answers {
+            val raw = firstArg<String?>()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: return@answers null
+            if ('T' in raw) {
+                LocalDateTime.parse(raw)
+            } else {
+                val date = java.time.LocalDate.parse(raw)
+                if (secondArg<Boolean>()) date.atTime(23, 59, 59, 999_999_999)
+                else date.atStartOfDay()
+            }
+        }
+        every { moderationAuditLogService.csvEscape(any()) } answers {
+            val v = firstArg<String?>()
+            if (v.isNullOrEmpty()) ""
+            else if (v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r'))
+                "\"" + v.replace("\"", "\"\"") + "\""
+            else v
+        }
+    }
+
+    @Test
+    fun `listArchived - Spec 으로 findAll 호출 + originalCreatedAt DESC pageable`() {
+        stubAuditServiceHelpers()
+        val pageableSlot = slot<Pageable>()
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), capture(pageableSlot),
+            )
+        } returns PageImpl(emptyList(), Pageable.ofSize(20), 0)
+
+        service.listArchived(page = 0, size = 20)
+
+        val sort = pageableSlot.captured.sort.getOrderFor("originalCreatedAt")
+        assertThat(sort).isNotNull
+        assertThat(sort!!.direction).isEqualTo(Sort.Direction.DESC)
+    }
+
+    @Test
+    fun `listArchived - 응답에 archive snapshot nickname 매핑`() {
+        stubAuditServiceHelpers()
+        val row = buildArchive(originalId = 7L, snapshot = "old-nickname")
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(listOf(row), Pageable.ofSize(20), 1)
+
+        val page = service.listArchived(page = 0, size = 20)
+
+        assertThat(page.content).hasSize(1)
+        assertThat(page.content[0].originalId).isEqualTo(7L)
+        assertThat(page.content[0].actorNicknameSnapshot).isEqualTo("old-nickname")
+    }
+
+    @Test
+    fun `getArchived - 존재 시 응답 매핑`() {
+        every {
+            moderationAuditLogArchiveRepository.findByOriginalId(7L)
+        } returns buildArchive(originalId = 7L, snapshot = "alice")
+
+        val result = service.getArchived(7L)
+
+        assertThat(result.originalId).isEqualTo(7L)
+        assertThat(result.actorNicknameSnapshot).isEqualTo("alice")
+    }
+
+    @Test
+    fun `getArchived - 미존재면 ArchivedModerationAuditLogNotFoundException`() {
+        every { moderationAuditLogArchiveRepository.findByOriginalId(999L) } returns null
+
+        assertThrows<ArchivedModerationAuditLogNotFoundException> { service.getArchived(999L) }
+    }
+
+    @Test
+    fun `exportArchivedToCsv - 빈 결과면 헤더 1줄`() {
+        stubAuditServiceHelpers()
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(emptyList(), Pageable.ofSize(1000), 0)
+
+        val csv = service.exportArchivedToCsv()
+
+        assertThat(csv).isEqualTo(ModerationAuditLogArchiveService.CSV_HEADER + "\r\n")
+    }
+
+    @Test
+    fun `exportArchivedToCsv - 정상 row + 컬럼 순서 originalId 가 첫 컬럼`() {
+        stubAuditServiceHelpers()
+        val row = buildArchive(originalId = 42L, snapshot = "admin").apply {
+            ReflectionTestUtils.setField(
+                this, "originalCreatedAt",
+                LocalDateTime.of(2024, 1, 1, 0, 0),
+            )
+            ReflectionTestUtils.setField(
+                this, "archivedAt",
+                LocalDateTime.of(2025, 1, 1, 0, 0),
+            )
+        }
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(listOf(row), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportArchivedToCsv()
+        val lines = csv.split("\r\n")
+
+        assertThat(lines[0]).isEqualTo(ModerationAuditLogArchiveService.CSV_HEADER)
+        assertThat(lines[1]).startsWith("42,2024-01-01T00:00,2025-01-01T00:00,1,admin,TARGET_HIDDEN,REVIEW,50,")
+    }
+
+    @Test
+    fun `exportArchivedToCsv - reason 의 comma 는 quote wrap`() {
+        stubAuditServiceHelpers()
+        val row = buildArchive(originalId = 1L, snapshot = "admin").apply {
+            ReflectionTestUtils.setField(this, "reason", "스팸, 광고")
+        }
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(listOf(row), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportArchivedToCsv()
+
+        assertThat(csv).contains(",\"스팸, 광고\",")
+    }
+
+    @Test
+    fun `exportArchivedToCsv - Pageable size 가 EXPORT_LIMIT 1000 으로 고정`() {
+        stubAuditServiceHelpers()
+        val pageableSlot = slot<Pageable>()
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), capture(pageableSlot),
+            )
+        } returns PageImpl(emptyList(), Pageable.ofSize(1000), 0)
+
+        service.exportArchivedToCsv()
+
+        assertThat(pageableSlot.captured.pageSize).isEqualTo(1000)
+        assertThat(pageableSlot.captured.pageNumber).isEqualTo(0)
+    }
+
+    private fun buildArchive(originalId: Long, snapshot: String): ModerationAuditLogArchive {
+        val actor = createUser(id = 1L, nickname = "current-nickname")
+        val admin = createUser(id = 99L, nickname = "admin")
+        return ModerationAuditLogArchive(
+            originalId = originalId,
+            actor = actor,
+            actorNicknameSnapshot = snapshot,
+            action = ModerationAuditAction.TARGET_HIDDEN,
+            targetType = ReportTargetType.REVIEW,
+            targetId = 50L,
+            beforeValue = null,
+            afterValue = null,
+            reason = "정책 위반",
+            originalCreatedAt = LocalDateTime.of(2024, 1, 1, 0, 0),
+            archivedBy = admin,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", originalId * 10)
+            ReflectionTestUtils.setField(this, "archivedAt", LocalDateTime.of(2025, 1, 1, 0, 0))
+        }
+    }
+
+    // mockk import for `mockk(relaxed = true)` if needed by helper sites — keep linker happy.
+    @Suppress("unused")
+    private val unusedMapper: ObjectMapper = ObjectMapper()
+    @Suppress("unused")
+    private fun unusedMockkRef() = mockk<Any>()
 }

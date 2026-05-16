@@ -6,6 +6,7 @@ import type {
   AdminModerationQueueItem,
   AdminModerationStats,
   AdminModerationTarget,
+  ArchivedModerationAuditLog,
   AuditLogArchivePreview,
   AuditLogArchiveResult,
   AuditLogRetentionPolicy,
@@ -258,4 +259,52 @@ export function executeAuditLogArchive(request: ExecuteAuditLogArchiveRequest) {
     '/admin/moderation/audit-log-retention/archive',
     request,
   )
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-logs/archive
+ *
+ * PR67 — 아카이브된 audit log 목록. PR62 active list 와 동일 axes, 시간 축은 originalCreatedAt.
+ */
+export function getArchivedModerationAuditLogs(params?: {
+  page?: number
+  size?: number
+  action?: ModerationAuditAction
+  targetType?: ReportTargetType
+  targetId?: number
+  actorId?: number
+  from?: string
+  to?: string
+}) {
+  return apiClient.get<PageResponse<ArchivedModerationAuditLog>>(
+    '/admin/moderation/audit-logs/archive',
+    params,
+  )
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-logs/archive/{originalId}
+ *
+ * PR67 — 아카이브 단건 상세. originalId 기준 조회. 미존재 시 404.
+ */
+export function getArchivedModerationAuditLog(originalId: number) {
+  return apiClient.get<ArchivedModerationAuditLog>(
+    `/admin/moderation/audit-logs/archive/${originalId}`,
+  )
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-logs/archive/export
+ *
+ * PR67 — 아카이브 CSV export. 최대 1000건. filename: moderation-audit-logs-archive.csv.
+ */
+export function exportArchivedModerationAuditLogs(params?: {
+  action?: ModerationAuditAction
+  targetType?: ReportTargetType
+  targetId?: number
+  actorId?: number
+  from?: string
+  to?: string
+}) {
+  return apiClient.getBlob('/admin/moderation/audit-logs/archive/export', params)
 }

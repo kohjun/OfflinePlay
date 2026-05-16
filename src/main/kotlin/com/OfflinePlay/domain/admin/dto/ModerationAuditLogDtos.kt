@@ -85,3 +85,25 @@ data class AuditLogArchiveResultResponse(
     val cutoffAt: LocalDateTime,
     val remainingCandidateCount: Long,
 )
+
+/**
+ * PR67 — archived audit log 단건 응답. active 의 [ModerationAuditLogResponse] 와 shape 이
+ * 닮았지만:
+ *  - `originalId` 가 PK 역할 (archive row 본인 id 가 아니라 active 에 있던 id 를 노출).
+ *  - `actorNicknameSnapshot` 은 archive 시점의 nickname 박혀 있음 (사용자 이름 변경 후에도 보존).
+ *  - `archivedAt` / `archivedBy` 추가.
+ */
+data class ArchivedModerationAuditLogResponse(
+    val originalId: Long,
+    val actorId: Long,
+    val actorNicknameSnapshot: String,
+    val action: ModerationAuditAction,
+    val targetType: ReportTargetType?,
+    val targetId: Long?,
+    val beforeValue: String?,
+    val afterValue: String?,
+    val reason: String?,
+    val originalCreatedAt: LocalDateTime,
+    val archivedAt: LocalDateTime,
+    val archivedBy: Long,
+)

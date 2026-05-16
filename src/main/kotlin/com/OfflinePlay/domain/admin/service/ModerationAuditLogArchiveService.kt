@@ -1,18 +1,24 @@
 package com.contenido.domain.admin.service
 
+import com.contenido.domain.admin.dto.ArchivedModerationAuditLogResponse
 import com.contenido.domain.admin.dto.AuditLogArchivePreviewResponse
 import com.contenido.domain.admin.dto.AuditLogArchiveResultResponse
 import com.contenido.domain.admin.dto.ExecuteAuditLogArchiveRequest
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.entity.ModerationAuditLogArchive
 import com.contenido.domain.admin.repository.ModerationAuditLogArchiveRepository
+import com.contenido.domain.admin.repository.ModerationAuditLogArchiveSpecs
 import com.contenido.domain.admin.repository.ModerationAuditLogRepository
+import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.exception.ArchivedModerationAuditLogNotFoundException
 import com.contenido.global.exception.AuditLogArchiveConfirmationRequiredException
 import com.contenido.global.exception.AuditLogArchiveStaleException
 import com.contenido.global.exception.InvalidRetentionRangeException
 import com.contenido.global.exception.UserNotFoundException
+import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -42,6 +48,15 @@ class ModerationAuditLogArchiveService(
     companion object {
         const val ARCHIVE_LIMIT: Int = 1000
         const val CONFIRM_TEXT_REQUIRED: String = "ARCHIVE"
+
+        /** PR67 — archive 조회용 export CSV 행 한도. PR63 active export 와 동일 한도. */
+        const val EXPORT_LIMIT: Int = 1000
+
+        /** PR67 — archive CSV 헤더. originalId 가 첫 컬럼 — 활성 export 와 일관된 컬럼 순서. */
+        const val CSV_HEADER: String =
+            "originalId,originalCreatedAt,archivedAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue"
+
+        private const val CSV_LINE_TERMINATOR = "\r\n"
     }
 
     fun previewArchive(
@@ -141,6 +156,107 @@ class ModerationAuditLogArchiveService(
             remainingCandidateCount = remaining,
         )
     }
+
+    // ── PR67: archived audit log browse ──────────────────────────────────────
+
+    /**
+     * archived row 목록. PR62 active list 와 동일 axes (action / targetType / targetId / actorId
+     * / from / to) 를 받지만 시간 축은 `originalCreatedAt`. 정렬은 `originalCreatedAt DESC` 고정.
+     *
+     * from/to 는 controller 에서 PR62 와 같은 형태로 String 을 받고 본 service 가 동일 규칙으로
+     * 해석해야 한다 — 의존성 단순화를 위해 active 측 helper [ModerationAuditLogService.parseRangeBoundary]
+     * 를 재사용한다.
+     */
+    fun listArchived(
+        page: Int,
+        size: Int,
+        action: ModerationAuditAction? = null,
+        targetType: ReportTargetType? = null,
+        targetId: Long? = null,
+        actorId: Long? = null,
+        from: String? = null,
+        to: String? = null,
+    ): Page<ArchivedModerationAuditLogResponse> {
+        val pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "originalCreatedAt"))
+        val spec = buildArchiveSpec(action, targetType, targetId, actorId, from, to)
+        return moderationAuditLogArchiveRepository.findAll(spec, pageable).map { it.toResponse() }
+    }
+
+    /** PR67 — 단건 상세. archive 본인 PK 가 아니라 active 에 있던 [originalId] 기준 조회. */
+    fun getArchived(originalId: Long): ArchivedModerationAuditLogResponse {
+        val row = moderationAuditLogArchiveRepository.findByOriginalId(originalId)
+            ?: throw ArchivedModerationAuditLogNotFoundException()
+        return row.toResponse()
+    }
+
+    /**
+     * PR67 — archive CSV export. 동일 필터 + 최대 [EXPORT_LIMIT] 건. `originalCreatedAt` DESC.
+     * escaping 정책은 active export 와 동일 (PR63 [ModerationAuditLogService.csvEscape] 재사용).
+     */
+    fun exportArchivedToCsv(
+        action: ModerationAuditAction? = null,
+        targetType: ReportTargetType? = null,
+        targetId: Long? = null,
+        actorId: Long? = null,
+        from: String? = null,
+        to: String? = null,
+    ): String {
+        val pageable = PageRequest.of(0, EXPORT_LIMIT, Sort.by(Sort.Direction.DESC, "originalCreatedAt"))
+        val spec = buildArchiveSpec(action, targetType, targetId, actorId, from, to)
+        val rows = moderationAuditLogArchiveRepository.findAll(spec, pageable).content
+        return buildCsv(rows)
+    }
+
+    private fun buildArchiveSpec(
+        action: ModerationAuditAction?,
+        targetType: ReportTargetType?,
+        targetId: Long?,
+        actorId: Long?,
+        from: String?,
+        to: String?,
+    ) = ModerationAuditLogArchiveSpecs.withFilters(
+        action = action,
+        targetType = targetType,
+        targetId = targetId,
+        actorId = actorId,
+        from = moderationAuditLogService.parseRangeBoundary(from, endOfDay = false),
+        to = moderationAuditLogService.parseRangeBoundary(to, endOfDay = true),
+    )
+
+    private fun buildCsv(rows: List<ModerationAuditLogArchive>): String {
+        val sb = StringBuilder()
+        sb.append(CSV_HEADER).append(CSV_LINE_TERMINATOR)
+        rows.forEach { log ->
+            sb.append(log.originalId).append(',')
+            sb.append(moderationAuditLogService.csvEscape(log.originalCreatedAt.toString())).append(',')
+            sb.append(moderationAuditLogService.csvEscape(log.archivedAt.toString())).append(',')
+            sb.append(log.actor.id).append(',')
+            sb.append(moderationAuditLogService.csvEscape(log.actorNicknameSnapshot)).append(',')
+            sb.append(log.action.name).append(',')
+            sb.append(log.targetType?.name ?: "").append(',')
+            sb.append(log.targetId?.toString() ?: "").append(',')
+            sb.append(moderationAuditLogService.csvEscape(log.reason)).append(',')
+            sb.append(moderationAuditLogService.csvEscape(log.beforeValue)).append(',')
+            sb.append(moderationAuditLogService.csvEscape(log.afterValue))
+            sb.append(CSV_LINE_TERMINATOR)
+        }
+        return sb.toString()
+    }
+
+    private fun ModerationAuditLogArchive.toResponse() = ArchivedModerationAuditLogResponse(
+        originalId = originalId,
+        actorId = actor.id,
+        actorNicknameSnapshot = actorNicknameSnapshot,
+        action = action,
+        targetType = targetType,
+        targetId = targetId,
+        beforeValue = beforeValue,
+        afterValue = afterValue,
+        reason = reason,
+        originalCreatedAt = originalCreatedAt,
+        archivedAt = archivedAt,
+        archivedBy = archivedBy.id,
+    )
 
     /**
      * retentionDays 범위 가드. preview / execute 양쪽이 같은 정책을 쓰도록 [ModerationAuditLogRetentionService]

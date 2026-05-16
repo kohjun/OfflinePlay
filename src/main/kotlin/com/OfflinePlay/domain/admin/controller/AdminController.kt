@@ -10,6 +10,7 @@ import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
 import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
+import com.contenido.domain.admin.dto.ArchivedModerationAuditLogResponse
 import com.contenido.domain.admin.dto.AuditLogArchivePreviewResponse
 import com.contenido.domain.admin.dto.AuditLogArchiveResultResponse
 import com.contenido.domain.admin.dto.AuditLogRetentionPolicyResponse
@@ -324,4 +325,67 @@ class AdminController(
             moderationAuditLogArchiveService.executeArchive(adminUserId, request),
             "오래된 감사 로그를 아카이브했어요.",
         )
+
+    // ── archived audit log browse — PR67 ─────────────────────────────────────
+
+    /**
+     * PR67 — archive 목록. PR62 active list 와 동일 axes, 시간 축은 `originalCreatedAt`.
+     * `/audit-logs/archive` 경로는 PR63 `/audit-logs/{id}` 보다 더 specific 해서 라우팅 충돌 없음
+     * (Spring 은 가장 긴 path 를 우선 매칭).
+     */
+    @GetMapping("/moderation/audit-logs/archive")
+    fun listArchivedAuditLogs(
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int,
+        @RequestParam(required = false) action: ModerationAuditAction?,
+        @RequestParam(required = false) targetType: ReportTargetType?,
+        @RequestParam(required = false) targetId: Long?,
+        @RequestParam(required = false) actorId: Long?,
+        @RequestParam(required = false) from: String?,
+        @RequestParam(required = false) to: String?,
+    ): ApiResponse<PageResponse<ArchivedModerationAuditLogResponse>> =
+        ApiResponse.ok(
+            PageResponse.of(
+                moderationAuditLogArchiveService.listArchived(
+                    page = page, size = size,
+                    action = action, targetType = targetType, targetId = targetId,
+                    actorId = actorId, from = from, to = to,
+                ),
+            ),
+        )
+
+    /**
+     * PR67 — archive CSV export. produces 가 text/csv 라서 `/audit-logs/archive/export` 가
+     * `/audit-logs/archive/{originalId}` 보다 먼저 매칭되어야 한다 — Spring 은 literal segment 를
+     * variable 보다 우선하므로 충돌 없음.
+     */
+    @GetMapping("/moderation/audit-logs/archive/export", produces = ["text/csv"])
+    fun exportArchivedAuditLogs(
+        @RequestParam(required = false) action: ModerationAuditAction?,
+        @RequestParam(required = false) targetType: ReportTargetType?,
+        @RequestParam(required = false) targetId: Long?,
+        @RequestParam(required = false) actorId: Long?,
+        @RequestParam(required = false) from: String?,
+        @RequestParam(required = false) to: String?,
+    ): ResponseEntity<String> {
+        val csv = moderationAuditLogArchiveService.exportArchivedToCsv(
+            action = action, targetType = targetType, targetId = targetId,
+            actorId = actorId, from = from, to = to,
+        )
+        val headers = HttpHeaders().apply {
+            contentType = MediaType.parseMediaType("text/csv; charset=UTF-8")
+            contentDisposition = ContentDisposition.attachment()
+                .filename("moderation-audit-logs-archive.csv")
+                .build()
+            set("X-Export-Limit", "1000")
+        }
+        return ResponseEntity(csv, headers, HttpStatus.OK)
+    }
+
+    /** PR67 — archive 단건 상세. originalId 기준 조회 (archive 본인 PK 가 아니다). */
+    @GetMapping("/moderation/audit-logs/archive/{originalId}")
+    fun getArchivedAuditLog(
+        @PathVariable originalId: Long,
+    ): ApiResponse<ArchivedModerationAuditLogResponse> =
+        ApiResponse.ok(moderationAuditLogArchiveService.getArchived(originalId))
 }

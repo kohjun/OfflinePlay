@@ -537,6 +537,27 @@ export interface AuditLogArchiveResult {
 }
 
 /**
+ * PR67 — archive 테이블의 단건. active [ModerationAuditLog] 와 닮았지만:
+ *  - `originalId` 가 PK 역할 (active 의 id).
+ *  - `actorNicknameSnapshot` 은 archive 시점에 박힌 nickname.
+ *  - `archivedAt` / `archivedBy` 추가.
+ */
+export interface ArchivedModerationAuditLog {
+  originalId: number
+  actorId: number
+  actorNicknameSnapshot: string
+  action: ModerationAuditAction
+  targetType: ReportTargetType | null
+  targetId: number | null
+  beforeValue: string | null
+  afterValue: string | null
+  reason: string | null
+  originalCreatedAt: string
+  archivedAt: string
+  archivedBy: number
+}
+
+/**
  * PR60 — partial update. null/undefined 필드는 변경하지 않음. 1..100 범위.
  */
 export interface UpdateModerationThresholdsRequest {
