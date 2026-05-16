@@ -488,6 +488,24 @@ export interface ModerationAuditLog {
 }
 
 /**
+ * PR64 — audit log retention dry-run 응답. 실제 삭제는 발생하지 않음.
+ *  - retentionDays : 적용된 보존 기간 (운영자가 override 했거나 default 365)
+ *  - minimum/maximumRetentionDays : 허용 범위 (30~3650, UI 표시용)
+ *  - cutoffAt : now - retentionDays. 이 시각 이전 row 가 삭제 대상
+ *  - dryRunDeletableCount : cutoffAt 이전 row 수 (count only)
+ *  - oldest/newest : 현재 audit log 의 가장 오래된/최근 createdAt. row 0 이면 null
+ */
+export interface AuditLogRetentionPolicy {
+  retentionDays: number
+  minimumRetentionDays: number
+  maximumRetentionDays: number
+  cutoffAt: string
+  dryRunDeletableCount: number
+  oldestAuditLogCreatedAt: string | null
+  newestAuditLogCreatedAt: string | null
+}
+
+/**
  * PR60 — partial update. null/undefined 필드는 변경하지 않음. 1..100 범위.
  */
 export interface UpdateModerationThresholdsRequest {

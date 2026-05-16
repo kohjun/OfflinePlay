@@ -173,7 +173,33 @@ V4 마이그레이션(`V4__add_moderation_threshold_settings.sql`) 이 위 5 row
 - 임계치 변경 시점에 누적 PENDING 신고가 새 임계치를 이미 넘은 항목을 일괄 재평가하는 옵션은
   운영팀 합의 후 별도 PR.
 
-## 7. 배포 전 마지막 체크
+## 7. Moderation audit log 보존 정책 (PR64)
+
+PR61~63 에서 운영 액션을 `moderation_audit_logs` 테이블에 append-only 로 남기게 됐다.
+무한 적재를 막기 위해 보존 정책을 명시. **본 PR 은 dry-run 만 제공** — 실제 삭제/archive 는
+후속 PR.
+
+| 항목 | 값 |
+| --- | --- |
+| 기본 보존 기간 | **365 일** (`ModerationAuditLogRetentionService.DEFAULT_RETENTION_DAYS`) |
+| 허용 범위 | 30~3650 일 (`MINIMUM_RETENTION_DAYS` / `MAXIMUM_RETENTION_DAYS`) |
+| 저장 방식 | 서비스 상수 — Flyway migration 없음. 운영 중 영구 변경 필요해지면 후속 PR 에서 KV / 전용 row 로 승격 |
+| 조회 API | `GET /api/v1/admin/moderation/audit-log-retention?retentionDays=...` (ADMIN) |
+| Dry-run 결과 | `cutoffAt`, `dryRunDeletableCount`, `oldestAuditLogCreatedAt`, `newestAuditLogCreatedAt` |
+| 실제 삭제 | **수행하지 않음** — 본 PR 범위 밖 |
+
+운영 절차:
+1. ADMIN 콘솔의 "감사 로그 보존 정책" 카드에서 현재 cutoffAt + 삭제 예상 개수 확인.
+2. 컴플라이언스 요구가 다르면 카드의 input 으로 임시 override 해 dry-run 다시 계산.
+3. 실제 정리는 후속 PR (배치 job / scheduled task / archive table) 에 도입 — 안전 가드
+   (확인 모달, soft delete window, archive 우선 등) 와 함께.
+
+권장:
+- 운영 데이터가 쌓이기 전에 retention 값을 합의해 두기 (incident 회고 / GDPR 요구 / 감사 보고
+  주기와 균형).
+- 첫 cleanup 실행 전 staging 에서 dry-run + 일부 row export(PR63) 로 외부 백업 확보.
+
+## 8. 배포 전 마지막 체크
 
 - [ ] §1 환경 변수 모두 secrets 에 들어가 있는가 (특히 `JWT_SECRET`, `TOSS_SECRET_KEY`,
       `AWS_SECRET_ACCESS_KEY`).
@@ -184,10 +210,12 @@ V4 마이그레이션(`V4__add_moderation_threshold_settings.sql`) 이 위 5 row
 - [ ] PR48 schema 승격을 위해 `reports` 중복 행 cleanup 완료.
 - [ ] 로그 수집 (CloudWatch / Loki 등) 이 컨테이너 stdout 을 받고 있는가.
 
-## 8. 후속 과제
+## 9. 후속 과제
 
 - ~~신고 누적 자동 비공개 정책 (별도 PR).~~ → PR51 에서 도입, PR60 에서 DB 임계치로 승격, 위 §6 참고.
 - ~~전체 `./gradlew test` hang 원인 분리~~ → PR50 에서 해결됨, 위 §5 참고.
-- Moderation 임계치 변경 audit log (PR60 후속).
+- ~~Moderation 임계치 변경 audit log~~ → PR61 에서 도입, 위 §7 audit log 정책 참고.
+- Audit log 실제 cleanup (배치 / scheduled task / archive table) — PR64 dry-run 후속.
+- Audit log retention 값을 DB / KV 로 영구 저장해 운영 중 변경 가능하게 — PR64 후속 옵션.
 - Actuator metrics/prometheus 노출 — 인증 게이트 (basic auth 또는 internal-only path) 와 함께.
 - Flyway V2 — 운영 첫 검증 후 mismatch 보정.

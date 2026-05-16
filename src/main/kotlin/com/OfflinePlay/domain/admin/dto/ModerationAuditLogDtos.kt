@@ -20,3 +20,23 @@ data class ModerationAuditLogResponse(
     val reason: String?,
     val createdAt: LocalDateTime,
 )
+
+/**
+ * PR64 — audit log retention policy 조회 + dry-run 카운트.
+ *
+ *  - 본 PR 은 dry-run 만. 실제 삭제/archive 는 후속 PR.
+ *  - cutoffAt 이전에 createdAt 이 있는 row 수가 [dryRunDeletableCount].
+ *  - 운영자가 입력한 [retentionDays] 가 [minimumRetentionDays] ~ [maximumRetentionDays]
+ *    범위를 벗어나면 controller 가 400 으로 반려한다 — 클라이언트가 응답까지 도달했다면
+ *    값은 항상 허용 범위 안.
+ *  - oldest/newest 는 row 가 0건이면 null.
+ */
+data class AuditLogRetentionPolicyResponse(
+    val retentionDays: Long,
+    val minimumRetentionDays: Long,
+    val maximumRetentionDays: Long,
+    val cutoffAt: LocalDateTime,
+    val dryRunDeletableCount: Long,
+    val oldestAuditLogCreatedAt: LocalDateTime?,
+    val newestAuditLogCreatedAt: LocalDateTime?,
+)

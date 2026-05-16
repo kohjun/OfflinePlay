@@ -351,3 +351,8 @@ class ReviewAlreadyExistsException : ContENIDOException(
 class ModerationAuditLogNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "감사 로그를 찾을 수 없습니다."
 )
+
+/** PR64 — retention 범위(30~3650) 를 벗어난 retentionDays. */
+class InvalidRetentionRangeException(message: String) : ContENIDOException(
+    HttpStatus.BAD_REQUEST, message,
+)

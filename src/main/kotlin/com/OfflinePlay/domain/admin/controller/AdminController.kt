@@ -10,11 +10,13 @@ import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
 import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationTargetResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
+import com.contenido.domain.admin.dto.AuditLogRetentionPolicyResponse
 import com.contenido.domain.admin.dto.ModerationAuditLogResponse
 import com.contenido.domain.admin.dto.ModerationThresholdResponse
 import com.contenido.domain.admin.dto.UpdateModerationThresholdsRequest
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.service.AdminModerationService
+import com.contenido.domain.admin.service.ModerationAuditLogRetentionService
 import com.contenido.domain.admin.service.ModerationAuditLogService
 import com.contenido.domain.admin.service.ModerationThresholdService
 import org.springframework.format.annotation.DateTimeFormat
@@ -46,6 +48,7 @@ class AdminController(
     private val adminModerationService: AdminModerationService,
     private val moderationThresholdService: ModerationThresholdService,
     private val moderationAuditLogService: ModerationAuditLogService,
+    private val moderationAuditLogRetentionService: ModerationAuditLogRetentionService,
 ) {
 
     // ── 유저 관리 ──────────────────────────────────────────────────────────────
@@ -281,4 +284,16 @@ class AdminController(
         }
         return ResponseEntity(csv, headers, HttpStatus.OK)
     }
+
+    /**
+     * PR64 — audit log retention 정책 조회 + dry-run.
+     *
+     * 경로 (`/audit-log-retention`) 는 의도적으로 `/audit-logs/{id}` 와 충돌하지 않는 별도
+     * prefix 를 사용. 본 endpoint 는 **삭제하지 않는다** — 운영자가 영향 범위만 미리 확인.
+     */
+    @GetMapping("/moderation/audit-log-retention")
+    fun getAuditLogRetention(
+        @RequestParam(required = false) retentionDays: Long?,
+    ): ApiResponse<AuditLogRetentionPolicyResponse> =
+        ApiResponse.ok(moderationAuditLogRetentionService.getRetentionPolicy(retentionDays))
 }

@@ -1130,6 +1130,40 @@ textarea {
   outline: none;
 }
 
+/* PR64 — 감사 로그 retention 카드. 2~3 컬럼 그리드 + 셀별 라벨/값 스택. */
+.ct-retention-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.ct-retention-cell {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.ct-retention-cell strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ct-retention-cell input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.ct-retention-cell input:focus {
+  border-color: var(--border-strong);
+  outline: none;
+}
+
 /* PR62 — 감사 로그 상세 확장: pretty JSON 을 pre 로 감싸 줄바꿈 + 가로 스크롤. */
 .ct-audit-detail {
   display: grid;

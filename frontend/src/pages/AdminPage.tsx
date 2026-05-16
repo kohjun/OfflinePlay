@@ -5,6 +5,7 @@ import {
   dismissReport,
   exportModerationAuditLogs,
   getAdminChannels,
+  getAuditLogRetentionPolicy,
   getCreatorApplications,
   getModerationAuditLog,
   getModerationAuditLogs,
@@ -31,6 +32,7 @@ import type {
   AdminModerationPriority,
   AdminModerationQueueItem,
   AdminModerationStats,
+  AuditLogRetentionPolicy,
   Channel,
   CreatorApplication,
   ModerationAuditAction,
@@ -248,6 +250,11 @@ export function AdminPage() {
   const [auditDetailLoading, setAuditDetailLoading] = useState<Set<number>>(new Set())
   const [auditDetailErrors, setAuditDetailErrors] = useState<Record<number, string>>({})
   const [auditExporting, setAuditExporting] = useState(false)
+  // PR64 — retention dry-run. 초기 mount 시 default 365 로 미리 계산, 운영자가 input 으로 override 가능.
+  const [retentionPolicy, setRetentionPolicy] = useState<AuditLogRetentionPolicy | null>(null)
+  const [retentionDraft, setRetentionDraft] = useState<string>('')
+  const [retentionLoading, setRetentionLoading] = useState(false)
+  const [retentionError, setRetentionError] = useState<string | null>(null)
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -271,8 +278,9 @@ export function AdminPage() {
       getModerationStats(),
       getModerationThresholds(),
       getModerationAuditLogs({ size: AUDIT_PAGE_SIZE }),
+      getAuditLogRetentionPolicy(),
     ])
-      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes]) => {
+      .then(([applicationPage, channelPage, reportPage, appealPage, queuePage, statsRes, thresholdsRes, auditPageRes, retentionRes]) => {
         setApplications(applicationPage.content)
         setChannels(channelPage.content)
         setReports(reportPage.content)
@@ -283,6 +291,8 @@ export function AdminPage() {
         setAuditLogs(auditPageRes.content)
         setAuditTotalPages(auditPageRes.totalPages)
         setAuditIsLast(auditPageRes.isLast)
+        setRetentionPolicy(retentionRes)
+        setRetentionDraft(String(retentionRes.retentionDays))
         setThresholdDraft({
           REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
           COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
@@ -579,6 +589,36 @@ export function AdminPage() {
       })
     } finally {
       setAuditExporting(false)
+    }
+  }
+
+  // PR64 — "미리 계산" 클릭 시 현재 draft 의 retentionDays 로 dry-run 재계산. 입력이 비어 있으면
+  // backend 가 default (365) 로 fallback. 클라이언트 검증은 친화적 토스트용 — 최종 가드는 backend.
+  async function handleRetentionPreview() {
+    const raw = retentionDraft.trim()
+    let override: number | undefined
+    if (raw !== '') {
+      const n = Number(raw)
+      if (!Number.isInteger(n) || n < 30 || n > 3650) {
+        showToast({
+          title: '보존 기간은 30~3650일 사이여야 해요',
+          message: '비워두면 기본값(365)으로 계산합니다.',
+          tone: 'warning',
+        })
+        return
+      }
+      override = n
+    }
+    setRetentionLoading(true)
+    setRetentionError(null)
+    try {
+      const res = await getAuditLogRetentionPolicy(override)
+      setRetentionPolicy(res)
+      setRetentionDraft(String(res.retentionDays))
+    } catch (error) {
+      setRetentionError(error instanceof Error ? error.message : '계산에 실패했어요.')
+    } finally {
+      setRetentionLoading(false)
     }
   }
 
@@ -1140,6 +1180,78 @@ export function AdminPage() {
           </div>
         ) : null}
       </section>
+      {/* PR64 — audit log 보존 정책 dry-run 카드. 본 화면은 삭제하지 않고 영향 범위만 미리 계산. */}
+      {retentionPolicy ? (
+        <section className="section">
+          <div className="section-heading">
+            <h2>감사 로그 보존 정책</h2>
+            <span className="muted">dry-run</span>
+          </div>
+          <p className="muted" style={{ marginBottom: '12px' }}>
+            이번 화면은 삭제하지 않고 대상 개수만 계산합니다. 실제 정리/아카이브는 후속 PR.
+          </p>
+          <div className="ct-retention-grid">
+            <div className="ct-retention-cell">
+              <span className="muted">현재 적용 보존 기간</span>
+              <strong>{retentionPolicy.retentionDays}일</strong>
+            </div>
+            <div className="ct-retention-cell">
+              <span className="muted">cutoffAt (이전이 삭제 대상)</span>
+              <strong>{new Date(retentionPolicy.cutoffAt).toLocaleString()}</strong>
+            </div>
+            <div className="ct-retention-cell">
+              <span className="muted">삭제 대상 예상 개수</span>
+              <strong>{retentionPolicy.dryRunDeletableCount.toLocaleString()}건</strong>
+            </div>
+            <div className="ct-retention-cell">
+              <span className="muted">가장 오래된 로그</span>
+              <strong>
+                {retentionPolicy.oldestAuditLogCreatedAt
+                  ? new Date(retentionPolicy.oldestAuditLogCreatedAt).toLocaleString()
+                  : '없음'}
+              </strong>
+            </div>
+            <div className="ct-retention-cell">
+              <span className="muted">가장 최근 로그</span>
+              <strong>
+                {retentionPolicy.newestAuditLogCreatedAt
+                  ? new Date(retentionPolicy.newestAuditLogCreatedAt).toLocaleString()
+                  : '없음'}
+              </strong>
+            </div>
+            <label className="ct-retention-cell">
+              <span className="muted">
+                보존 일수 (override, {retentionPolicy.minimumRetentionDays}~
+                {retentionPolicy.maximumRetentionDays})
+              </span>
+              <input
+                type="number"
+                min={retentionPolicy.minimumRetentionDays}
+                max={retentionPolicy.maximumRetentionDays}
+                step={1}
+                inputMode="numeric"
+                placeholder={String(retentionPolicy.retentionDays)}
+                value={retentionDraft}
+                onChange={(e) => setRetentionDraft(e.target.value)}
+                disabled={retentionLoading}
+              />
+            </label>
+          </div>
+          {retentionError ? (
+            <p className="muted" role="alert">계산 실패: {retentionError}</p>
+          ) : null}
+          <div className="admin-actions" style={{ marginTop: '12px' }}>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={handleRetentionPreview}
+              disabled={retentionLoading}
+            >
+              {retentionLoading ? '계산 중…' : '미리 계산'}
+            </button>
+          </div>
+        </section>
+      ) : null}
       {/* PR55 — 통합 운영 큐. 신고/appeal/hidden 3 source 가 priority 순으로 합쳐진다.
           상세 신고/appeal 섹션은 아래에 그대로 유지되어 전체 목록 조회/필터링용으로 남는다. */}
       <section className="section">

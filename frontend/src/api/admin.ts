@@ -6,6 +6,7 @@ import type {
   AdminModerationQueueItem,
   AdminModerationStats,
   AdminModerationTarget,
+  AuditLogRetentionPolicy,
   Channel,
   CreatorApplication,
   ModerationAuditAction,
@@ -216,4 +217,15 @@ export function exportModerationAuditLogs(params?: {
   to?: string
 }) {
   return apiClient.getBlob('/admin/moderation/audit-logs/export', params)
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-log-retention
+ *
+ * PR64 — audit log 보존 정책 + dry-run 카운트. retentionDays 를 생략하면 backend default
+ * (365 일) 사용. 30~3650 범위. 실제 삭제는 발생하지 않으며 영향 범위만 미리 계산.
+ */
+export function getAuditLogRetentionPolicy(retentionDays?: number) {
+  const params = retentionDays != null ? { retentionDays } : undefined
+  return apiClient.get<AuditLogRetentionPolicy>('/admin/moderation/audit-log-retention', params)
 }
