@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  AdminChannelBan,
   AdminModerationGranularity,
   AdminModerationPriority,
   AdminModerationQueueItem,
@@ -119,4 +120,28 @@ export function getModerationStats(params?: {
   granularity?: AdminModerationGranularity
 }) {
   return apiClient.get<AdminModerationStats>('/admin/moderation/stats', params)
+}
+
+/**
+ * PATCH /api/v1/admin/moderation/channels/{channelId}/ban
+ *
+ * PR58 — 채널 제재. reason 필수, 255자. 채널 + 소속 events/posts/reviews cascade hide.
+ * 이미 hidden 인 채널이면 409. 응답의 cascade*Count 는 "본 호출에서 새로 숨긴" row 수.
+ * 본 호출은 관련 PENDING appeal 을 자동 reject 하지 않는다 (운영자가 appeal 큐에서 별도 처리).
+ */
+export function banChannelForModeration(channelId: number, reason: string) {
+  return apiClient.patch<AdminChannelBan>(
+    `/admin/moderation/channels/${channelId}/ban`,
+    { reason },
+  )
+}
+
+/**
+ * PATCH /api/v1/admin/moderation/channels/{channelId}/unban
+ *
+ * PR58 — 채널 제재 해제. 소속 콘텐츠는 자동 unhide 되지 않는다 — 개별 콘텐츠는
+ * unhideModerationTarget 으로 따로 처리.
+ */
+export function unbanChannelForModeration(channelId: number) {
+  return apiClient.patch<AdminChannelBan>(`/admin/moderation/channels/${channelId}/unban`)
 }

@@ -79,6 +79,11 @@ class Channel(
         isActive = false
     }
 
+    /** PR58 — ADMIN 채널 ban 해제. unhide 와 짝이지만 의미 분리 (active=운영자 ban 차원). */
+    fun activate() {
+        isActive = true
+    }
+
     fun hide(reason: String) {
         if (hiddenAt != null) return
         hiddenAt = LocalDateTime.now()

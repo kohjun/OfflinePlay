@@ -36,6 +36,10 @@ interface ReviewRepository : JpaRepository<Review, Long> {
         to: java.time.LocalDateTime,
     ): List<Review>
 
+    /** PR58 — 채널 ban cascade 시 채널 소속 이벤트들의 모든 후기를 한 번에 fetch. */
+    @Query("SELECT r FROM Review r WHERE r.event.channel.id = :channelId")
+    fun findByEventChannelId(@Param("channelId") channelId: Long): List<Review>
+
     /** 한 이벤트의 평균 별점. 후기가 없으면 null. */
     @Query("SELECT AVG(r.rating) FROM Review r WHERE r.event.id = :eventId")
     fun averageRatingByEventId(@Param("eventId") eventId: Long): Double?

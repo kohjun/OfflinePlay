@@ -1,5 +1,6 @@
 package com.contenido.domain.admin.service
 
+import com.contenido.domain.admin.dto.AdminBanChannelRequest
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
 import com.contenido.domain.admin.dto.AdminModerationPriority
 import com.contenido.domain.channel.entity.Channel
@@ -24,6 +25,7 @@ import com.contenido.domain.review.entity.Review
 import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
+import com.contenido.global.exception.ChannelNotFoundException
 import com.contenido.global.exception.ReportTargetNotFoundException
 import com.contenido.global.exception.TargetAlreadyHiddenException
 import com.contenido.global.exception.TargetNotHiddenException
@@ -652,6 +654,110 @@ class AdminModerationServiceTest {
         assertThat(response.totals.reportCount).isZero()
         // 시작 날짜는 now - 30 days.
         assertThat(response.from.toLocalDate()).isEqualTo(now.minusDays(30).toLocalDate())
+    }
+
+    // ── PR58: banChannelForModeration / unbanChannelForModeration ───────────
+
+    @Test
+    fun `banChannelForModeration 성공 — channel hide+deactivate + cascade hide`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+        val event1 = createEvent(id = 100L, channel = channel)
+        val event2 = createEvent(id = 101L, channel = channel).apply { hide("기존") } // 이미 hidden
+        val post = Post(channel = channel, author = owner, title = "공지", content = "본문").apply {
+            ReflectionTestUtils.setField(this, "id", 60L)
+            val now = LocalDateTime.now()
+            ReflectionTestUtils.setField(this, "createdAt", now)
+            ReflectionTestUtils.setField(this, "updatedAt", now)
+        }
+        val author = createUser(id = 5L)
+        val review1 = Review(event = event1, author = author, rating = 4, content = "후기1").apply {
+            ReflectionTestUtils.setField(this, "id", 50L)
+            val now = LocalDateTime.now()
+            ReflectionTestUtils.setField(this, "createdAt", now)
+            ReflectionTestUtils.setField(this, "updatedAt", now)
+        }
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+        every { eventRepository.findByChannel(channel) } returns listOf(event1, event2)
+        every { postRepository.findByChannel(channel) } returns listOf(post)
+        every { reviewRepository.findByEventChannelId(10L) } returns listOf(review1)
+
+        val response = service.banChannelForModeration(10L, AdminBanChannelRequest("정책 위반"))
+
+        // channel 자체.
+        assertThat(channel.isHidden).isTrue()
+        assertThat(channel.isActive).isFalse()
+        assertThat(channel.hiddenReason).isEqualTo("정책 위반")
+        // cascade: event1 새로 hide / event2 는 이미 hidden 이라 count 제외.
+        assertThat(event1.isHidden).isTrue()
+        assertThat(event2.isHidden).isTrue()
+        assertThat(event2.hiddenReason).isEqualTo("기존") // 첫 hide 시점/사유 보존
+        assertThat(post.isHidden).isTrue()
+        assertThat(review1.isHidden).isTrue()
+
+        // 새로 숨긴 row 만 count.
+        assertThat(response.cascadedEventCount).isEqualTo(1)
+        assertThat(response.cascadedPostCount).isEqualTo(1)
+        assertThat(response.cascadedReviewCount).isEqualTo(1)
+        assertThat(response.hidden).isTrue()
+        assertThat(response.isActive).isFalse()
+    }
+
+    @Test
+    fun `banChannelForModeration 이미 hidden 채널이면 TargetAlreadyHiddenException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner).apply { hide("기존") }
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+
+        assertThrows<TargetAlreadyHiddenException> {
+            service.banChannelForModeration(10L, AdminBanChannelRequest("덮어쓰기"))
+        }
+        // 기존 사유 보존.
+        assertThat(channel.hiddenReason).isEqualTo("기존")
+    }
+
+    @Test
+    fun `banChannelForModeration 미존재 채널이면 ChannelNotFoundException`() {
+        every { channelRepository.findById(404L) } returns Optional.empty()
+
+        assertThrows<ChannelNotFoundException> {
+            service.banChannelForModeration(404L, AdminBanChannelRequest("x"))
+        }
+    }
+
+    @Test
+    fun `unbanChannelForModeration 성공 — channel unhide + activate`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner).apply {
+            hide("정책 위반"); deactivate()
+        }
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+
+        val response = service.unbanChannelForModeration(10L)
+
+        assertThat(channel.isHidden).isFalse()
+        assertThat(channel.isActive).isTrue()
+        assertThat(response.hidden).isFalse()
+        assertThat(response.isActive).isTrue()
+        // 소속 콘텐츠는 자동 unhide 안 됨 — repository 호출 자체 없음을 verify.
+        io.mockk.verify(exactly = 0) { eventRepository.findByChannel(any()) }
+        io.mockk.verify(exactly = 0) { postRepository.findByChannel(any()) }
+        io.mockk.verify(exactly = 0) { reviewRepository.findByEventChannelId(any()) }
+    }
+
+    @Test
+    fun `unbanChannelForModeration hidden 아닌 채널이면 TargetNotHiddenException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+
+        assertThrows<TargetNotHiddenException> {
+            service.unbanChannelForModeration(10L)
+        }
     }
 
     // ── fixtures ─────────────────────────────────────────────────────────────

@@ -1,5 +1,7 @@
 package com.contenido.domain.admin.controller
 
+import com.contenido.domain.admin.dto.AdminBanChannelRequest
+import com.contenido.domain.admin.dto.AdminChannelBanResponse
 import com.contenido.domain.admin.dto.AdminChannelResponse
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
 import com.contenido.domain.admin.dto.AdminModerationGranularity
@@ -154,5 +156,26 @@ class AdminController(
         ApiResponse.ok(
             adminModerationService.unhideTarget(targetType, targetId),
             "숨김을 해제했어요.",
+        )
+
+    // ── 채널 제재 / 해제 — PR58 ──────────────────────────────────────────────
+
+    @PatchMapping("/moderation/channels/{channelId}/ban")
+    fun banChannelForModeration(
+        @PathVariable channelId: Long,
+        @Valid @RequestBody request: AdminBanChannelRequest,
+    ): ApiResponse<AdminChannelBanResponse> =
+        ApiResponse.ok(
+            adminModerationService.banChannelForModeration(channelId, request),
+            "채널을 제재하고 관련 콘텐츠를 숨겼어요.",
+        )
+
+    @PatchMapping("/moderation/channels/{channelId}/unban")
+    fun unbanChannelForModeration(
+        @PathVariable channelId: Long,
+    ): ApiResponse<AdminChannelBanResponse> =
+        ApiResponse.ok(
+            adminModerationService.unbanChannelForModeration(channelId),
+            "채널 제재를 해제했어요.",
         )
 }

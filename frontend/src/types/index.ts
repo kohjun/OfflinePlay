@@ -436,6 +436,22 @@ export interface AdminModerationStats {
 }
 
 /**
+ * PR58 — 채널 제재/해제 응답.
+ * cascade*Count 는 본 호출에서 "새로 숨김 처리한" row 수 — 이미 hidden 이던 row 는 제외.
+ */
+export interface AdminChannelBan {
+  channelId: number
+  channelName: string
+  isActive: boolean
+  hidden: boolean
+  hiddenAt?: string | null
+  hiddenReason?: string | null
+  cascadedEventCount: number
+  cascadedPostCount: number
+  cascadedReviewCount: number
+}
+
+/**
  * PR55 — 신고 / appeal / hidden 3개 source 를 (targetType, targetId) 키로 merge 한 통합 row.
  * 운영자가 한 페이지에서 우선순위 순으로 처리할 수 있게 모든 컨텍스트를 동봉한다.
  */

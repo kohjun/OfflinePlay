@@ -1,5 +1,7 @@
 package com.contenido.domain.admin.service
 
+import com.contenido.domain.admin.dto.AdminBanChannelRequest
+import com.contenido.domain.admin.dto.AdminChannelBanResponse
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
 import com.contenido.domain.admin.dto.AdminModerationGranularity
 import com.contenido.domain.admin.dto.AdminModerationPriority
@@ -21,6 +23,7 @@ import com.contenido.domain.report.repository.ReportAppealRepository
 import com.contenido.domain.report.repository.ReportRepository
 import com.contenido.domain.report.service.ReportService
 import com.contenido.domain.review.repository.ReviewRepository
+import com.contenido.global.exception.ChannelNotFoundException
 import com.contenido.global.exception.ReportTargetNotFoundException
 import com.contenido.global.exception.TargetAlreadyHiddenException
 import com.contenido.global.exception.TargetNotHiddenException
@@ -90,6 +93,87 @@ class AdminModerationService(
         if (!ctx.hidden) throw TargetNotHiddenException()
         applyUnhide(targetType, targetId)
         return loadContext(targetType, targetId).toResponse()
+    }
+
+    /**
+     * 채널 제재 (PR58). hide + deactivate + cascade hide (events/posts/reviews).
+     *  - 이미 hidden 이면 [TargetAlreadyHiddenException].
+     *  - 채널 미존재 → [ChannelNotFoundException].
+     *  - cascade 대상 중 이미 hidden 인 row 는 entity.hide() 가 no-op — 응답 cascade*Count 는
+     *    "본 호출에서 새로 숨긴" row 수만 카운트.
+     *  - PENDING appeal 은 자동 reject 하지 않음 — 운영자가 appeal 큐에서 별도 처리 (PR54 일관).
+     *  - COMMENT cascade 는 본 PR 범위 밖 — channel 매핑이 복잡(targetType=EVENT/POST/COMMENT).
+     *    후속 PR.
+     */
+    @Transactional
+    fun banChannelForModeration(channelId: Long, request: AdminBanChannelRequest): AdminChannelBanResponse {
+        val channel = channelRepository.findById(channelId).orElseThrow { ChannelNotFoundException() }
+        if (channel.isHidden) throw TargetAlreadyHiddenException()
+
+        // 1. 채널 자체 hide + deactivate.
+        channel.hide(request.reason)
+        channel.deactivate()
+
+        // 2. cascade — 이미 hidden 인 row 는 카운트 제외.
+        val events = eventRepository.findByChannel(channel)
+        var eventCount = 0
+        events.forEach {
+            if (!it.isHidden) {
+                it.hide(request.reason); eventCount++
+            }
+        }
+        val posts = postRepository.findByChannel(channel)
+        var postCount = 0
+        posts.forEach {
+            if (!it.isHidden) {
+                it.hide(request.reason); postCount++
+            }
+        }
+        val reviews = reviewRepository.findByEventChannelId(channelId)
+        var reviewCount = 0
+        reviews.forEach {
+            if (!it.isHidden) {
+                it.hide(request.reason); reviewCount++
+            }
+        }
+
+        return AdminChannelBanResponse(
+            channelId = channel.id,
+            channelName = channel.name,
+            isActive = channel.isActive,
+            hidden = channel.isHidden,
+            hiddenAt = channel.hiddenAt,
+            hiddenReason = channel.hiddenReason,
+            cascadedEventCount = eventCount,
+            cascadedPostCount = postCount,
+            cascadedReviewCount = reviewCount,
+        )
+    }
+
+    /**
+     * 채널 제재 해제 (PR58). unhide + activate. **소속 콘텐츠는 자동 unhide 하지 않는다** —
+     * 채널 제재 해제와 개별 콘텐츠 안전성은 별도 판단. 개별 콘텐츠는 PR54 의 [unhideTarget] 으로
+     * 따로 처리.
+     */
+    @Transactional
+    fun unbanChannelForModeration(channelId: Long): AdminChannelBanResponse {
+        val channel = channelRepository.findById(channelId).orElseThrow { ChannelNotFoundException() }
+        if (!channel.isHidden) throw TargetNotHiddenException()
+
+        channel.unhide()
+        channel.activate()
+
+        return AdminChannelBanResponse(
+            channelId = channel.id,
+            channelName = channel.name,
+            isActive = channel.isActive,
+            hidden = channel.isHidden,
+            hiddenAt = channel.hiddenAt,
+            hiddenReason = channel.hiddenReason,
+            cascadedEventCount = 0,
+            cascadedPostCount = 0,
+            cascadedReviewCount = 0,
+        )
     }
 
     /**
