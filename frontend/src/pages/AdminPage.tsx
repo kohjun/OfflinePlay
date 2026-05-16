@@ -3,8 +3,10 @@ import {
   approveCreatorApplication,
   banChannelForModeration,
   dismissReport,
+  exportModerationAuditLogs,
   getAdminChannels,
   getCreatorApplications,
+  getModerationAuditLog,
   getModerationAuditLogs,
   getModerationQueue,
   getModerationStats,
@@ -241,6 +243,11 @@ export function AdminPage() {
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [expandedAuditIds, setExpandedAuditIds] = useState<Set<number>>(new Set())
+  // PR63 — 단건 상세 fetch 결과 캐시 (Map<id, log>) + 진행 중 id set + 에러 메시지.
+  const [auditDetailCache, setAuditDetailCache] = useState<Record<number, ModerationAuditLog>>({})
+  const [auditDetailLoading, setAuditDetailLoading] = useState<Set<number>>(new Set())
+  const [auditDetailErrors, setAuditDetailErrors] = useState<Record<number, string>>({})
+  const [auditExporting, setAuditExporting] = useState(false)
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -493,6 +500,85 @@ export function AdminPage() {
       })
     } finally {
       setThresholdSaving(false)
+    }
+  }
+
+  // PR63 — 감사 로그 row 별 상세 토글. 이미 펼쳐져 있으면 접고, 닫혀 있으면 detail API 를 1회만
+  // fetch 해 cache 에 저장. 캐시가 있으면 즉시 펼친다. detail 실패는 row-level 에러로 표시하고
+  // expanded 상태는 유지해 사용자가 사유를 볼 수 있게 한다.
+  async function handleAuditExpand(id: number) {
+    if (expandedAuditIds.has(id)) {
+      setExpandedAuditIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+      return
+    }
+    setExpandedAuditIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+    if (auditDetailCache[id] || auditDetailLoading.has(id)) return
+    setAuditDetailLoading((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+    try {
+      const detail = await getModerationAuditLog(id)
+      setAuditDetailCache((prev) => ({ ...prev, [id]: detail }))
+      setAuditDetailErrors((prev) => {
+        if (!(id in prev)) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    } catch (error) {
+      setAuditDetailErrors((prev) => ({
+        ...prev,
+        [id]: error instanceof Error ? error.message : '상세를 불러오지 못했어요.',
+      }))
+    } finally {
+      setAuditDetailLoading((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  // PR63 — 현재 필터 그대로 CSV export. Blob 받아 a.download 으로 브라우저 다운로드 트리거.
+  // 빈 응답이면 backend 가 헤더만 보내므로 파일은 거의 비어 있다 — 사용자가 의도한 동작.
+  async function handleExportAuditLogs() {
+    if (auditExporting) return
+    setAuditExporting(true)
+    try {
+      const blob = await exportModerationAuditLogs({
+        action: auditFilters.action || undefined,
+        targetType: auditFilters.targetType || undefined,
+        targetId: parsePositiveLong(auditFilters.targetId),
+        actorId: parsePositiveLong(auditFilters.actorId),
+        from: auditFilters.from.trim() || undefined,
+        to: auditFilters.to.trim() || undefined,
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'moderation-audit-logs.csv'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      showToast({
+        title: '감사 로그 내보내기에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setAuditExporting(false)
     }
   }
 
@@ -829,7 +915,7 @@ export function AdminPage() {
           </div>
         </section>
       ) : null}
-      {/* PR61 신설, PR62 에서 다축 필터 + 페이지네이션 + before/after 확장. */}
+      {/* PR61 신설, PR62 에서 다축 필터 + 페이지네이션 + before/after 확장, PR63 에서 CSV export + 단건 상세 fetch. */}
       <section className="section">
         <div className="section-heading">
           <h2>운영 감사 로그</h2>
@@ -939,6 +1025,17 @@ export function AdminPage() {
           >
             필터 초기화
           </button>
+          {/* PR63 — 현재 필터 그대로 CSV (최대 1000건) 다운로드. 결과가 비어 있어도 헤더만 들어간
+              CSV 가 다운로드되므로 disabled 는 진행 중일 때만. */}
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={handleExportAuditLogs}
+            disabled={auditExporting || auditLoading}
+            title="현재 필터 조건의 감사 로그 (최대 1000건) 를 CSV 로 내보냅니다."
+          >
+            {auditExporting ? '내보내는 중…' : 'CSV 내보내기'}
+          </button>
         </div>
         {auditError ? (
           <p className="muted" role="alert">불러오기 실패: {auditError}</p>
@@ -952,6 +1049,11 @@ export function AdminPage() {
             {auditLogs.map((log) => {
               const expanded = expandedAuditIds.has(log.id)
               const hasDetail = !!(log.beforeValue || log.afterValue)
+              const detail = auditDetailCache[log.id]
+              const detailLoading = auditDetailLoading.has(log.id)
+              const detailError = auditDetailErrors[log.id]
+              // 펼친 상태에서는 detail (fresh fetch) 우선, 캐시 미스면 list row 데이터로 fallback.
+              const display = detail ?? log
               return (
                 <article className="card admin-card" key={log.id}>
                   <div>
@@ -978,16 +1080,22 @@ export function AdminPage() {
                     ) : null}
                     {hasDetail && expanded ? (
                       <div className="ct-audit-detail">
-                        {log.beforeValue ? (
+                        {detailLoading && !detail ? (
+                          <span className="muted">상세 불러오는 중…</span>
+                        ) : null}
+                        {detailError ? (
+                          <span className="muted" role="alert">상세 조회 실패: {detailError}</span>
+                        ) : null}
+                        {display.beforeValue ? (
                           <>
                             <span className="muted">before</span>
-                            <pre className="ct-audit-detail-pre">{prettyAuditValue(log.beforeValue)}</pre>
+                            <pre className="ct-audit-detail-pre">{prettyAuditValue(display.beforeValue)}</pre>
                           </>
                         ) : null}
-                        {log.afterValue ? (
+                        {display.afterValue ? (
                           <>
                             <span className="muted">after</span>
-                            <pre className="ct-audit-detail-pre">{prettyAuditValue(log.afterValue)}</pre>
+                            <pre className="ct-audit-detail-pre">{prettyAuditValue(display.afterValue)}</pre>
                           </>
                         ) : null}
                       </div>
@@ -999,16 +1107,10 @@ export function AdminPage() {
                       <button
                         type="button"
                         className="button button-secondary"
-                        onClick={() =>
-                          setExpandedAuditIds((prev) => {
-                            const next = new Set(prev)
-                            if (next.has(log.id)) next.delete(log.id)
-                            else next.add(log.id)
-                            return next
-                          })
-                        }
+                        onClick={() => handleAuditExpand(log.id)}
+                        disabled={detailLoading}
                       >
-                        {expanded ? '접기' : '상세'}
+                        {expanded ? '접기' : detailLoading ? '불러오는 중…' : '상세'}
                       </button>
                     </div>
                   ) : null}

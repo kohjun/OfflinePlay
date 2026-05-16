@@ -345,3 +345,9 @@ class ReviewNotAllowedException : ContENIDOException(
 class ReviewAlreadyExistsException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 후기를 작성한 이벤트입니다."
 )
+
+// --- Moderation audit log (PR63) ---
+/** 단건 상세 조회 시 id 가 존재하지 않음. */
+class ModerationAuditLogNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "감사 로그를 찾을 수 없습니다."
+)

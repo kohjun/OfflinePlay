@@ -7,6 +7,7 @@ import com.contenido.domain.admin.repository.ModerationAuditLogRepository
 import com.contenido.domain.admin.repository.ModerationAuditLogSpecs
 import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.exception.ModerationAuditLogNotFoundException
 import com.contenido.global.exception.UserNotFoundException
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.data.domain.Page
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
 /**
@@ -41,6 +43,24 @@ class ModerationAuditLogService(
     private val userRepository: UserRepository,
     private val objectMapper: ObjectMapper,
 ) {
+
+    companion object {
+        /**
+         * PR63 — CSV export 시 한 번에 반환하는 최대 행 수. 운영자가 한 화면에서 끝까지 훑을 수
+         * 있는 양 + 백엔드 메모리 보호. 더 많은 데이터가 필요하면 필터를 더 좁히도록 유도.
+         */
+        const val MAX_EXPORT_ROWS = 1000
+
+        /** PR63 CSV 행의 createdAt 직렬화 형식. ISO_LOCAL_DATE_TIME 이면 Excel 도 잘 인식. */
+        private val CSV_DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+        /** PR63 CSV 헤더 (RFC 4180). 컬럼 순서 변경 시 운영자 외부 도구가 깨질 수 있으니 신중. */
+        const val CSV_HEADER =
+            "id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue"
+
+        /** RFC 4180 line terminator. */
+        private const val CSV_LINE_TERMINATOR = "\r\n"
+    }
 
     @Transactional
     fun record(
@@ -85,6 +105,76 @@ class ModerationAuditLogService(
             to = parseRangeBoundary(to, endOfDay = true),
         )
         return moderationAuditLogRepository.findAll(spec, pageable).map { it.toResponse() }
+    }
+
+    /**
+     * PR63 — 단건 상세. id 가 없으면 [ModerationAuditLogNotFoundException].
+     * 응답 shape 은 list 와 동일 [ModerationAuditLogResponse]. detail page 가 필요로 하는 추가
+     * 필드는 본 PR 범위 밖.
+     */
+    fun get(id: Long): ModerationAuditLogResponse {
+        val log = moderationAuditLogRepository.findById(id)
+            .orElseThrow { ModerationAuditLogNotFoundException() }
+        return log.toResponse()
+    }
+
+    /**
+     * PR63 — list 와 동일 필터로 RFC 4180 CSV 직렬화. 최대 [MAX_EXPORT_ROWS] 건.
+     * 정렬은 createdAt DESC. comma / quote / newline 포함 필드는 "..." 로 wrap + quote escape.
+     *
+     * 컨트롤러가 헤더에 X-Export-Limit 을 그대로 노출. BOM 은 붙이지 않는다 — 운영 도구가
+     * UTF-8 을 가정한다고 보고 단순 유지. Excel 호환이 더 중요해지면 후속 PR.
+     */
+    fun exportToCsv(
+        action: ModerationAuditAction? = null,
+        targetType: ReportTargetType? = null,
+        targetId: Long? = null,
+        actorId: Long? = null,
+        from: String? = null,
+        to: String? = null,
+    ): String {
+        val pageable = PageRequest.of(0, MAX_EXPORT_ROWS, Sort.by(Sort.Direction.DESC, "createdAt"))
+        val spec = ModerationAuditLogSpecs.withFilters(
+            action = action,
+            targetType = targetType,
+            targetId = targetId,
+            actorId = actorId,
+            from = parseRangeBoundary(from, endOfDay = false),
+            to = parseRangeBoundary(to, endOfDay = true),
+        )
+        val rows = moderationAuditLogRepository.findAll(spec, pageable).content
+        return buildCsv(rows)
+    }
+
+    private fun buildCsv(rows: List<ModerationAuditLog>): String {
+        val sb = StringBuilder()
+        sb.append(CSV_HEADER).append(CSV_LINE_TERMINATOR)
+        rows.forEach { log ->
+            sb.append(log.id).append(',')
+            sb.append(csvEscape(log.createdAt.format(CSV_DATE_FORMAT))).append(',')
+            sb.append(log.actor.id).append(',')
+            sb.append(csvEscape(log.actor.nickname)).append(',')
+            sb.append(log.action.name).append(',')
+            sb.append(log.targetType?.name ?: "").append(',')
+            sb.append(log.targetId?.toString() ?: "").append(',')
+            sb.append(csvEscape(log.reason)).append(',')
+            sb.append(csvEscape(log.beforeValue)).append(',')
+            sb.append(csvEscape(log.afterValue))
+            sb.append(CSV_LINE_TERMINATOR)
+        }
+        return sb.toString()
+    }
+
+    /**
+     * RFC 4180 escape. null 은 빈 문자열. comma/quote/CR/LF 가 포함되면 "..." 로 감싸고
+     * 내부 quote 를 "" 로 escape. 그 외는 원문 그대로.
+     */
+    internal fun csvEscape(value: String?): String {
+        if (value.isNullOrEmpty()) return ""
+        val needsQuote =
+            value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r')
+        return if (needsQuote) "\"" + value.replace("\"", "\"\"") + "\""
+        else value
     }
 
     private fun serialize(value: Any?): String? = when (value) {

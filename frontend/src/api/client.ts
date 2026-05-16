@@ -178,8 +178,55 @@ async function request<T>(
   return parseResponse<T>(retryResponse)
 }
 
+/**
+ * PR63 — non-JSON 응답 (CSV 등) 을 Blob 으로 받는 변형. 인증 헤더 + 401 reissue 로직은 동일.
+ * JSON request() 와 코드 중복이 있지만, 분기 처리하면 generic 타입이 복잡해져 분리.
+ */
+async function requestBlob(
+  path: string,
+  query?: Record<string, QueryValue>,
+): Promise<Blob> {
+  const url = buildUrl(path, query)
+  const initialResponse = await fetch(url, { headers: buildHeaders({}) })
+  if (initialResponse.status !== 401) {
+    return parseBlobResponse(initialResponse)
+  }
+  const newToken = await reissueAccessToken()
+  if (!newToken) {
+    tokenStorage.clear()
+    onUnauthorized?.()
+    throw new ApiError('Unauthorized', 401, null)
+  }
+  const retryResponse = await fetch(url, { headers: buildHeaders({}) })
+  if (retryResponse.status === 401) {
+    tokenStorage.clear()
+    onUnauthorized?.()
+  }
+  return parseBlobResponse(retryResponse)
+}
+
+async function parseBlobResponse(response: Response): Promise<Blob> {
+  if (!response.ok) {
+    // 실패 시 JSON 메시지를 추출해 ApiError 로 던진다 (정상 응답이 CSV 라도 에러는 JSON).
+    const text = await response.text()
+    let payload: unknown = null
+    try {
+      payload = text ? JSON.parse(text) : null
+    } catch {
+      payload = text
+    }
+    const message =
+      payload && typeof payload === 'object' && 'message' in payload
+        ? String((payload as { message: unknown }).message)
+        : 'Request failed'
+    throw new ApiError(message, response.status, payload)
+  }
+  return await response.blob()
+}
+
 export const apiClient = {
   get: <T>(path: string, query?: Record<string, QueryValue>) => request<T>(path, {}, query),
+  getBlob: (path: string, query?: Record<string, QueryValue>) => requestBlob(path, query),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, {
       method: 'POST',

@@ -28,6 +28,11 @@ import com.contenido.domain.report.service.ReportAppealService
 import com.contenido.global.response.ApiResponse
 import com.contenido.global.response.PageResponse
 import jakarta.validation.Valid
+import org.springframework.http.ContentDisposition
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
+import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
@@ -213,7 +218,7 @@ class AdminController(
             "임계치를 갱신했어요.",
         )
 
-    // ── 운영 감사 로그 — PR61, PR62 (필터 확장) ───────────────────────────────
+    // ── 운영 감사 로그 — PR61, PR62 (필터 확장), PR63 (detail + export) ──────
 
     @GetMapping("/moderation/audit-logs")
     fun getModerationAuditLogs(
@@ -241,4 +246,39 @@ class AdminController(
                 ),
             ),
         )
+
+    @GetMapping("/moderation/audit-logs/{id}")
+    fun getModerationAuditLog(@PathVariable id: Long): ApiResponse<ModerationAuditLogResponse> =
+        ApiResponse.ok(moderationAuditLogService.get(id))
+
+    /**
+     * PR63 — CSV export. PR62 list 와 동일 필터, 최대 [ModerationAuditLogService.MAX_EXPORT_ROWS]
+     * 건. Content-Disposition attachment 로 브라우저가 파일 다운로드 처리.
+     */
+    @GetMapping("/moderation/audit-logs/export", produces = ["text/csv"])
+    fun exportModerationAuditLogs(
+        @RequestParam(required = false) action: ModerationAuditAction?,
+        @RequestParam(required = false) targetType: ReportTargetType?,
+        @RequestParam(required = false) targetId: Long?,
+        @RequestParam(required = false) actorId: Long?,
+        @RequestParam(required = false) from: String?,
+        @RequestParam(required = false) to: String?,
+    ): ResponseEntity<String> {
+        val csv = moderationAuditLogService.exportToCsv(
+            action = action,
+            targetType = targetType,
+            targetId = targetId,
+            actorId = actorId,
+            from = from,
+            to = to,
+        )
+        val headers = HttpHeaders().apply {
+            contentType = MediaType.parseMediaType("text/csv; charset=UTF-8")
+            contentDisposition = ContentDisposition.attachment()
+                .filename("moderation-audit-logs.csv")
+                .build()
+            set("X-Export-Limit", ModerationAuditLogService.MAX_EXPORT_ROWS.toString())
+        }
+        return ResponseEntity(csv, headers, HttpStatus.OK)
+    }
 }

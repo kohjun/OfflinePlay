@@ -190,3 +190,30 @@ export function getModerationAuditLogs(params?: {
 }) {
   return apiClient.get<PageResponse<ModerationAuditLog>>('/admin/moderation/audit-logs', params)
 }
+
+/**
+ * GET /api/v1/admin/moderation/audit-logs/{id}
+ *
+ * PR63 — 단건 상세. 존재하지 않으면 404 (ApiError).
+ */
+export function getModerationAuditLog(id: number) {
+  return apiClient.get<ModerationAuditLog>(`/admin/moderation/audit-logs/${id}`)
+}
+
+/**
+ * GET /api/v1/admin/moderation/audit-logs/export
+ *
+ * PR63 — 현재 필터를 그대로 반영해 CSV (최대 1000행) 다운로드. backend 응답은
+ * text/csv + Content-Disposition attachment. 호출자가 Blob 으로 받아 URL.createObjectURL
+ * 로 다운로드 트리거.
+ */
+export function exportModerationAuditLogs(params?: {
+  action?: ModerationAuditAction
+  targetType?: ReportTargetType
+  targetId?: number
+  actorId?: number
+  from?: string
+  to?: string
+}) {
+  return apiClient.getBlob('/admin/moderation/audit-logs/export', params)
+}

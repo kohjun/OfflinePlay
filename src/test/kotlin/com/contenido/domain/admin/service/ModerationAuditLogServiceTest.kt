@@ -7,6 +7,7 @@ import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.exception.ModerationAuditLogNotFoundException
 import com.contenido.global.exception.UserNotFoundException
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.mockk.every
@@ -375,4 +376,186 @@ class ModerationAuditLogServiceTest {
 
     @Suppress("unused")
     private fun unusedCriteriaQueryRef(q: CriteriaQuery<*>) = q
+
+    // ── PR63: get(id) ────────────────────────────────────────────────────────
+
+    @Test
+    fun `get - 존재하는 로그 조회 성공`() {
+        val actor = createUser(99L, nickname = "admin")
+        val log = buildLog(actor)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+
+        val result = service.get(1L)
+
+        assertThat(result.id).isEqualTo(1L)
+        assertThat(result.actorId).isEqualTo(99L)
+        assertThat(result.actorNickname).isEqualTo("admin")
+        assertThat(result.action).isEqualTo(ModerationAuditAction.TARGET_HIDDEN)
+    }
+
+    @Test
+    fun `get - 없는 id 는 ModerationAuditLogNotFoundException`() {
+        every { moderationAuditLogRepository.findById(999L) } returns Optional.empty()
+
+        assertThrows<ModerationAuditLogNotFoundException> { service.get(999L) }
+    }
+
+    // ── PR63: exportToCsv ────────────────────────────────────────────────────
+
+    @Test
+    fun `exportToCsv - 빈 결과면 헤더만 1줄`() {
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(emptyList(), Pageable.ofSize(ModerationAuditLogService.MAX_EXPORT_ROWS), 0)
+
+        val csv = service.exportToCsv()
+
+        // 헤더 + CRLF 만, row 는 없음.
+        assertThat(csv).isEqualTo(ModerationAuditLogService.CSV_HEADER + "\r\n")
+    }
+
+    @Test
+    fun `exportToCsv - 정상 row 헤더 + 컬럼 순서 일치`() {
+        val actor = createUser(99L, nickname = "admin")
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.TARGET_HIDDEN,
+            targetType = ReportTargetType.REVIEW,
+            targetId = 50L,
+            beforeValue = null,
+            afterValue = """{"hidden":true}""",
+            reason = "정책 위반",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 42L)
+            ReflectionTestUtils.setField(
+                this, "createdAt", LocalDateTime.of(2026, 5, 17, 8, 30, 15),
+            )
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(ModerationAuditLogService.MAX_EXPORT_ROWS), 1)
+
+        val csv = service.exportToCsv()
+        val lines = csv.split("\r\n")
+
+        assertThat(lines[0]).isEqualTo(ModerationAuditLogService.CSV_HEADER)
+        // id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue
+        assertThat(lines[1]).isEqualTo(
+            "42,2026-05-17T08:30:15,99,admin,TARGET_HIDDEN,REVIEW,50,정책 위반,,\"{\"\"hidden\"\":true}\""
+        )
+    }
+
+    @Test
+    fun `exportToCsv - comma 포함 reason 은 quote wrap`() {
+        val actor = createUser(99L)
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.TARGET_HIDDEN,
+            reason = "스팸, 광고",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 1L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(ModerationAuditLogService.MAX_EXPORT_ROWS), 1)
+
+        val csv = service.exportToCsv()
+
+        assertThat(csv).contains(",\"스팸, 광고\",")
+    }
+
+    @Test
+    fun `exportToCsv - newline 포함 값은 quote wrap`() {
+        val actor = createUser(99L)
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.TARGET_HIDDEN,
+            beforeValue = "줄1\n줄2",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 1L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(ModerationAuditLogService.MAX_EXPORT_ROWS), 1)
+
+        val csv = service.exportToCsv()
+
+        assertThat(csv).contains(",\"줄1\n줄2\",")
+    }
+
+    @Test
+    fun `csvEscape 단위 - 특수문자 없으면 원문 그대로`() {
+        assertThat(service.csvEscape("hello world")).isEqualTo("hello world")
+    }
+
+    @Test
+    fun `csvEscape 단위 - null 과 빈 문자열은 빈 문자열`() {
+        assertThat(service.csvEscape(null)).isEqualTo("")
+        assertThat(service.csvEscape("")).isEqualTo("")
+    }
+
+    @Test
+    fun `csvEscape 단위 - comma 포함 시 quote wrap`() {
+        assertThat(service.csvEscape("a,b")).isEqualTo("\"a,b\"")
+    }
+
+    @Test
+    fun `csvEscape 단위 - quote 포함 시 quote 두 번으로 escape + wrap`() {
+        assertThat(service.csvEscape("she said \"hi\"")).isEqualTo("\"she said \"\"hi\"\"\"")
+    }
+
+    @Test
+    fun `csvEscape 단위 - CR LF 포함 시 quote wrap`() {
+        assertThat(service.csvEscape("line1\nline2")).isEqualTo("\"line1\nline2\"")
+        assertThat(service.csvEscape("line1\r\nline2")).isEqualTo("\"line1\r\nline2\"")
+    }
+
+    @Test
+    fun `exportToCsv - Pageable size 가 MAX_EXPORT_ROWS (1000) 으로 고정 + DESC 정렬`() {
+        val pageableSlot = slot<Pageable>()
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), capture(pageableSlot))
+        } returns PageImpl(emptyList(), Pageable.ofSize(ModerationAuditLogService.MAX_EXPORT_ROWS), 0)
+
+        service.exportToCsv()
+
+        assertThat(pageableSlot.captured.pageSize).isEqualTo(1000)
+        assertThat(pageableSlot.captured.pageNumber).isEqualTo(0)
+        val sort = pageableSlot.captured.sort.getOrderFor("createdAt")
+        assertThat(sort).isNotNull
+        assertThat(sort!!.direction.isDescending).isTrue()
+    }
+
+    @Test
+    fun `exportToCsv - 필터 (action + from + to) 가 Specification 으로 합성됨`() {
+        val specSlot = slot<Specification<ModerationAuditLog>>()
+        every {
+            moderationAuditLogRepository.findAll(capture(specSlot), any<Pageable>())
+        } returns PageImpl(emptyList(), Pageable.ofSize(1000), 0)
+
+        service.exportToCsv(
+            action = ModerationAuditAction.THRESHOLD_UPDATED,
+            from = "2026-05-01",
+            to = "2026-05-17",
+        )
+
+        val (root, cb) = buildCriteriaMocks()
+        specSlot.captured.toPredicate(root, mockk(relaxed = true), cb)
+
+        verify { cb.equal(any<Path<ModerationAuditAction>>(), ModerationAuditAction.THRESHOLD_UPDATED) }
+        verify {
+            cb.greaterThanOrEqualTo(
+                any<Path<LocalDateTime>>(),
+                LocalDateTime.of(2026, 5, 1, 0, 0, 0, 0),
+            )
+        }
+        verify {
+            cb.lessThanOrEqualTo(
+                any<Path<LocalDateTime>>(),
+                LocalDateTime.of(2026, 5, 17, 23, 59, 59, 999_999_999),
+            )
+        }
+    }
 }
