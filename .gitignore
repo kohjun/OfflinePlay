@@ -34,6 +34,10 @@ out/
 # Local profile (로컬 DB 접속 정보 포함 — 커밋 금지)
 src/main/resources/application-local.yml
 
+# 시크릿 yml — 운영 키 등을 직접 inline 하는 변형 파일 (env-only 가 원칙이지만 누군가 만든 경우 방어)
+src/main/resources/application-secret*.yml
+src/main/resources/application-prod-local.yml
+
 # Log files
 *.log
 logs/

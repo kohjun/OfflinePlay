@@ -922,6 +922,119 @@ class PaymentServiceTest {
         assertThat(event.currentParticipants).isEqualTo(4) // 변화 없음
     }
 
+    // ── PR42 hardening: webhook 멱등성 보강 ────────────────────────────────────
+
+    @Test
+    fun `handleWebhook FAILED 가 이미 PAID 인 attempt 에 오면 skip (confirm 후 늦은 FAILED webhook race)`() {
+        // 시나리오: 클라이언트 confirm 으로 이미 PAID 처리됐는데 PG 가 뒤늦게 FAILED webhook 을 보내는 경우.
+        // attempt.status != READY 분기로 빠져야 하며, PAID → FAILED 로 뒤집히지 않아야 한다.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5,
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PAID)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "race-FAIL", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply { ReflectionTestUtils.setField(this, "ticket", ticket) }
+
+        every { paymentAttemptRepository.findByIdempotencyKey("race-FAIL") } returns Optional.of(attempt)
+
+        service.handleWebhook(
+            PaymentWebhookRequest(
+                idempotencyKey = "race-FAIL", amount = 30_000L, status = PaymentStatus.FAILED,
+            )
+        )
+
+        // 이미 PAID 였던 attempt 가 그대로 PAID, ticket 도 그대로, 정원도 그대로.
+        assertThat(attempt.status).isEqualTo(PaymentStatus.PAID)
+        assertThat(ticket.status).isEqualTo(TicketStatus.PAID)
+        assertThat(event.currentParticipants).isEqualTo(5)
+        verify(exactly = 0) { ticketService.issuePaidTicket(any(), any(), any()) }
+    }
+
+    @Test
+    fun `handleRefundedWebhook attempt 가 PAID 가 아니면 skip (FAILED attempt 에 REFUNDED webhook)`() {
+        // 시나리오: 결제가 FAILED 로 끝났는데 PG 가 잘못된 REFUNDED webhook 을 보내는 경우.
+        // ticket 도 없고 환불할 대상도 없으므로 안전하게 skip 해야 한다.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 3,
+        )
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "bad-refund", amount = 30_000L, status = PaymentStatus.FAILED,
+        )
+
+        every { paymentAttemptRepository.findByIdempotencyKey("bad-refund") } returns Optional.of(attempt)
+
+        service.handleWebhook(
+            PaymentWebhookRequest(
+                idempotencyKey = "bad-refund", amount = 30_000L, status = PaymentStatus.REFUNDED,
+            )
+        )
+
+        assertThat(attempt.refundedAt).isNull()
+        assertThat(event.currentParticipants).isEqualTo(3) // 변화 없음
+    }
+
+    @Test
+    fun `handleRefundedWebhook attempt 는 PAID 인데 ticket 이 null 이면 skip (비정상 상태)`() {
+        // 시나리오: confirm 진행 중 중단 등으로 attempt.status=PAID 인데 ticket 이 연결 안 된 상태.
+        // 실제로는 일어나면 안 되지만, 일어났을 때 NullPointerException 같은 cascade 실패 대신 skip.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 3,
+        )
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "no-ticket", amount = 30_000L, status = PaymentStatus.PAID,
+        )
+        // ticket 은 의도적으로 세팅하지 않음 → null.
+
+        every { paymentAttemptRepository.findByIdempotencyKey("no-ticket") } returns Optional.of(attempt)
+
+        service.handleWebhook(
+            PaymentWebhookRequest(
+                idempotencyKey = "no-ticket", amount = 30_000L, status = PaymentStatus.REFUNDED,
+            )
+        )
+
+        assertThat(attempt.refundedAt).isNull()
+        assertThat(event.currentParticipants).isEqualTo(3) // 변화 없음
+    }
+
+    @Test
+    fun `handleRefundedWebhook ticket 이 USED 상태면 skip (체크인 후 환불 webhook 강제 차단)`() {
+        // 시나리오: 사용자가 이미 체크인(USED)한 티켓에 대해 PG 측에서 REFUNDED webhook 이 도착.
+        // 운영 도구로 별도 처리해야 할 케이스이므로 webhook 으로는 자동 환불하지 않는다.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 7,
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.USED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "used-refund", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply { ReflectionTestUtils.setField(this, "ticket", ticket) }
+
+        every { paymentAttemptRepository.findByIdempotencyKey("used-refund") } returns Optional.of(attempt)
+
+        service.handleWebhook(
+            PaymentWebhookRequest(
+                idempotencyKey = "used-refund", amount = 30_000L, status = PaymentStatus.REFUNDED,
+            )
+        )
+
+        assertThat(attempt.refundedAt).isNull()
+        assertThat(ticket.status).isEqualTo(TicketStatus.USED) // 변화 없음
+        assertThat(event.currentParticipants).isEqualTo(7) // 변화 없음
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────
 
     private fun createUser(

@@ -482,3 +482,59 @@ interface PaymentGateway {
 - **환불 정산 reconciliation batch** — 일별 PG 정산 데이터와 REFUNDED 카운트 일치 검증.
 - **환불 실패 큐** — PG `refund.failed` 처리 + 운영자 알림 + 자동 재시도 정책 (Toss 5xx 한정).
 - **정원 race condition lock** (PR41 잔재) + **PortOne 어댑터** (PR40 잔재) — 별도 PR.
+
+## 12. 운영 hardening 체크리스트
+
+운영 배포 직전에 결제 설정을 점검할 때 사용. `PaymentHardeningCheck` 가 부팅 시 자동 검증한다.
+
+### 12.1 환경 변수
+
+| Env var | 운영 권장 값 | 의미 |
+|---|---|---|
+| `TOSS_PAYMENTS_ENABLED` | `true` | `false` 면 `MockPaymentGateway` 가 활성화돼 모든 결제가 "success" 로 통과 — 절대 운영에서 false 금지. |
+| `TOSS_SECRET_KEY` | `live_sk_…` (env-only) | Toss secret key. **절대 git 에 커밋 금지** — `.env` / Secrets Manager / k8s Secret 으로만 주입. |
+| `TOSS_CLIENT_KEY` | `live_ck_…` (env-only) | 프론트 SDK 가 사용. BE 응답에 실어 넘기는 흐름. |
+| `TOSS_API_BASE_URL` | `https://api.tosspayments.com` | sandbox 도 동일 base — secret key 가 sandbox 면 sandbox 호출이 된다. |
+| `TOSS_WEBHOOK_SIGNATURE_REQUIRED` | `true` | prod 프로파일 기본값. false 로 내리면 모든 webhook 이 통과하므로 운영에서는 절대 금지. |
+
+`application-prod.yml` 가 `webhook-signature-required` 를 `${TOSS_WEBHOOK_SIGNATURE_REQUIRED:true}` 로 잠가 둠 — env 누락 시에도 ON 상태로 부팅한다.
+
+### 12.2 부팅 시 fail-fast (`PaymentHardeningCheck`)
+
+다음 misconfig 중 하나라도 해당되면 `ApplicationStartedEvent` 시점에 `IllegalStateException` 으로 부팅을 중단한다. 잘못된 결제 설정으로 prod 인스턴스가 트래픽을 받는 상황 차단.
+
+1. `payment.toss.enabled=true` + `secretKey` 가 비어 있음
+   → `TossPaymentGateway` 가 PG 호출 시 Authorization 헤더를 만들 수 없어 모든 confirm 실패.
+2. `payment.toss.webhook-signature-required=true` + `secretKey` 가 비어 있음
+   → `PaymentWebhookSignatureVerifier` 가 매 webhook 마다 `Misconfigured` → 500 응답. PG 의 webhook 재시도가 멈추지 않는다.
+
+로컬/CI 디폴트(`enabled=false`, `required=false`)와 테스트 컨텍스트(secret 명시 세팅)에서는 모두 통과한다.
+
+### 12.3 시크릿 누출 방지
+
+- `.gitignore` 에서 차단:
+  - `**/application-local.yml` / `**/application-secret*.yml` / `.env*`
+  - `.claude/settings.local.json`
+- 테스트 코드에서 사용하는 secret 은 `test-secret-key-do-not-use-in-prod` 와 같이 **실 시크릿과 명확히 구분되는 더미** 만 사용.
+- 빌드 산출물 (`build/resources/main/application*.yml`) 은 절대 staging/commit 금지 — Gradle 이 src 의 yml 을 카피하면서 env 가 치환된 결과가 들어갈 수 있다.
+
+### 12.4 webhook 멱등성 회귀
+
+PR42 hardening 에서 추가된 회귀 테스트 (`PaymentServiceTest`):
+
+- `handleWebhook FAILED 가 이미 PAID 인 attempt 에 오면 skip` — confirm 후 늦은 FAILED webhook 으로 PAID 가 뒤집히지 않는다.
+- `handleRefundedWebhook attempt 가 PAID 가 아니면 skip` — FAILED/CANCELED 에 잘못 도착한 REFUNDED webhook.
+- `handleRefundedWebhook ticket 이 null 이면 skip` — 비정상 상태 cascade 차단.
+- `handleRefundedWebhook ticket 이 USED 면 skip` — 체크인 후 webhook 자동 환불 차단.
+
+기존(PR41/PR42-refund) 테스트:
+- `handleWebhook 같은 idempotencyKey 로 PAID 두 번 와도 ticket 한 번만 발급`
+- `handleWebhook REFUNDED 중복 webhook 은 멱등`
+- `confirmPayment 이미 PAID 면 gateway 재호출 없이 멱등 응답`
+
+### 12.5 운영 점검 항목
+
+배포 직후 (smoke):
+- `GET /actuator/health` 200 (TODO: 별도 PR 에서 actuator 노출)
+- prod 인스턴스 로그에 `[PaymentHardeningCheck] OK` 가 한 번 찍히는지
+- 결제 1건 sandbox 흐름으로 가짜 트래픽 통과 확인 (prepare → confirm → webhook PAID → ticket 발급)

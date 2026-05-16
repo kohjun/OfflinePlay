@@ -11,11 +11,12 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * Toss webhook 의 `Toss-Signature` 헤더를 HMAC-SHA256 으로 검증한다.
  *
- * 현재 구현: `hex(hmac_sha256(secretKey, rawBody))` 와 단순 비교.
+ * 검증 규약 (Toss Payments docs 기준):
+ *  - 헤더: `Toss-Signature` ([SIGNATURE_HEADER])
+ *  - 값  : `hex(hmac_sha256(secretKey, rawBody))` — 소문자 hex string, prefix 없음
+ *  - 비교: [MessageDigest.isEqual] 로 timing-safe (평문 `==` 은 사이드채널 누출 위험)
  *
- * **TODO (운영 전 필수)**: Toss 공식 webhook 문서로 header 이름 / 인코딩(hex vs base64) /
- * 추가 prefix(예: `t=...,v1=...`) 형식을 재확인하고 [VERSION_HEX] 와 헤더 이름을 맞춰야 한다.
- * docs/payment-refund-policy.md §10 에도 같은 TODO 가 명시돼 있다.
+ * Toss 가 header 이름/포맷을 바꾸는 경우 [SIGNATURE_HEADER] 와 [computeHmacHex] 만 갱신.
  *
  * 검증 결과는 [VerificationResult] 로 분류된다 — 컨트롤러가 이 결과를 받아 401/500 등으로 매핑한다.
  *
@@ -25,8 +26,8 @@ import javax.crypto.spec.SecretKeySpec
  *  - [VerificationResult.Invalid]       : required=true + 헤더 있지만 HMAC 불일치 → 401.
  *  - [VerificationResult.Misconfigured] : required=true 인데 secretKey 가 비어 있음 → 500.
  *
- * 키 비교는 [MessageDigest.isEqual] 로 timing-safe 비교한다 — 평문 `==` 비교는 사이드채널
- * 누출 위험.
+ * required=true 인데 secretKey 가 비어 있는 운영 misconfig 는 부팅 시 [PaymentHardeningCheck]
+ * 가 fail-fast 로 잡아 정상 운영에서는 [VerificationResult.Misconfigured] 가 발생하지 않는다.
  */
 @Component
 class PaymentWebhookSignatureVerifier(

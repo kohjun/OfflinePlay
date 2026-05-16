@@ -61,15 +61,15 @@ import java.util.UUID
  *  - [handleWebhook]  : PG 가 결제 결과를 통지할 때. idempotencyKey 로 PaymentAttempt 를
  *    찾고 멱등 처리 + 성공 시 Ticket 발급 + 정원 증가.
  *
- * 미해결 트레이드오프 (PR40 이후 다룸):
- *  - 유료 흐름에는 EventParticipation row 가 생기지 않는다. 신청자 관리 페이지·통계가
- *    무료 흐름과 일관되려면 webhook PAID 시 EventParticipation(APPROVED) 동기 생성 또는
- *    `Ticket` 기반으로 신청자 목록 재구성이 필요하다.
- *  - 정원 검증은 prepare 시점에만 — 동시에 둘 이상이 READY 가 된 뒤 둘 다 webhook 도착하면
- *    초과 가능. 후속 PR 에서 (1) PaymentAttempt READY 수를 합쳐서 정원 검증하거나
- *    (2) webhook 시점에서도 한 번 더 검증하는 식으로 보강.
- *  - provider 별 signature/HMAC 검증은 TODO. [handleWebhook] 진입 전 별도 filter 또는
- *    service 안의 첫 단계에서 추가한다.
+ * 미해결 트레이드오프:
+ *  - 유료 흐름에는 EventParticipation row 가 confirm 성공 시점에 생성된다 (ensureApprovedParticipation).
+ *    webhook 만 도착하는 흐름(클라이언트가 confirm 콜백 전에 떠난 경우) 에서는 EventParticipation
+ *    이 누락될 수 있어 후속 PR 에서 webhook PAID 분기에도 동일 보장 추가 필요.
+ *  - 정원 검증은 prepare/confirm 시점에만 — 동시에 둘 이상이 READY 가 된 뒤 둘 다 confirm
+ *    도착하면 마지막 한 명이 EventFullException 으로 차단되지만 PG 결제는 이미 일어났다.
+ *    환불 자동화 또는 PaymentAttempt READY 카운트 합산 검증이 후속 PR 후보.
+ *  - webhook signature 검증은 controller 진입 직전에 [PaymentWebhookSignatureVerifier] 가
+ *    수행한다 (PR42 hardening 으로 prod 강제 + fail-fast 부팅 가드 도입).
  *
  * 정책/전이 다이어그램 상세: docs/payment-refund-policy.md
  */
@@ -143,7 +143,8 @@ class PaymentService(
      *  - CANCELED : PaymentAttempt.markCanceled
      *  - READY    : 잘못된 webhook — 정책상 들어올 수 없음. 들어오면 무시 (로그만).
      *
-     * TODO(payment-integration): provider 별 signature/HMAC 검증을 진입 전에 추가.
+     * Signature 검증은 컨트롤러 진입 직전에 [PaymentWebhookSignatureVerifier] 가 처리한다 —
+     * 이 메서드는 검증된 body 만 받는다고 가정.
      */
     @Transactional
     fun handleWebhook(request: PaymentWebhookRequest) {

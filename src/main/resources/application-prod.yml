@@ -34,3 +34,11 @@ logging:
     root: WARN
     com.contenido: WARN
     org.springframework.security: WARN
+
+# 결제(Toss Payments) 운영 hardening — 자세한 내용은 docs/payment-refund-policy.md §11
+#  - webhook-signature-required 가 prod 기본 true 로 잠긴다. env var 미지정 시에도 안전.
+#  - false 로 내리려면 명시적으로 TOSS_WEBHOOK_SIGNATURE_REQUIRED=false 주입 (권장 X).
+#  - enabled=true + required=true 인데 secret-key 비어 있으면 PaymentHardeningCheck 가 부팅 차단.
+payment:
+  toss:
+    webhook-signature-required: ${TOSS_WEBHOOK_SIGNATURE_REQUIRED:true}
