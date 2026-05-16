@@ -5,8 +5,10 @@ import {
   getAdminChannels,
   getCreatorApplications,
   getReports,
+  hideModerationTarget,
   rejectCreatorApplication,
   resolveReport,
+  unhideModerationTarget,
 } from '../api/admin'
 import {
   approveReportAppeal,
@@ -114,6 +116,75 @@ export function AdminPage() {
       showToast({
         title: '이의 제기 거절에 실패했어요',
         message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    }
+  }
+
+  // PR54 — 신고 카드에서 직접 hide/unhide. 신고 row 들의 targetHidden 을 즉시 갱신해
+  // "자동 숨김" badge / 버튼 모양이 그 즉시 바뀌게 한다.
+  async function handleManualHide(targetType: ReportTargetType, targetId: number) {
+    const reason = window.prompt('숨김 사유를 입력해주세요 (필수, 최대 255자)')
+    if (reason === null) return
+    if (reason.trim().length === 0) {
+      showToast({ title: '숨김 사유를 입력해주세요', tone: 'warning' })
+      return
+    }
+    try {
+      await hideModerationTarget(targetType, targetId, reason.trim())
+      setReports((items) =>
+        items.map((r) =>
+          r.targetType === targetType && r.targetId === targetId
+            ? { ...r, targetHidden: true, autoModerated: false }
+            : r,
+        ),
+      )
+      showToast({ title: '대상을 숨김 처리했어요', tone: 'success' })
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0
+      const title =
+        status === 409
+          ? '이미 숨김 처리된 대상이에요'
+          : status === 404
+          ? '대상을 찾을 수 없어요'
+          : '숨김 처리에 실패했어요'
+      showToast({
+        title,
+        message: error instanceof Error ? error.message : undefined,
+        tone: 'danger',
+      })
+    }
+  }
+
+  async function handleManualUnhide(targetType: ReportTargetType, targetId: number) {
+    if (!window.confirm('숨김을 해제할까요? 관련 이의 제기는 별도로 처리해주세요.')) return
+    try {
+      await unhideModerationTarget(targetType, targetId)
+      setReports((items) =>
+        items.map((r) =>
+          r.targetType === targetType && r.targetId === targetId
+            ? { ...r, targetHidden: false, autoModerated: false }
+            : r,
+        ),
+      )
+      showToast({ title: '숨김을 해제했어요', tone: 'success' })
+    } catch (error) {
+      const status =
+        error && typeof error === 'object' && 'status' in error
+          ? Number((error as { status?: number }).status)
+          : 0
+      const title =
+        status === 400 || status === 409
+          ? '숨김 처리되지 않은 대상이에요'
+          : status === 404
+          ? '대상을 찾을 수 없어요'
+          : '숨김 해제에 실패했어요'
+      showToast({
+        title,
+        message: error instanceof Error ? error.message : undefined,
         tone: 'danger',
       })
     }
@@ -283,6 +354,24 @@ export function AdminPage() {
                 </div>
                 {report.status === 'PENDING' ? (
                   <div className="admin-actions">
+                    {/* PR54 — 수동 hide/unhide. resolve/dismiss 와 별개 흐름. */}
+                    {report.targetHidden ? (
+                      <button
+                        className="button button-secondary"
+                        onClick={() => handleManualUnhide(report.targetType, report.targetId)}
+                        type="button"
+                      >
+                        숨김 해제
+                      </button>
+                    ) : (
+                      <button
+                        className="button button-secondary"
+                        onClick={() => handleManualHide(report.targetType, report.targetId)}
+                        type="button"
+                      >
+                        숨김
+                      </button>
+                    )}
                     <button
                       className="button button-secondary"
                       onClick={() => handleResolveReport(report.id, 'DISMISSED')}

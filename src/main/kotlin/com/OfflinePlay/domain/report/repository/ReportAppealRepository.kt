@@ -37,4 +37,13 @@ interface ReportAppealRepository : JpaRepository<ReportAppeal, Long> {
         targetType: ReportTargetType,
         targetId: Long,
     ): ReportAppeal?
+
+    /**
+     * PR54 — Admin 수동 hide/unhide 응답이 row 의 최신 appeal 상태를 함께 보여주기 위함.
+     * (targetType, targetId) 기준 최신 appeal 1건 — requester 무관.
+     */
+    fun findFirstByTargetTypeAndTargetIdOrderByCreatedAtDesc(
+        targetType: ReportTargetType,
+        targetId: Long,
+    ): ReportAppeal?
 }

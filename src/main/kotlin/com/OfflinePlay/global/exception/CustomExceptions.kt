@@ -193,6 +193,11 @@ class TargetNotHiddenException : ContENIDOException(
     HttpStatus.BAD_REQUEST, "숨김 처리된 대상에 대해서만 이의 제기를 할 수 있습니다."
 )
 
+/** PR54 — 이미 숨김 처리된 대상에 ADMIN 이 또 hide 시도. */
+class TargetAlreadyHiddenException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 숨김 처리된 대상입니다."
+)
+
 /** appeal 대상의 작성자/소유자가 아닌 사용자가 시도. */
 class AppealNotAllowedException : ContENIDOException(
     HttpStatus.FORBIDDEN, "본인이 작성/소유한 대상만 이의 제기를 할 수 있습니다."

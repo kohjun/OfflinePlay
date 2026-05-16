@@ -380,6 +380,22 @@ export type ReportAppealStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 export type AppealStatusView = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED'
 
 /**
+ * PR54 — ADMIN 수동 hide/unhide 응답. 동일한 정보가 신고 카드/appeal 큐 row 갱신에 사용된다.
+ * latestAppealStatus 는 (targetType, targetId) 기준 최신 appeal 의 상태 — requester 무관.
+ */
+export interface AdminModerationTarget {
+  targetType: ReportTargetType
+  targetId: number
+  targetTitle: string
+  targetPreview: string
+  hidden: boolean
+  hiddenAt?: string | null
+  hiddenReason?: string | null
+  pendingReportCount: number
+  latestAppealStatus?: ReportAppealStatus | null
+}
+
+/**
  * PR53 — 작성자/소유자가 본인 권한의 자동 숨김 콘텐츠를 한눈에 보는 row.
  * backend 가 5개 도메인 (REVIEW/COMMENT/POST/EVENT/CHANNEL) 을 hiddenAt 내림차순으로 통합.
  */
