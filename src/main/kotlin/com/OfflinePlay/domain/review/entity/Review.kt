@@ -95,4 +95,11 @@ class Review(
         hiddenAt = LocalDateTime.now()
         hiddenReason = reason.take(255)
     }
+
+    /** PR52 — ADMIN 이 appeal 을 승인할 때 호출. hidden 이 아니면 no-op. */
+    fun unhide() {
+        if (hiddenAt == null) return
+        hiddenAt = null
+        hiddenReason = null
+    }
 }

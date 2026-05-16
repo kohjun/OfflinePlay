@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { getMyParticipations } from '../api/events'
+import { getMyReportAppeals } from '../api/reportAppeals'
 import { Badge } from '../components/Badge'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
@@ -8,9 +9,19 @@ import { notificationStore } from '../stores/notificationStore'
 import type {
   EventParticipationStatus,
   MyParticipationItem,
+  ReportAppeal,
+  ReportTargetType,
   TicketStatus,
   UserRole,
 } from '../types'
+
+const APPEAL_TARGET_LABEL: Record<ReportTargetType, string> = {
+  CHANNEL: '채널',
+  POST: '게시글',
+  EVENT: '이벤트',
+  COMMENT: '댓글',
+  REVIEW: '후기',
+}
 
 interface MyPageProps {
   onNavigate: (path: string) => void
@@ -259,6 +270,9 @@ export function MyPage({ onNavigate }: MyPageProps) {
   const [items, setItems] = useState<MyParticipationItem[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  // PR52 — 내 이의 제기 내역. 자동 숨김된 콘텐츠가 일반 목록에서 빠지므로 작성자가
+  // 본인 appeal 상태를 한눈에 보기 위함. 실제 hidden 콘텐츠 CTA 진입은 후속 PR.
+  const [appeals, setAppeals] = useState<ReportAppeal[]>([])
   // PR44: "신청" (전체 신청/참가 흐름) vs "결제" (티켓 + 결제 정보 위주) 탭 분리.
   const [tab, setTab] = useState<MyTab>('requests')
   const [orderFilter, setOrderFilter] = useState<OrderFilter>('ALL')
@@ -307,6 +321,21 @@ export function MyPage({ onNavigate }: MyPageProps) {
       })
       .finally(() => {
         if (alive) setLoadingItems(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // PR52 — 내 이의 제기 목록 (비로그인 또는 빈 결과면 섹션 자체 렌더 X).
+  useEffect(() => {
+    let alive = true
+    getMyReportAppeals({ size: 20 })
+      .then((page) => {
+        if (alive) setAppeals(page.content)
+      })
+      .catch(() => {
+        if (alive) setAppeals([])
       })
     return () => {
       alive = false
@@ -484,6 +513,47 @@ export function MyPage({ onNavigate }: MyPageProps) {
           </div>
         )}
       </section>
+
+      {/* PR52 — 내 이의 제기 내역. 결과가 없으면 섹션 자체 렌더 X. */}
+      {appeals.length > 0 ? (
+        <section className="section stack" aria-label="내 이의 제기 내역">
+          <div className="section-heading">
+            <h2>내 이의 제기</h2>
+          </div>
+          {appeals.map((appeal) => {
+            const tone =
+              appeal.status === 'APPROVED'
+                ? 'success'
+                : appeal.status === 'REJECTED'
+                ? 'neutral'
+                : 'warning'
+            const statusLabel =
+              appeal.status === 'APPROVED'
+                ? '숨김 해제됨'
+                : appeal.status === 'REJECTED'
+                ? '거절됨'
+                : '검토 대기'
+            return (
+              <article className="card" key={appeal.id}>
+                <div className="badge-row">
+                  <Badge tone="danger">{APPEAL_TARGET_LABEL[appeal.targetType]}</Badge>
+                  <Badge tone={tone}>{statusLabel}</Badge>
+                </div>
+                <p>
+                  <strong>사유:</strong> {appeal.reason}
+                </p>
+                {appeal.status === 'REJECTED' && appeal.rejectReason ? (
+                  <p className="muted">거절 사유: {appeal.rejectReason}</p>
+                ) : null}
+                <div className="meta-row">
+                  <span>#{appeal.targetId}</span>
+                  <span>{new Date(appeal.createdAt).toLocaleString()}</span>
+                </div>
+              </article>
+            )
+          })}
+        </section>
+      ) : null}
 
       <section className="section stack" aria-label="MY 메뉴">
         {entries.map((entry) => (

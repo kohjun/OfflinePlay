@@ -3,10 +3,15 @@ package com.contenido.domain.admin.controller
 import com.contenido.domain.admin.dto.AdminChannelResponse
 import com.contenido.domain.admin.dto.AdminUserResponse
 import com.contenido.domain.admin.service.AdminService
+import com.contenido.domain.report.dto.ReportAppealResponse
 import com.contenido.domain.report.dto.ReportResponse
+import com.contenido.domain.report.dto.ReviewReportAppealRequest
+import com.contenido.domain.report.service.ReportAppealService
 import com.contenido.global.response.ApiResponse
 import com.contenido.global.response.PageResponse
+import jakarta.validation.Valid
 import org.springframework.security.access.prepost.PreAuthorize
+import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.*
 
 @RestController
@@ -14,6 +19,7 @@ import org.springframework.web.bind.annotation.*
 @PreAuthorize("hasRole('ADMIN')")
 class AdminController(
     private val adminService: AdminService,
+    private val reportAppealService: ReportAppealService,
 ) {
 
     // ── 유저 관리 ──────────────────────────────────────────────────────────────
@@ -63,4 +69,32 @@ class AdminController(
     @PatchMapping("/reports/{id}/dismiss")
     fun dismissReport(@PathVariable id: Long): ApiResponse<ReportResponse> =
         ApiResponse.ok(adminService.dismissReport(id), "신고를 기각 처리했습니다.")
+
+    // ── 이의 제기(appeal) 관리 — PR52 ────────────────────────────────────────
+
+    @GetMapping("/report-appeals")
+    fun getReportAppeals(
+        @RequestParam(defaultValue = "0") page: Int,
+        @RequestParam(defaultValue = "20") size: Int,
+        @RequestParam(required = false) status: String?,
+    ): ApiResponse<PageResponse<ReportAppealResponse>> =
+        ApiResponse.ok(PageResponse.of(reportAppealService.listAppealsForAdmin(page, size, status)))
+
+    @PatchMapping("/report-appeals/{id}/approve")
+    fun approveReportAppeal(
+        @AuthenticationPrincipal adminUserId: Long,
+        @PathVariable id: Long,
+    ): ApiResponse<ReportAppealResponse> =
+        ApiResponse.ok(reportAppealService.approveAppeal(adminUserId, id), "숨김을 해제했어요.")
+
+    @PatchMapping("/report-appeals/{id}/reject")
+    fun rejectReportAppeal(
+        @AuthenticationPrincipal adminUserId: Long,
+        @PathVariable id: Long,
+        @Valid @RequestBody(required = false) request: ReviewReportAppealRequest?,
+    ): ApiResponse<ReportAppealResponse> =
+        ApiResponse.ok(
+            reportAppealService.rejectAppeal(adminUserId, id, request ?: ReviewReportAppealRequest()),
+            "이의 제기를 거절했어요.",
+        )
 }

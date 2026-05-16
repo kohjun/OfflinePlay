@@ -115,4 +115,11 @@ class Event(
         hiddenAt = LocalDateTime.now()
         hiddenReason = reason.take(255)
     }
+
+    /** PR52 — ADMIN appeal 승인. */
+    fun unhide() {
+        if (hiddenAt == null) return
+        hiddenAt = null
+        hiddenReason = null
+    }
 }

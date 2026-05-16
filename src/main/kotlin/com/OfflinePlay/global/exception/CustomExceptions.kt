@@ -187,6 +187,30 @@ class ReportAlreadyExistsException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 신고한 대상입니다."
 )
 
+// --- Report appeal (PR52) ---
+/** 자동 숨김된 상태가 아닌 대상에 이의 제기를 시도. */
+class TargetNotHiddenException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "숨김 처리된 대상에 대해서만 이의 제기를 할 수 있습니다."
+)
+
+/** appeal 대상의 작성자/소유자가 아닌 사용자가 시도. */
+class AppealNotAllowedException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "본인이 작성/소유한 대상만 이의 제기를 할 수 있습니다."
+)
+
+/** 같은 (requester, targetType, targetId) 에 이미 PENDING appeal 이 존재. */
+class AppealAlreadyExistsException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 처리 대기 중인 이의 제기가 있습니다."
+)
+
+class ReportAppealNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "존재하지 않는 이의 제기입니다."
+)
+
+class ReportAppealAlreadyProcessedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 처리된 이의 제기입니다."
+)
+
 class AlreadyBannedException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 처리된 대상입니다."
 )

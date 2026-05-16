@@ -373,6 +373,26 @@ export interface Report {
   autoModerated?: boolean
 }
 
+/** PR52 — 자동 숨김 대상에 대한 이의 제기 상태. */
+export type ReportAppealStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface ReportAppeal {
+  id: number
+  targetType: ReportTargetType
+  targetId: number
+  requesterId: number
+  requesterNickname: string
+  reason: string
+  status: ReportAppealStatus
+  rejectReason?: string | null
+  createdAt: string
+  reviewedAt?: string | null
+  /** Admin 큐 응답에서만 채워짐. 본인 응답은 null. */
+  targetPreview?: string | null
+  /** 응답 생성 시점의 대상 hidden 여부. ADMIN 이 승인하면 false 로 바뀐다. */
+  targetHidden?: boolean
+}
+
 /** Mirrors backend PaymentStatus. */
 export type PaymentStatus = 'READY' | 'PAID' | 'FAILED' | 'CANCELED'
 
