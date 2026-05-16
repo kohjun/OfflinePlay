@@ -85,6 +85,21 @@ class Event(
     lateinit var updatedAt: LocalDateTime
         protected set
 
+    /**
+     * 신고 누적 자동 숨김 (PR51). [status] (UPCOMING/ONGOING/CLOSED) 와 분리된 차원 —
+     * status 는 시간 기반 lifecycle, hidden 은 운영 차원의 숨김.
+     */
+    @Column(name = "hidden_at")
+    var hiddenAt: LocalDateTime? = null
+        protected set
+
+    @Column(name = "hidden_reason", length = 255)
+    var hiddenReason: String? = null
+        protected set
+
+    val isHidden: Boolean
+        get() = hiddenAt != null
+
     fun increaseParticipant() {
         currentParticipants++
     }
@@ -94,4 +109,10 @@ class Event(
     }
 
     fun isFull(): Boolean = currentParticipants >= maxParticipants
+
+    fun hide(reason: String) {
+        if (hiddenAt != null) return
+        hiddenAt = LocalDateTime.now()
+        hiddenReason = reason.take(255)
+    }
 }

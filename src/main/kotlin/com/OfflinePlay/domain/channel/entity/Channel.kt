@@ -52,6 +52,21 @@ class Channel(
     lateinit var updatedAt: LocalDateTime
         protected set
 
+    /**
+     * 신고 누적 자동 숨김 (PR51). [isActive] (Admin ban) 와 분리된 차원 —
+     * isActive=false 는 Admin 의 명시적 운영 조치(ban), hidden 은 신고 누적 자동 조치.
+     */
+    @Column(name = "hidden_at")
+    var hiddenAt: LocalDateTime? = null
+        protected set
+
+    @Column(name = "hidden_reason", length = 255)
+    var hiddenReason: String? = null
+        protected set
+
+    val isHidden: Boolean
+        get() = hiddenAt != null
+
     fun increaseSubscriber() {
         subscriberCount++
     }
@@ -62,5 +77,11 @@ class Channel(
 
     fun deactivate() {
         isActive = false
+    }
+
+    fun hide(reason: String) {
+        if (hiddenAt != null) return
+        hiddenAt = LocalDateTime.now()
+        hiddenReason = reason.take(255)
     }
 }

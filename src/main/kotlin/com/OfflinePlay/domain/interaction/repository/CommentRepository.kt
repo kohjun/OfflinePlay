@@ -14,5 +14,15 @@ interface CommentRepository : JpaRepository<Comment, Long> {
         pageable: Pageable,
     ): Page<Comment>
 
+    /** PR51 — 자동 숨김 제외 버전. 사용자 댓글 목록 조회 진입점. */
+    fun findByTargetTypeAndTargetIdAndParentCommentIsNullAndHiddenAtIsNullOrderByCreatedAtAsc(
+        targetType: TargetType,
+        targetId: Long,
+        pageable: Pageable,
+    ): Page<Comment>
+
     fun findByParentCommentId(parentCommentId: Long): List<Comment>
+
+    /** PR51 — 답글 조회에서 자동 숨김 제외. */
+    fun findByParentCommentIdAndHiddenAtIsNull(parentCommentId: Long): List<Comment>
 }

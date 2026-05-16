@@ -18,6 +18,9 @@ interface EventRepository : JpaRepository<Event, Long> {
 
     fun findByChannelOrderByStartAtDesc(channel: Channel, pageable: Pageable): Page<Event>
 
+    /** PR51 — 자동 숨김 제외. 사용자 채널 페이지의 이벤트 목록 진입점. */
+    fun findByChannelAndHiddenAtIsNullOrderByStartAtDesc(channel: Channel, pageable: Pageable): Page<Event>
+
     fun findByStatus(status: EventStatus, pageable: Pageable): Page<Event>
 
     fun findByChannel(channel: Channel): List<Event>

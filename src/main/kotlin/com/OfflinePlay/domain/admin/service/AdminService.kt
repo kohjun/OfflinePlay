@@ -11,6 +11,7 @@ import com.contenido.domain.report.dto.ReportResponse
 import com.contenido.domain.report.entity.Report
 import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.report.repository.ReportRepository
+import com.contenido.domain.report.service.ReportService
 import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.repository.UserRepository
@@ -134,7 +135,7 @@ class AdminService(
      * batch 최적화는 트래픽 증가 후 별도 PR.
      */
     private fun Report.toResponseWithPreview(): ReportResponse {
-        val (preview, rating) = resolveTargetContext(targetType, targetId)
+        val ctx = resolveTargetContext(targetType, targetId)
         return ReportResponse(
             id = id,
             reporterNickname = reporter.nickname,
@@ -143,31 +144,46 @@ class AdminService(
             reason = reason,
             status = status,
             createdAt = createdAt,
-            targetPreview = preview,
-            targetRating = rating,
+            targetPreview = ctx.preview,
+            targetRating = ctx.rating,
+            // PR51 — 대상이 자동 숨김됐는지 / autoMod 사유인지. 대상 삭제 시 false.
+            targetHidden = ctx.hidden,
+            autoModerated = ctx.hidden && ctx.hiddenReason == ReportService.AUTO_HIDE_REASON,
         )
+    }
+
+    /** 대상 도메인 단건 조회로 신고 row 의 부가 컨텍스트(preview + rating + hidden) 구성. */
+    private data class TargetContext(
+        val preview: String?,
+        val rating: Int?,
+        val hidden: Boolean,
+        val hiddenReason: String?,
+    ) {
+        companion object {
+            val EMPTY = TargetContext(preview = null, rating = null, hidden = false, hiddenReason = null)
+        }
     }
 
     private fun resolveTargetContext(
         targetType: ReportTargetType,
         targetId: Long,
-    ): Pair<String?, Int?> {
+    ): TargetContext {
         return when (targetType) {
             ReportTargetType.CHANNEL -> channelRepository.findById(targetId)
-                .map<Pair<String?, Int?>> { it.name.preview() to null }
-                .orElse(null to null)
+                .map { TargetContext(it.name.preview(), null, it.isHidden, it.hiddenReason) }
+                .orElse(TargetContext.EMPTY)
             ReportTargetType.POST -> postRepository.findById(targetId)
-                .map<Pair<String?, Int?>> { (it.title.ifBlank { it.content }).preview() to null }
-                .orElse(null to null)
+                .map { TargetContext((it.title.ifBlank { it.content }).preview(), null, it.isHidden, it.hiddenReason) }
+                .orElse(TargetContext.EMPTY)
             ReportTargetType.EVENT -> eventRepository.findById(targetId)
-                .map<Pair<String?, Int?>> { it.title.preview() to null }
-                .orElse(null to null)
+                .map { TargetContext(it.title.preview(), null, it.isHidden, it.hiddenReason) }
+                .orElse(TargetContext.EMPTY)
             ReportTargetType.COMMENT -> commentRepository.findById(targetId)
-                .map<Pair<String?, Int?>> { it.content.preview() to null }
-                .orElse(null to null)
+                .map { TargetContext(it.content.preview(), null, it.isHidden, it.hiddenReason) }
+                .orElse(TargetContext.EMPTY)
             ReportTargetType.REVIEW -> reviewRepository.findById(targetId)
-                .map<Pair<String?, Int?>> { it.content.preview() to it.rating }
-                .orElse(null to null)
+                .map { TargetContext(it.content.preview(), it.rating, it.isHidden, it.hiddenReason) }
+                .orElse(TargetContext.EMPTY)
         }
     }
 

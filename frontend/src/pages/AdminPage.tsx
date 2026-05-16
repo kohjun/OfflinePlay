@@ -212,6 +212,12 @@ export function AdminPage() {
                         <strong>{report.targetRating}</strong>
                       </span>
                     ) : null}
+                    {/* PR51: 자동 숨김 badge — autoModerated 면 강조, 단순 hide 면 neutral */}
+                    {report.targetHidden ? (
+                      <Badge tone={report.autoModerated ? 'warning' : 'neutral'}>
+                        {report.autoModerated ? '자동 숨김' : '숨김'}
+                      </Badge>
+                    ) : null}
                   </div>
                   <p>
                     <strong>사유:</strong> {report.reason}

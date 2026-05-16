@@ -259,6 +259,41 @@ class ReviewServiceTest {
         assertThat(summary.reviewCount).isZero()
     }
 
+    // ── PR51: hidden 필터 ────────────────────────────────────────────────────
+
+    @Test
+    fun `listEventReviews 가 자동 숨김 review 를 제외한다 — hidden 제외 메서드로 위임`() {
+        val event = createEventWithChannel(id = 100L)
+        val author = createUser(id = 5L)
+        val visible = com.contenido.domain.review.entity.Review(
+            event = event, author = author, rating = 5, content = "보이는 후기",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 1L)
+            val now = LocalDateTime.now()
+            ReflectionTestUtils.setField(this, "createdAt", now)
+            ReflectionTestUtils.setField(this, "updatedAt", now)
+        }
+
+        every { eventRepository.findById(100L) } returns Optional.of(event)
+        // 사용자 list 진입점은 hidden 제외 버전. 호출되지 않으면 mockk 가 throw.
+        every {
+            reviewRepository.findByEventAndHiddenAtIsNullOrderByCreatedAtDesc(event, any())
+        } returns org.springframework.data.domain.PageImpl(
+            listOf(visible),
+            org.springframework.data.domain.PageRequest.of(0, 20),
+            1,
+        )
+
+        val page = service.listEventReviews(eventId = 100L, page = 0, size = 20)
+
+        assertThat(page.content).hasSize(1)
+        assertThat(page.content[0].content).isEqualTo("보이는 후기")
+        // 일반 (hidden 포함) 메서드는 호출되지 않아야 한다 — Admin 전용으로 분리됐기 때문.
+        io.mockk.verify(exactly = 0) {
+            reviewRepository.findByEventOrderByCreatedAtDesc(any(), any())
+        }
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────
 
     private fun createUser(

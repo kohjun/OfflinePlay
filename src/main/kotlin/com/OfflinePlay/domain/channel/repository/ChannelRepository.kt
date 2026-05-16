@@ -23,6 +23,12 @@ interface ChannelRepository : JpaRepository<Channel, Long> {
 
     fun findByCategoryOrderBySubscriberCountDesc(category: ChannelCategory, pageable: Pageable): Page<Channel>
 
+    /** PR51 — 자동 숨김 제외. 사용자 카테고리 페이지의 채널 목록 진입점. */
+    fun findByCategoryAndHiddenAtIsNullOrderBySubscriberCountDesc(
+        category: ChannelCategory,
+        pageable: Pageable,
+    ): Page<Channel>
+
     /**
      * Explore 페이지용 LIKE 검색. 셋 다 null/blank 면 전체를 반환한다.
      * Elasticsearch 의존 없이 항상 동작한다.

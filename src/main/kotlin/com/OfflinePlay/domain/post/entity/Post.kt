@@ -61,7 +61,28 @@ class Post(
     lateinit var updatedAt: LocalDateTime
         protected set
 
+    /**
+     * 신고 누적 자동 숨김 (PR51). [status] (PUBLISHED/DELETED) 와 분리된 차원 —
+     * status=DELETED 는 작성자 의도 삭제, hidden 은 운영 차원의 숨김.
+     */
+    @Column(name = "hidden_at")
+    var hiddenAt: LocalDateTime? = null
+        protected set
+
+    @Column(name = "hidden_reason", length = 255)
+    var hiddenReason: String? = null
+        protected set
+
+    val isHidden: Boolean
+        get() = hiddenAt != null
+
     fun increaseViewCount() {
         viewCount++
+    }
+
+    fun hide(reason: String) {
+        if (hiddenAt != null) return
+        hiddenAt = LocalDateTime.now()
+        hiddenReason = reason.take(255)
     }
 }

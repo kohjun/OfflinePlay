@@ -363,6 +363,14 @@ export interface Report {
   targetPreview?: string | null
   /** PR48 — REVIEW 일 때만 채워짐. 빠른 별점 확인용. */
   targetRating?: number | null
+  /** PR51 — 대상이 현재 자동 숨김(hide)된 상태인지. Admin 응답에서만 의미 있음. */
+  targetHidden?: boolean
+  /**
+   * PR51 — 위 targetHidden 이 true 인 경우, 그 hide 가 신고 누적 자동 처리인지.
+   * 현 PR 에선 자동 hide 만 존재하므로 targetHidden 과 사실상 동치이지만, 후속 PR(수동 hide/appeal
+   * 복구) 에서 의미가 갈라진다.
+   */
+  autoModerated?: boolean
 }
 
 /** Mirrors backend PaymentStatus. */

@@ -75,7 +75,8 @@ class PostService(
 
     fun getPosts(channelId: Long, page: Int, size: Int): Page<PostResponse> {
         val channel = findChannel(channelId)
-        return postRepository.findByChannelAndStatusOrderByCreatedAtDesc(
+        // PR51 — 자동 숨김된 공지는 사용자 목록 조회에서 제외.
+        return postRepository.findByChannelAndStatusAndHiddenAtIsNullOrderByCreatedAtDesc(
             channel, PostStatus.PUBLISHED, PageRequest.of(page, size)
         ).map { it.toResponse() }
     }
@@ -83,6 +84,8 @@ class PostService(
     @Transactional
     fun getPost(postId: Long): PostResponse {
         val post = findActivePost(postId)
+        // PR51 — 자동 숨김된 공지는 단건 조회에서 NotFound.
+        if (post.isHidden) throw PostNotFoundException()
         post.increaseViewCount()
         return post.toResponse()
     }

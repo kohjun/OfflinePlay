@@ -73,10 +73,11 @@ class CommentService(
 
     fun getComments(targetType: TargetType, targetId: Long, page: Int, size: Int): Page<CommentResponse> {
         val pageable = PageRequest.of(page, size)
+        // PR51 — 자동 숨김 댓글/답글 제외.
         return commentRepository
-            .findByTargetTypeAndTargetIdAndParentCommentIsNullOrderByCreatedAtAsc(targetType, targetId, pageable)
+            .findByTargetTypeAndTargetIdAndParentCommentIsNullAndHiddenAtIsNullOrderByCreatedAtAsc(targetType, targetId, pageable)
             .map { comment ->
-                val replies = commentRepository.findByParentCommentId(comment.id)
+                val replies = commentRepository.findByParentCommentIdAndHiddenAtIsNull(comment.id)
                     .map { it.toResponse(emptyList()) }
                 comment.toResponse(replies)
             }

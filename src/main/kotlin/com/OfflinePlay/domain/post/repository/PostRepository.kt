@@ -18,6 +18,13 @@ interface PostRepository : JpaRepository<Post, Long> {
         pageable: Pageable,
     ): Page<Post>
 
+    /** PR51 — 자동 숨김 제외. 사용자 채널 공지 목록 진입점. */
+    fun findByChannelAndStatusAndHiddenAtIsNullOrderByCreatedAtDesc(
+        channel: Channel,
+        status: PostStatus,
+        pageable: Pageable,
+    ): Page<Post>
+
     fun findByIdAndStatus(id: Long, status: PostStatus): Post?
 
     fun findByChannel(channel: Channel): List<Post>

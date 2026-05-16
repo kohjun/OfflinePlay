@@ -7,6 +7,7 @@ import com.contenido.domain.post.repository.PostRepository
 import com.contenido.domain.report.dto.CreateReportRequest
 import com.contenido.domain.report.dto.ReportResponse
 import com.contenido.domain.report.entity.Report
+import com.contenido.domain.report.entity.ReportStatus
 import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.report.repository.ReportRepository
 import com.contenido.domain.review.repository.ReviewRepository
@@ -47,6 +48,24 @@ class ReportService(
     private val reviewRepository: ReviewRepository,
 ) {
 
+    companion object {
+        /**
+         * PR51 — 신고 누적 자동 숨김 임계치 (PENDING 신고 수 기준).
+         *  - REVIEW/COMMENT 가 낮은 이유: 노출 사이클이 짧고 영향 범위가 좁아 빠른 숨김이 안전.
+         *  - POST/EVENT 는 운영자 콘텐츠라 오탐 비용이 크다 — 임계치 5.
+         *  - CHANNEL 은 가장 비용 큼 (모든 콘텐츠가 함께 가려짐) — 임계치 7.
+         * 작성자 패널티/계정 정지/IP fingerprint 는 본 PR 범위 밖. 후속 PR.
+         */
+        val AUTO_HIDE_THRESHOLDS: Map<ReportTargetType, Int> = mapOf(
+            ReportTargetType.REVIEW to 3,
+            ReportTargetType.COMMENT to 3,
+            ReportTargetType.POST to 5,
+            ReportTargetType.EVENT to 5,
+            ReportTargetType.CHANNEL to 7,
+        )
+        const val AUTO_HIDE_REASON = "신고 누적 자동 숨김"
+    }
+
     @Transactional
     fun createReport(userId: Long, request: CreateReportRequest): ReportResponse {
         val reporter = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
@@ -75,9 +94,36 @@ class ReportService(
             )
         )
 
+        // 3. PR51 — PENDING 신고가 임계치에 도달하면 대상 자동 숨김.
+        //    이미 hidden 인 대상에 추가 신고가 들어와도 entity.hide() 가 no-op.
+        maybeAutoHide(request.targetType, request.targetId)
+
         // createReport 응답에는 target preview 를 노출하지 않는다 — 본인 신고 confirmation 에서
         // 대상 본문을 다시 노출할 필요 없음. Admin 목록(AdminService)에서만 preview 를 채운다.
         return report.toResponse()
+    }
+
+    private fun maybeAutoHide(targetType: ReportTargetType, targetId: Long) {
+        val threshold = AUTO_HIDE_THRESHOLDS[targetType] ?: return
+        val pendingCount = reportRepository.countByTargetTypeAndTargetIdAndStatus(
+            targetType = targetType,
+            targetId = targetId,
+            status = ReportStatus.PENDING,
+        )
+        if (pendingCount < threshold) return
+
+        when (targetType) {
+            ReportTargetType.REVIEW -> reviewRepository.findById(targetId)
+                .ifPresent { it.hide(AUTO_HIDE_REASON) }
+            ReportTargetType.COMMENT -> commentRepository.findById(targetId)
+                .ifPresent { it.hide(AUTO_HIDE_REASON) }
+            ReportTargetType.POST -> postRepository.findById(targetId)
+                .ifPresent { it.hide(AUTO_HIDE_REASON) }
+            ReportTargetType.EVENT -> eventRepository.findById(targetId)
+                .ifPresent { it.hide(AUTO_HIDE_REASON) }
+            ReportTargetType.CHANNEL -> channelRepository.findById(targetId)
+                .ifPresent { it.hide(AUTO_HIDE_REASON) }
+        }
     }
 
     /**

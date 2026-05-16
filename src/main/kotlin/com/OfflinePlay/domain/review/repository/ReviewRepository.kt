@@ -12,7 +12,13 @@ import java.util.Optional
 
 interface ReviewRepository : JpaRepository<Review, Long> {
 
-    /** 이벤트별 후기 목록 — 최신순. EventDetailPage 의 후기 섹션이 호출. */
+    /**
+     * 이벤트별 후기 목록 — 최신순, 자동 숨김 제외. PR51 이후 사용자 조회 진입점.
+     * Admin/작성자 본인용 전체 조회는 [findByEventOrderByCreatedAtDesc] 그대로 사용.
+     */
+    fun findByEventAndHiddenAtIsNullOrderByCreatedAtDesc(event: Event, pageable: Pageable): Page<Review>
+
+    /** 이벤트별 후기 목록 전체 — Admin / 본인 진입용. */
     fun findByEventOrderByCreatedAtDesc(event: Event, pageable: Pageable): Page<Review>
 
     /** 본인 후기 단건 조회 — UI 에서 "이미 후기 작성했는지" 판별 + 수정 진입. */

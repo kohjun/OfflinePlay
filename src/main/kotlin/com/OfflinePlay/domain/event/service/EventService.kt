@@ -107,7 +107,8 @@ class EventService(
 
     fun getEvents(channelId: Long, page: Int, size: Int): Page<EventResponse> {
         val channel = findChannel(channelId)
-        val events = eventRepository.findByChannelOrderByStartAtDesc(channel, PageRequest.of(page, size))
+        // PR51 — 자동 숨김된 이벤트는 사용자 목록 조회에서 제외.
+        val events = eventRepository.findByChannelAndHiddenAtIsNullOrderByStartAtDesc(channel, PageRequest.of(page, size))
         val ratingMap = ratingsByEventIds(events.content.map { it.id })
         return events.map { e ->
             val r = ratingMap[e.id]
@@ -117,6 +118,8 @@ class EventService(
 
     fun getEvent(eventId: Long): EventResponse {
         val event = findEvent(eventId)
+        // PR51 — 자동 숨김된 이벤트 단건 조회는 NotFound 로 처리.
+        if (event.isHidden) throw EventNotFoundException()
         return event.toResponse(
             averageRating = reviewRepository.averageRatingByEventId(eventId),
             reviewCount = reviewRepository.countByEvent(event),

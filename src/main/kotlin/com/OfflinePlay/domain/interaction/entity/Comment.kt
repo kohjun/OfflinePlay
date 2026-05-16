@@ -57,4 +57,25 @@ class Comment(
     fun softDelete() {
         deletedAt = LocalDateTime.now()
     }
+
+    /**
+     * 신고 누적 자동 숨김 (PR51). [softDelete] 와는 분리된 의미 —
+     * delete 는 본인이 직접 지운 것, hide 는 운영(자동/수동) 차원의 숨김.
+     */
+    @Column(name = "hidden_at")
+    var hiddenAt: LocalDateTime? = null
+        protected set
+
+    @Column(name = "hidden_reason", length = 255)
+    var hiddenReason: String? = null
+        protected set
+
+    val isHidden: Boolean
+        get() = hiddenAt != null
+
+    fun hide(reason: String) {
+        if (hiddenAt != null) return
+        hiddenAt = LocalDateTime.now()
+        hiddenReason = reason.take(255)
+    }
 }

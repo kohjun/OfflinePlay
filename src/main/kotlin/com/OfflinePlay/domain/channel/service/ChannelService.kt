@@ -66,6 +66,8 @@ class ChannelService(
 
     fun getChannel(channelId: Long, userId: Long?): ChannelDetailResponse {
         val channel = findChannel(channelId)
+        // PR51 — 자동 숨김된 채널 단건 조회는 NotFound 로 처리.
+        if (channel.isHidden) throw ChannelNotFoundException()
 
         val isSubscribed = userId?.let { uid ->
             val user = userRepository.findById(uid).orElse(null)
@@ -97,7 +99,8 @@ class ChannelService(
 
     fun getChannelsByCategory(category: ChannelCategory, page: Int, size: Int): Page<ChannelResponse> {
         val pageable = PageRequest.of(page, size)
-        val channels = channelRepository.findByCategoryOrderBySubscriberCountDesc(category, pageable)
+        // PR51 — 자동 숨김된 채널은 카테고리 목록에서 제외.
+        val channels = channelRepository.findByCategoryAndHiddenAtIsNullOrderBySubscriberCountDesc(category, pageable)
         val ratingMap = ratingsByChannelIds(channels.content.map { it.id })
         return channels.map { ch ->
             val r = ratingMap[ch.id]

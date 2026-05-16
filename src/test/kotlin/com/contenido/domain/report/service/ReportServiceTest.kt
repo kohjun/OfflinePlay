@@ -13,6 +13,7 @@ import com.contenido.domain.post.entity.Post
 import com.contenido.domain.post.repository.PostRepository
 import com.contenido.domain.report.dto.CreateReportRequest
 import com.contenido.domain.report.entity.Report
+import com.contenido.domain.report.entity.ReportStatus
 import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.report.repository.ReportRepository
 import com.contenido.domain.review.entity.Review
@@ -90,6 +91,12 @@ class ReportServiceTest {
                 ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
             }
         }
+        // PR51 — save 직후 임계치 검사. 임계치 미만 (REVIEW=3) 이면 hide 안 됨.
+        every {
+            reportRepository.countByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.REVIEW, 50L, ReportStatus.PENDING,
+            )
+        } returns 1L
 
         val response = service.createReport(
             userId = 2L,
@@ -102,6 +109,8 @@ class ReportServiceTest {
         // createReport 응답에는 target preview 미노출 (Admin 응답에서만 채움).
         assertThat(response.targetPreview).isNull()
         assertThat(response.targetRating).isNull()
+        // 임계치 미만이라 hide 흐름 진입 X.
+        assertThat(review.isHidden).isFalse()
     }
 
     @Test
@@ -175,6 +184,12 @@ class ReportServiceTest {
                 ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
             }
         }
+        // PR51 — POST 임계치 5 미만 (1건) 이면 hide 안 됨.
+        every {
+            reportRepository.countByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.POST, 60L, ReportStatus.PENDING,
+            )
+        } returns 1L
 
         val response = service.createReport(
             2L, CreateReportRequest(ReportTargetType.POST, 60L, "광고"),
@@ -182,6 +197,7 @@ class ReportServiceTest {
 
         assertThat(response.targetType).isEqualTo(ReportTargetType.POST)
         assertThat(response.targetId).isEqualTo(60L)
+        assertThat(post.isHidden).isFalse()
     }
 
     @Test
@@ -237,6 +253,148 @@ class ReportServiceTest {
         assertThrows<ReportTargetNotFoundException> {
             service.createReport(2L, CreateReportRequest(ReportTargetType.CHANNEL, 404L, "x"))
         }
+    }
+
+    // ── PR51 자동 숨김 임계치 ────────────────────────────────────────────────
+
+    @Test
+    fun `createReport REVIEW 3건째 신고 시 review hide 호출`() {
+        val reporter = createUser(id = 2L)
+        val author = createUser(id = 3L)
+        val event = createEvent(id = 100L)
+        val review = createReview(id = 50L, event = event, author = author, rating = 1, content = "스팸")
+
+        every { userRepository.findById(2L) } returns Optional.of(reporter)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+        every {
+            reportRepository.existsByReporterAndTargetTypeAndTargetId(
+                reporter, ReportTargetType.REVIEW, 50L,
+            )
+        } returns false
+        every { reportRepository.save(any<Report>()) } answers {
+            firstArg<Report>().also {
+                ReflectionTestUtils.setField(it, "id", 30L)
+                ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
+            }
+        }
+        // 임계치 (REVIEW=3) 도달.
+        every {
+            reportRepository.countByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.REVIEW, 50L, ReportStatus.PENDING,
+            )
+        } returns 3L
+
+        service.createReport(2L, CreateReportRequest(ReportTargetType.REVIEW, 50L, "3번째"))
+
+        assertThat(review.isHidden).isTrue()
+        assertThat(review.hiddenReason).isEqualTo(ReportService.AUTO_HIDE_REASON)
+    }
+
+    @Test
+    fun `createReport COMMENT 3건째 신고 시 comment hide 호출`() {
+        val reporter = createUser(id = 2L)
+        val author = createUser(id = 3L)
+        val comment = Comment(
+            author = author,
+            targetType = TargetType.EVENT,
+            targetId = 100L,
+            content = "스팸 댓글",
+        ).apply { ReflectionTestUtils.setField(this, "id", 70L) }
+
+        every { userRepository.findById(2L) } returns Optional.of(reporter)
+        every { commentRepository.findById(70L) } returns Optional.of(comment)
+        every {
+            reportRepository.existsByReporterAndTargetTypeAndTargetId(
+                reporter, ReportTargetType.COMMENT, 70L,
+            )
+        } returns false
+        every { reportRepository.save(any<Report>()) } answers {
+            firstArg<Report>().also {
+                ReflectionTestUtils.setField(it, "id", 31L)
+                ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
+            }
+        }
+        every {
+            reportRepository.countByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.COMMENT, 70L, ReportStatus.PENDING,
+            )
+        } returns 3L
+
+        service.createReport(2L, CreateReportRequest(ReportTargetType.COMMENT, 70L, "3번째"))
+
+        assertThat(comment.isHidden).isTrue()
+        assertThat(comment.hiddenReason).isEqualTo(ReportService.AUTO_HIDE_REASON)
+    }
+
+    @Test
+    fun `createReport POST 4건 (임계치 5 미만) 에서는 hide 안 됨`() {
+        val reporter = createUser(id = 2L)
+        val author = createUser(id = 3L)
+        val channel = createChannel(id = 10L, owner = createUser(id = 1L, role = UserRole.CREATOR))
+        val post = Post(channel = channel, author = author, title = "글", content = "본문")
+            .apply { ReflectionTestUtils.setField(this, "id", 60L) }
+
+        every { userRepository.findById(2L) } returns Optional.of(reporter)
+        every { postRepository.findById(60L) } returns Optional.of(post)
+        every {
+            reportRepository.existsByReporterAndTargetTypeAndTargetId(
+                reporter, ReportTargetType.POST, 60L,
+            )
+        } returns false
+        every { reportRepository.save(any<Report>()) } answers {
+            firstArg<Report>().also {
+                ReflectionTestUtils.setField(it, "id", 32L)
+                ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
+            }
+        }
+        // 임계치(5) 미만 (4건).
+        every {
+            reportRepository.countByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.POST, 60L, ReportStatus.PENDING,
+            )
+        } returns 4L
+
+        service.createReport(2L, CreateReportRequest(ReportTargetType.POST, 60L, "4번째"))
+
+        assertThat(post.isHidden).isFalse()
+        // 임계치 미만이면 postRepository.findById 가 maybeAutoHide 안에서 호출되지 않아야 함.
+        verify(exactly = 1) { postRepository.findById(60L) } // resolveTargetOwnerId 한 번만
+    }
+
+    @Test
+    fun `이미 hidden 인 REVIEW 에 추가 신고 — hide 가 중복 호출돼도 첫 hide 시점 보존`() {
+        val reporter = createUser(id = 2L)
+        val author = createUser(id = 3L)
+        val event = createEvent(id = 100L)
+        val review = createReview(id = 50L, event = event, author = author, rating = 1, content = "스팸")
+        // 이미 hidden 처리된 상태.
+        val originalHide = LocalDateTime.now().minusMinutes(10)
+        ReflectionTestUtils.setField(review, "hiddenAt", originalHide)
+        ReflectionTestUtils.setField(review, "hiddenReason", ReportService.AUTO_HIDE_REASON)
+
+        every { userRepository.findById(2L) } returns Optional.of(reporter)
+        every { reviewRepository.findById(50L) } returns Optional.of(review)
+        every {
+            reportRepository.existsByReporterAndTargetTypeAndTargetId(
+                reporter, ReportTargetType.REVIEW, 50L,
+            )
+        } returns false
+        every { reportRepository.save(any<Report>()) } answers {
+            firstArg<Report>().also {
+                ReflectionTestUtils.setField(it, "id", 33L)
+                ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
+            }
+        }
+        every {
+            reportRepository.countByTargetTypeAndTargetIdAndStatus(
+                ReportTargetType.REVIEW, 50L, ReportStatus.PENDING,
+            )
+        } returns 5L  // 임계치 초과지만 entity.hide() 가 no-op
+
+        service.createReport(2L, CreateReportRequest(ReportTargetType.REVIEW, 50L, "추가"))
+
+        assertThat(review.isHidden).isTrue()
+        assertThat(review.hiddenAt).isEqualTo(originalHide)  // 시점 보존
     }
 
     // ── fixtures ──────────────────────────────────────────────────────────────

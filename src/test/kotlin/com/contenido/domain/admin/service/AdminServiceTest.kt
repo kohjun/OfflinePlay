@@ -5,6 +5,7 @@ import com.contenido.domain.report.entity.Report
 import com.contenido.domain.report.entity.ReportStatus
 import com.contenido.domain.report.entity.ReportTargetType
 import com.contenido.domain.report.repository.ReportRepository
+import com.contenido.domain.report.service.ReportService
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
@@ -165,6 +166,84 @@ class AdminServiceTest {
 
         assertThat(result.targetPreview).isNull()
         assertThat(result.targetRating).isNull()
+        // PR51 — 대상 없으면 hidden context 도 false.
+        assertThat(result.targetHidden).isFalse()
+        assertThat(result.autoModerated).isFalse()
+    }
+
+    // ── PR51: targetHidden / autoModerated context ──────────────────────────
+
+    @Test
+    fun `resolveReport 자동 숨김된 REVIEW 면 targetHidden=true, autoModerated=true`() {
+        val report = createReport(
+            id = 9L, status = ReportStatus.PENDING,
+            targetType = ReportTargetType.REVIEW, targetId = 60L,
+        )
+        val author = createUser(id = 99L)
+        val event = com.contenido.domain.event.entity.Event(
+            channel = com.contenido.domain.channel.entity.Channel(
+                createUser(id = 1L), "채널", "설명", com.contenido.domain.channel.entity.ChannelCategory.MUSIC,
+            ),
+            title = "이벤트", description = "d", location = "서울",
+            mainImageUrl = "https://e.com/x.jpg",
+            startAt = LocalDateTime.now(), endAt = LocalDateTime.now(),
+            maxParticipants = 10, participationFee = 0L,
+            refundPolicy = "정책", detailContent = "detail",
+        )
+        val review = com.contenido.domain.review.entity.Review(
+            event = event, author = author, rating = 2, content = "본문",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 60L)
+            val now = LocalDateTime.now()
+            ReflectionTestUtils.setField(this, "createdAt", now)
+            ReflectionTestUtils.setField(this, "updatedAt", now)
+            hide(ReportService.AUTO_HIDE_REASON)
+        }
+
+        every { reportRepository.findById(9L) } returns Optional.of(report)
+        every { reviewRepository.findById(60L) } returns Optional.of(review)
+
+        val result = adminService.resolveReport(9L)
+
+        assertThat(result.targetHidden).isTrue()
+        assertThat(result.autoModerated).isTrue()
+        assertThat(result.targetPreview).isEqualTo("본문")
+    }
+
+    @Test
+    fun `resolveReport 수동 hide (자동 사유 아님) 인 REVIEW 면 targetHidden=true, autoModerated=false`() {
+        val report = createReport(
+            id = 10L, status = ReportStatus.PENDING,
+            targetType = ReportTargetType.REVIEW, targetId = 61L,
+        )
+        val author = createUser(id = 99L)
+        val event = com.contenido.domain.event.entity.Event(
+            channel = com.contenido.domain.channel.entity.Channel(
+                createUser(id = 1L), "채널", "설명", com.contenido.domain.channel.entity.ChannelCategory.MUSIC,
+            ),
+            title = "이벤트", description = "d", location = "서울",
+            mainImageUrl = "https://e.com/x.jpg",
+            startAt = LocalDateTime.now(), endAt = LocalDateTime.now(),
+            maxParticipants = 10, participationFee = 0L,
+            refundPolicy = "정책", detailContent = "detail",
+        )
+        val review = com.contenido.domain.review.entity.Review(
+            event = event, author = author, rating = 2, content = "본문",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 61L)
+            val now = LocalDateTime.now()
+            ReflectionTestUtils.setField(this, "createdAt", now)
+            ReflectionTestUtils.setField(this, "updatedAt", now)
+            hide("운영자 수동 검토")  // 자동 사유와 다른 reason
+        }
+
+        every { reportRepository.findById(10L) } returns Optional.of(report)
+        every { reviewRepository.findById(61L) } returns Optional.of(review)
+
+        val result = adminService.resolveReport(10L)
+
+        assertThat(result.targetHidden).isTrue()
+        assertThat(result.autoModerated).isFalse()  // 자동 사유 아니므로 false
     }
 
     // ── fixtures ──────────────────────────────────────────────────────────────

@@ -84,7 +84,8 @@ class ReviewService(
     fun listEventReviews(eventId: Long, page: Int, size: Int): Page<ReviewResponse> {
         val event = eventRepository.findById(eventId).orElseThrow { EventNotFoundException() }
         val pageable = PageRequest.of(page.coerceAtLeast(0), size.coerceIn(1, 50))
-        return reviewRepository.findByEventOrderByCreatedAtDesc(event, pageable)
+        // PR51 — 자동 숨김된 후기는 사용자 조회에서 제외.
+        return reviewRepository.findByEventAndHiddenAtIsNullOrderByCreatedAtDesc(event, pageable)
             .map { it.toResponse() }
     }
 

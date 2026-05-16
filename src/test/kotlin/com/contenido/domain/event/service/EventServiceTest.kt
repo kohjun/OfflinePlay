@@ -339,8 +339,9 @@ class EventServiceTest {
         val e3 = createEvent(id = 102L, channel = channel)
 
         every { channelRepository.findById(10L) } returns Optional.of(channel)
+        // PR51 — getEvents 가 hidden 제외 버전 사용.
         every {
-            eventRepository.findByChannelOrderByStartAtDesc(channel, any())
+            eventRepository.findByChannelAndHiddenAtIsNullOrderByStartAtDesc(channel, any())
         } returns PageImpl(listOf(e1, e2, e3), PageRequest.of(0, 20), 3)
         // batch: e1=4.0(5건), e2=2.0(3건), e3 은 후기 0건이라 결과 미포함.
         every { reviewRepository.aggregateByEventIds(listOf(100L, 101L, 102L)) } returns listOf(

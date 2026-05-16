@@ -33,4 +33,15 @@ interface ReportRepository : JpaRepository<Report, Long> {
         targetType: ReportTargetType,
         targetId: Long,
     ): Boolean
+
+    /**
+     * PR51 — 자동 조치 임계치 검사용. 한 (targetType, targetId) 의 PENDING 신고 누적 카운트.
+     * RESOLVED/DISMISSED 처리된 신고는 제외해 운영자가 한 번 dismiss 한 케이스가 다시 자동 hide
+     * 되지 않도록 한다.
+     */
+    fun countByTargetTypeAndTargetIdAndStatus(
+        targetType: ReportTargetType,
+        targetId: Long,
+        status: ReportStatus,
+    ): Long
 }

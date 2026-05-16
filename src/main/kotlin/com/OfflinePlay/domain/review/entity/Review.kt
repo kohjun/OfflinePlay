@@ -68,8 +68,31 @@ class Review(
     lateinit var updatedAt: LocalDateTime
         protected set
 
+    /**
+     * 신고 누적 자동 조치 (PR51) — 임계치 초과 시 [ReportService] 가 [hide] 호출.
+     * 값이 채워진 row 는 일반 사용자 조회에서 제외되지만 Admin/작성자 본인 확인은 가능.
+     * 수동 delete 와 의미를 분리한다 — hide 만으로 데이터는 보존.
+     */
+    @Column(name = "hidden_at")
+    var hiddenAt: LocalDateTime? = null
+        protected set
+
+    @Column(name = "hidden_reason", length = 255)
+    var hiddenReason: String? = null
+        protected set
+
+    val isHidden: Boolean
+        get() = hiddenAt != null
+
     fun update(rating: Int, content: String) {
         this.rating = rating
         this.content = content
+    }
+
+    /** 중복 호출은 no-op — 첫 hide 시점/사유를 보존. */
+    fun hide(reason: String) {
+        if (hiddenAt != null) return
+        hiddenAt = LocalDateTime.now()
+        hiddenReason = reason.take(255)
     }
 }
