@@ -22,6 +22,7 @@ import {
   type EventReviewSummary,
   type Review,
 } from '../api/reviews'
+import { createReport } from '../api/reports'
 import { RemainingProgress } from '../components/RemainingProgress'
 import { ReviewForm } from '../components/ReviewForm'
 import { notificationStore } from '../stores/notificationStore'
@@ -249,6 +250,44 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
       })
     } finally {
       setSubmittingReview(false)
+    }
+  }
+
+  /**
+   * PR48 — 후기 신고. 본인 글은 카드에서 버튼을 숨기므로 여기까지 오면 타인 글.
+   * 비로그인은 진입 자체가 안 되지만 (button 안 보임), 방어선으로 user 가드 추가.
+   * 사유는 prompt() 로 받는다 — 모달은 작은 컴포넌트 과설계 금지 원칙에 맞춰 보류.
+   */
+  async function handleReportReview(review: Review) {
+    if (!user) {
+      showToast({ title: '로그인이 필요해요', tone: 'warning' })
+      return
+    }
+    const reason = window.prompt('신고 사유를 간단히 적어주세요. (500자 이내)', '')
+    if (reason == null) return
+    const trimmed = reason.trim()
+    if (trimmed.length === 0) {
+      showToast({ title: '신고 사유를 입력해주세요', tone: 'warning' })
+      return
+    }
+    try {
+      await createReport({ targetType: 'REVIEW', targetId: review.id, reason: trimmed })
+      showToast({ title: '신고가 접수되었습니다', tone: 'success' })
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status
+      const title =
+        status === 409
+          ? '이미 신고한 후기입니다'
+          : status === 400
+            ? '본인이 작성한 후기는 신고할 수 없어요'
+            : status === 404
+              ? '후기를 찾을 수 없어요'
+              : '신고 처리에 실패했어요'
+      showToast({
+        title,
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
     }
   }
 
@@ -823,9 +862,22 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
                         </span>
                         <span className="muted">{r.authorNickname}</span>
                       </div>
-                      <span className="ct-review-card__date muted">
-                        {new Date(r.createdAt).toLocaleDateString()}
-                      </span>
+                      <div className="ct-review-card__actions">
+                        <span className="ct-review-card__date muted">
+                          {new Date(r.createdAt).toLocaleDateString()}
+                        </span>
+                        {/* PR48: 본인 글이 아닐 때만 신고 버튼 노출. user 가 없으면(비로그인) 숨김. */}
+                        {user && user.userId !== r.authorId ? (
+                          <button
+                            type="button"
+                            className="text-button text-button--danger"
+                            onClick={() => handleReportReview(r)}
+                            aria-label="이 후기 신고"
+                          >
+                            신고
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                     <p className="ct-review-card__content">{r.content}</p>
                   </div>

@@ -348,14 +348,21 @@ export interface ChannelPost {
   createdAt: string
 }
 
+/** Backend ReportTargetType enum 과 1:1. CONTENT/USER 는 더 이상 사용하지 않음 (PR48). */
+export type ReportTargetType = 'CHANNEL' | 'POST' | 'EVENT' | 'COMMENT' | 'REVIEW'
+
 export interface Report {
   id: number
   reporterNickname: string
-  targetType: 'CHANNEL' | 'EVENT' | 'CONTENT' | 'COMMENT' | 'USER'
+  targetType: ReportTargetType
   targetId: number
   reason: string
   status: 'PENDING' | 'RESOLVED' | 'DISMISSED'
   createdAt: string
+  /** PR48 — Admin 응답에서만 채워짐. 대상이 삭제됐거나 createReport 응답이면 null. */
+  targetPreview?: string | null
+  /** PR48 — REVIEW 일 때만 채워짐. 빠른 별점 확인용. */
+  targetRating?: number | null
 }
 
 /** Mirrors backend PaymentStatus. */

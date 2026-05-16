@@ -6,7 +6,19 @@ import org.springframework.data.annotation.CreatedDate
 import org.springframework.data.jpa.domain.support.AuditingEntityListener
 import java.time.LocalDateTime
 
-enum class ReportTargetType { CHANNEL, POST, EVENT, COMMENT }
+/**
+ * 신고 대상 타입.
+ *
+ *  - CHANNEL  : 채널 단위 신고 (어뷰즈/사칭/스팸)
+ *  - POST     : 채널 게시글
+ *  - EVENT    : 이벤트 본문 / 정책 오용
+ *  - COMMENT  : 이벤트 댓글
+ *  - REVIEW   : 이벤트 후기 (PR48 추가) — 별점 조작 / 부적절 본문
+ *
+ * 새 타입 추가 시 ReportService.createReport 의 타깃 검증 + AdminService 의 preview 매핑을
+ * 함께 갱신.
+ */
+enum class ReportTargetType { CHANNEL, POST, EVENT, COMMENT, REVIEW }
 
 enum class ReportStatus { PENDING, RESOLVED, DISMISSED }
 

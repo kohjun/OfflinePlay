@@ -52,8 +52,9 @@ class AdminController(
     fun getReports(
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
+        @RequestParam(required = false) targetType: String?,
     ): ApiResponse<PageResponse<ReportResponse>> =
-        ApiResponse.ok(PageResponse.of(adminService.getReports(page, size)))
+        ApiResponse.ok(PageResponse.of(adminService.getReports(page, size, targetType)))
 
     @PatchMapping("/reports/{id}/resolve")
     fun resolveReport(@PathVariable id: Long): ApiResponse<ReportResponse> =

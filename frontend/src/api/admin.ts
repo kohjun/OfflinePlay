@@ -38,7 +38,7 @@ export function banUser(id: number) {
   return apiClient.patch<User>(`/admin/users/${id}/ban`)
 }
 
-export function getReports(params?: { page?: number; size?: number }) {
+export function getReports(params?: { page?: number; size?: number; targetType?: string }) {
   return apiClient.get<PageResponse<Report>>('/admin/reports', params)
 }
 

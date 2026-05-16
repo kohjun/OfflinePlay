@@ -172,6 +172,21 @@ class ReportAlreadyProcessedException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 처리된 신고입니다."
 )
 
+/** 신고 대상(targetType + targetId) 조회 실패. PR48. */
+class ReportTargetNotFoundException : ContENIDOException(
+    HttpStatus.NOT_FOUND, "신고 대상을 찾을 수 없습니다."
+)
+
+/** 본인이 작성/소유한 대상을 본인이 신고. PR48. */
+class SelfReportNotAllowedException : ContENIDOException(
+    HttpStatus.BAD_REQUEST, "본인이 작성한 대상은 신고할 수 없습니다."
+)
+
+/** 같은 reporter 가 같은 (targetType, targetId) 를 또 신고. PR48. */
+class ReportAlreadyExistsException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 신고한 대상입니다."
+)
+
 class AlreadyBannedException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 처리된 대상입니다."
 )
