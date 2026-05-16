@@ -182,7 +182,9 @@ export interface CreatorStudioResponse {
 
 /**
  * Mirrors backend MyParticipationItemResponse — MY 페이지 "내 신청/티켓" 한 행.
- * 이벤트 + 참가 상태 + (있다면) 가장 최근 티켓이 묶여 내려온다.
+ * 이벤트 + 참가 상태 + (있다면) 가장 최근 티켓 + (있다면) 결제 정보가 묶여 내려온다.
+ *
+ * 결제 필드는 PR44 에서 추가됨 — 무료 티켓 / 결제 미연결 케이스는 모두 null.
  */
 export interface MyParticipationItem {
   participationId: number
@@ -200,6 +202,10 @@ export interface MyParticipationItem {
   rejectReason: string | null
   ticketId: number | null
   ticketStatus: TicketStatus | null
+  paymentAttemptId: number | null
+  orderId: string | null
+  paidAmount: number | null
+  paymentProvider: 'NONE' | 'TOSS' | 'MOCK' | null
 }
 
 export interface Content {

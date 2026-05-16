@@ -2026,6 +2026,91 @@ textarea {
   font-weight: 600;
 }
 
+/* PR44 — MY 탭 (신청 / 결제) + 결제 상태 필터 */
+.ct-my-tabs {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.ct-my-tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 4px;
+  margin-bottom: -1px;
+  padding: 10px 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ct-my-tab.is-active {
+  border-bottom-color: var(--c-primary);
+  color: var(--c-primary);
+}
+
+.ct-my-tab-count {
+  background: var(--surface-muted);
+  border-radius: var(--radius-pill);
+  color: var(--text-tertiary);
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+}
+
+.ct-my-tab.is-active .ct-my-tab-count {
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+}
+
+.ct-my-order-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.ct-my-app-card-order {
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  margin: 8px 0 0;
+  padding-top: 8px;
+}
+
+.ct-my-app-card-order > div {
+  display: grid;
+  gap: 1px;
+}
+
+.ct-my-app-card-order dt {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ct-my-app-card-order dd {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ct-my-app-card-order-id {
+  font-family: var(--font-en);
+  letter-spacing: 0.02em;
+}
+
 .ct-profile-page .form-section {
   display: grid;
   gap: 12px;

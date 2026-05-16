@@ -29,4 +29,13 @@ interface PaymentAttemptRepository : JpaRepository<PaymentAttempt, Long> {
      * 0 또는 1 행만 사용한다.
      */
     fun findByTicket(ticket: Ticket): Optional<PaymentAttempt>
+
+    /**
+     * 다수 Ticket → 한 번 쿼리로 묶음 조회. MY 결제 내역 화면(getMyParticipations)이
+     * 페이지 내 모든 티켓에 대한 PaymentAttempt 를 N+1 없이 가져오기 위함.
+     *
+     * 무료 티켓 등 PaymentAttempt 가 연결되지 않은 ticket 은 결과에 포함되지 않는다 —
+     * 호출처가 `Map<ticketId, PaymentAttempt>` 로 변환해 zip.
+     */
+    fun findByTicketIn(tickets: Collection<Ticket>): List<PaymentAttempt>
 }

@@ -55,6 +55,7 @@ class EventServiceTest {
     @MockK lateinit var notificationService: NotificationService
     @MockK lateinit var ticketService: TicketService
     @MockK lateinit var ticketRepository: TicketRepository
+    @MockK lateinit var paymentAttemptRepository: com.contenido.domain.payment.repository.PaymentAttemptRepository
     @MockK lateinit var publisher: ApplicationEventPublisher
 
     private lateinit var eventService: EventService
@@ -71,6 +72,7 @@ class EventServiceTest {
             notificationService = notificationService,
             ticketService = ticketService,
             ticketRepository = ticketRepository,
+            paymentAttemptRepository = paymentAttemptRepository,
             publisher = publisher,
         )
         every { notificationService.notify(any(), any(), any(), any(), any(), any()) } just Runs
@@ -1063,6 +1065,8 @@ class EventServiceTest {
         every {
             ticketRepository.findByBuyerAndEventIdIn(user, listOf(10L))
         } returns listOf(ticket)
+        // PR44: PaymentAttempt 배치 조회. 무료 시나리오라 빈 결과.
+        every { paymentAttemptRepository.findByTicketIn(any()) } returns emptyList()
 
         val result = eventService.getMyParticipations(2L, 0, 20)
 
@@ -1070,6 +1074,9 @@ class EventServiceTest {
         assertThat(item.status).isEqualTo(ParticipationStatus.APPROVED)
         assertThat(item.ticketId).isEqualTo(555L)
         assertThat(item.ticketStatus).isEqualTo(TicketStatus.PAID)
+        assertThat(item.paymentAttemptId).isNull()
+        assertThat(item.orderId).isNull()
+        assertThat(item.paidAmount).isNull()
     }
 
     @Test

@@ -140,7 +140,13 @@ data class RejectParticipationRequest(
 )
 
 /**
- * MY 페이지 "내 신청/티켓" 한 행. 이벤트 + 참가 상태 + (있다면) 티켓 정보를 묶어 반환한다.
+ * MY 페이지 "내 신청/티켓" 한 행. 이벤트 + 참가 상태 + (있다면) 티켓 정보 + (있다면) 결제 정보.
+ *
+ * 결제 필드 (PR44):
+ *  - 무료 티켓: 모두 null.
+ *  - 유료 티켓: orderId 는 prepare 시 발급된 idempotencyKey (사용자 주문번호로 노출).
+ *    paidAmount 는 PaymentAttempt.amount — 환불 후에도 원본 결제 금액을 그대로 표시.
+ *    provider 는 결제 수단 (MOCK / TOSS 등).
  */
 data class MyParticipationItemResponse(
     val participationId: Long,
@@ -158,4 +164,9 @@ data class MyParticipationItemResponse(
     val rejectReason: String?,
     val ticketId: Long?,
     val ticketStatus: com.contenido.domain.ticket.entity.TicketStatus?,
+    // 결제 정보 (티켓이 무료이거나 결제 미연결인 경우 모두 null).
+    val paymentAttemptId: Long?,
+    val orderId: String?,
+    val paidAmount: Long?,
+    val paymentProvider: com.contenido.domain.payment.entity.PaymentProvider?,
 )

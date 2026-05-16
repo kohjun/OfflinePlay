@@ -51,6 +51,7 @@ class EventService(
     private val notificationService: NotificationService,
     private val ticketService: TicketService,
     private val ticketRepository: TicketRepository,
+    private val paymentAttemptRepository: com.contenido.domain.payment.repository.PaymentAttemptRepository,
     private val publisher: ApplicationEventPublisher,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -318,8 +319,17 @@ class EventService(
                 }
         }
 
+        // PR44: 결제 내역 표시를 위해 PaymentAttempt 도 묶음 조회한다 (N+1 회피).
+        // 무료 티켓 / 결제 미연결 티켓은 attempt 가 없어 결과에 포함되지 않는다.
+        val attemptByTicketId: Map<Long, com.contenido.domain.payment.entity.PaymentAttempt> =
+            ticketByEventId.values.takeIf { it.isNotEmpty() }
+                ?.let { tickets -> paymentAttemptRepository.findByTicketIn(tickets) }
+                ?.associateBy { it.ticket!!.id }
+                ?: emptyMap()
+
         return participations.map { p ->
             val ticket = ticketByEventId[p.event.id]
+            val attempt = ticket?.let { attemptByTicketId[it.id] }
             MyParticipationItemResponse(
                 participationId = p.id,
                 eventId = p.event.id,
@@ -336,6 +346,10 @@ class EventService(
                 rejectReason = p.rejectReason,
                 ticketId = ticket?.id,
                 ticketStatus = ticket?.status,
+                paymentAttemptId = attempt?.id,
+                orderId = attempt?.idempotencyKey,
+                paidAmount = attempt?.amount,
+                paymentProvider = attempt?.provider,
             )
         }
     }

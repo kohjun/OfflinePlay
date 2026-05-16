@@ -16,6 +16,17 @@ interface MyPageProps {
   onNavigate: (path: string) => void
 }
 
+type MyTab = 'requests' | 'orders'
+type OrderFilter = 'ALL' | 'PAID' | 'USED' | 'REFUNDED' | 'CANCELED'
+
+const ORDER_FILTERS: Array<{ value: OrderFilter; label: string }> = [
+  { value: 'ALL', label: '전체' },
+  { value: 'PAID', label: '결제완료' },
+  { value: 'USED', label: '사용완료' },
+  { value: 'REFUNDED', label: '환불됨' },
+  { value: 'CANCELED', label: '취소됨' },
+]
+
 const ROLE_LABEL: Record<UserRole, string> = {
   PARTICIPANT: '참가자',
   CREATOR: '기획자',
@@ -199,6 +210,28 @@ function ParticipationCard({ item, onOpen, onOpenTicket }: ParticipationCardProp
               <span>{item.ticketStatus ? TICKET_STATUS_LABEL[item.ticketStatus] : '발급 완료'}</span>
             </div>
           ) : null}
+          {item.paymentAttemptId != null ? (
+            <dl className="ct-my-app-card-order">
+              <div>
+                <dt>주문번호</dt>
+                <dd className="ct-my-app-card-order-id" title={item.orderId ?? ''}>
+                  {item.orderId ? item.orderId.slice(0, 8) + '…' : `#${item.paymentAttemptId}`}
+                </dd>
+              </div>
+              {item.paidAmount != null ? (
+                <div>
+                  <dt>결제 금액</dt>
+                  <dd>{`${item.paidAmount.toLocaleString()}원`}</dd>
+                </div>
+              ) : null}
+              {item.paymentProvider && item.paymentProvider !== 'NONE' ? (
+                <div>
+                  <dt>결제 수단</dt>
+                  <dd>{item.paymentProvider === 'TOSS' ? '토스' : '테스트'}</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
           {item.status === 'REJECTED' && item.rejectReason ? (
             <p className="ct-my-app-card-reason">사유: {item.rejectReason}</p>
           ) : null}
@@ -226,6 +259,9 @@ export function MyPage({ onNavigate }: MyPageProps) {
   const [items, setItems] = useState<MyParticipationItem[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  // PR44: "신청" (전체 신청/참가 흐름) vs "결제" (티켓 + 결제 정보 위주) 탭 분리.
+  const [tab, setTab] = useState<MyTab>('requests')
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>('ALL')
 
   const loadItems = useCallback(async () => {
     try {
@@ -302,6 +338,13 @@ export function MyPage({ onNavigate }: MyPageProps) {
   // 통계 카드용 — 백엔드가 노출하는 값만 채우고 나머지는 dash 로 둔다.
   const approvedCount = items.filter((it) => it.status === 'APPROVED').length
 
+  // PR44 결제 탭: 티켓이 발급된 항목만 추리고, 사용자가 고른 상태로 한 번 더 필터.
+  const orderItems = items.filter((it) => it.ticketId != null)
+  const visibleOrderItems = orderItems.filter((it) => {
+    if (orderFilter === 'ALL') return true
+    return it.ticketStatus === orderFilter
+  })
+
   return (
     <main className="page ct-my-page">
       <section className="ct-my-hero">
@@ -330,12 +373,44 @@ export function MyPage({ onNavigate }: MyPageProps) {
       </section>
 
       <section className="ct-my-participations" aria-label={sectionTitle}>
-        <div className="section-heading">
-          <h2 className="ct-my-section-title">{sectionTitle}</h2>
-          {!loadingItems && items.length > 0 ? (
-            <span className="muted">{items.length}건</span>
-          ) : null}
+        <div className="ct-my-tabs" role="tablist" aria-label="MY 내역 탭">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'requests'}
+            className={`ct-my-tab ${tab === 'requests' ? 'is-active' : ''}`}
+            onClick={() => setTab('requests')}
+          >
+            신청 <span className="ct-my-tab-count">{items.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'orders'}
+            className={`ct-my-tab ${tab === 'orders' ? 'is-active' : ''}`}
+            onClick={() => setTab('orders')}
+          >
+            결제 <span className="ct-my-tab-count">{orderItems.length}</span>
+          </button>
         </div>
+
+        {tab === 'orders' ? (
+          <div className="ct-my-order-filter" role="tablist" aria-label="결제 상태 필터">
+            {ORDER_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                role="tab"
+                aria-selected={orderFilter === f.value}
+                className={`chip ${orderFilter === f.value ? 'is-active' : ''}`}
+                onClick={() => setOrderFilter(f.value)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {loadingItems ? (
           <div className="stack" aria-hidden="true">
             <Skeleton lines={4} />
@@ -344,25 +419,61 @@ export function MyPage({ onNavigate }: MyPageProps) {
         ) : loadError ? (
           <div className="ct-my-empty">
             <span aria-hidden="true">⚠️</span>
-            <strong>신청 내역을 불러오지 못했어요</strong>
+            <strong>{tab === 'orders' ? '결제 내역을 불러오지 못했어요' : '신청 내역을 불러오지 못했어요'}</strong>
             <span className="muted">잠시 후 다시 시도해주세요.</span>
           </div>
-        ) : items.length === 0 ? (
+        ) : tab === 'requests' ? (
+          items.length === 0 ? (
+            <div className="ct-my-empty">
+              <span aria-hidden="true">🎟</span>
+              <strong>아직 신청한 이벤트가 없어요</strong>
+              <span className="muted">관심 있는 이벤트를 둘러보고 신청해보세요.</span>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => onNavigate('/explore')}
+              >
+                이벤트 둘러보기
+              </button>
+            </div>
+          ) : (
+            <div className="stack">
+              {items.map((item) => (
+                <ParticipationCard
+                  key={item.participationId}
+                  item={item}
+                  onOpen={openEvent}
+                  onOpenTicket={openTicket}
+                />
+              ))}
+            </div>
+          )
+        ) : visibleOrderItems.length === 0 ? (
           <div className="ct-my-empty">
-            <span aria-hidden="true">🎟</span>
-            <strong>아직 신청한 이벤트가 없어요</strong>
-            <span className="muted">관심 있는 이벤트를 둘러보고 신청해보세요.</span>
-            <button
-              type="button"
-              className="button button-primary"
-              onClick={() => onNavigate('/explore')}
-            >
-              이벤트 둘러보기
-            </button>
+            <span aria-hidden="true">🧾</span>
+            <strong>
+              {orderFilter === 'ALL'
+                ? '아직 결제 내역이 없어요'
+                : '해당 상태의 결제가 없어요'}
+            </strong>
+            <span className="muted">
+              {orderFilter === 'ALL'
+                ? '유료 이벤트를 결제하면 여기에 영수증이 모여요.'
+                : '다른 상태 필터를 눌러보세요.'}
+            </span>
+            {orderFilter === 'ALL' ? (
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => onNavigate('/explore')}
+              >
+                이벤트 둘러보기
+              </button>
+            ) : null}
           </div>
         ) : (
           <div className="stack">
-            {items.map((item) => (
+            {visibleOrderItems.map((item) => (
               <ParticipationCard
                 key={item.participationId}
                 item={item}
