@@ -20,6 +20,15 @@ spring:
         format_sql: false
     show-sql: false
 
+  # Flyway — 운영 에서만 활성화. baseline-on-migrate=true 로 기존 운영 DB 가
+  # 있어도 V1 을 baseline 으로 잡고 V2+ 부터 적용. 초기 빈 DB 에는 V1 부터 전체 적용.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: "0"
+    validate-on-migrate: true
+
   data:
     redis:
       host: ${REDIS_HOST}
@@ -34,6 +43,14 @@ logging:
     root: WARN
     com.contenido: WARN
     org.springframework.security: WARN
+
+# Actuator — prod 에서는 상세 health 정보 차단 (DB 호스트/Redis 등 인프라 leak 방지).
+# liveness/readiness 만 외부에서 200/503 으로 결과 받을 수 있고, components 는 노출 X.
+management:
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
 
 # 결제(Toss Payments) 운영 hardening — 자세한 내용은 docs/payment-refund-policy.md §11
 #  - webhook-signature-required 가 prod 기본 true 로 잠긴다. env var 미지정 시에도 안전.

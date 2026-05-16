@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------
+# Docker build context exclusion (PR49)
+# 이미지 빌드 컨텍스트를 작게 유지 — 산출물/IDE/개인 설정/노드 디렉터리 제외.
+# ---------------------------------------------------------------
+
+# Git / VCS
+.git
+.gitignore
+.gitattributes
+
+# Gradle build outputs
+.gradle
+build
+**/build
+*.gradle.lockfile
+
+# Kotlin / Java incremental
+.kotlin
+*.tsbuildinfo
+
+# Frontend — backend 이미지엔 필요 없음
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/.next
+frontend/coverage
+
+# Logs
+*.log
+logs
+
+# IDE / Editor
+.idea
+.vscode
+*.iml
+*.iws
+*.ipr
+*.swp
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude / 개인 도구 캐시
+.claude
+.localappdata
+.appdata
+
+# Test / Coverage 산출물
+test-output
+coverage
+*.exec
+
+# 압축/패키지
+*.tar.gz
+*.zip
+
+# Docker 메타 (이미지에 다시 들어갈 필요 없음)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Docs / 운영 체크리스트 등 — 백엔드 런타임엔 불필요
+docs
+README.md
+ONBOARDING.md

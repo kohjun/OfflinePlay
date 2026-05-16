@@ -12,6 +12,13 @@ spring:
   elasticsearch:
     uris: ${ELASTICSEARCH_URI:http://localhost:9200}
 
+  # Flyway 는 prod 에서만 활성화. classpath 에 flyway-core 가 있으면 Spring Boot 가
+  # 기본 true 로 자동 활성화하는데, local (ddl-auto: create) / test (H2 create-drop)
+  # 에서는 마이그레이션이 의미가 없고 H2 는 MySQL 전용 DDL 을 못 받는다. 안전한 기본값
+  # 은 false 로 두고 application-prod.yml 이 명시적으로 true 로 켠다.
+  flyway:
+    enabled: false
+
   task:
     execution:
       pool:
@@ -40,6 +47,35 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /v3/api-docs
+
+# Actuator — 최소 노출. health/info 만 외부 공개, liveness/readiness probe 활성화.
+# prod 에서는 application-prod.yml 이 show-details=never 로 상세 정보 차단.
+# metrics/prometheus 는 의도적으로 미노출 — 후속 PR 에서 인증/필터 붙여 활성화.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+      base-path: /actuator
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when-authorized
+  info:
+    env:
+      enabled: true
+      # 인증된 호출자에게만 환경 변수 (sensitive 마스킹)
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+info:
+  app:
+    name: ContENIDO API
+    description: CONTENIDO by WOYA backend
 
 logging:
   level:

@@ -27,6 +27,12 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-aop")
+    // Actuator — health/info/liveness/readiness (PR49 운영 배포 기본기)
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+
+    // Flyway — DB 마이그레이션 (PR49 baseline). prod 에서만 enable, local/test 는 ddl-auto 유지.
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-mysql")
 
     // Kotlin
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")

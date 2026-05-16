@@ -86,8 +86,10 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.GET, "/api/v1/events/*/likes", "/api/v1/posts/*/likes").permitAll()
                     // 검색 (비로그인 허용)
                     .requestMatchers(HttpMethod.GET, "/api/v1/search/**").permitAll()
-                    // 헬스체크 / actuator
-                    .requestMatchers("/actuator/health").permitAll()
+                    // 헬스체크 / actuator — health 트리(liveness/readiness 포함) + info 만 외부 공개.
+                    // metrics/prometheus 같은 그 외 엔드포인트는 노출 자체를 management.endpoints
+                    // 에서 제외하므로 별도 deny 룰 불필요. 추후 metrics 노출 시 인증 게이트 필요.
+                    .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                     // 결제 webhook — PG 가 외부에서 호출. signature/HMAC 검증은 후속 PR 에서.
                     .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhook").permitAll()
                     // 어드민 (ADMIN 권한 필요 - 메서드 시큐리티로 추가 검증)
