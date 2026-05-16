@@ -9,6 +9,7 @@ import com.contenido.domain.event.entity.ContentType
 import com.contenido.domain.event.entity.Event
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.explore.dto.ExploreResponse
+import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.search.service.PopularSearchService
 import com.contenido.global.response.PageResponse
 import org.springframework.data.domain.PageRequest
@@ -32,6 +33,7 @@ class ExploreService(
     private val channelRepository: ChannelRepository,
     private val eventRepository: EventRepository,
     private val popularSearchService: PopularSearchService,
+    private val reviewRepository: ReviewRepository,
 ) {
 
     fun explore(
@@ -80,10 +82,40 @@ class ExploreService(
             pageable = pageable,
         )
 
+        // PR47: 별점/후기 수 batch 집계 — N+1 회피.
+        val eventRatings = batchEventRatings(eventPage.content.map { it.id })
+        val channelRatings = batchChannelRatings(channelPage.content.map { it.id })
+
         return ExploreResponse(
-            events = PageResponse.of(eventPage.map { it.toResponse() }),
-            channels = PageResponse.of(channelPage.map { it.toResponse() }),
+            events = PageResponse.of(eventPage.map { e ->
+                val r = eventRatings[e.id]
+                e.toResponse(averageRating = r?.first, reviewCount = r?.second ?: 0L)
+            }),
+            channels = PageResponse.of(channelPage.map { c ->
+                val r = channelRatings[c.id]
+                c.toResponse(averageRating = r?.first, reviewCount = r?.second ?: 0L)
+            }),
         )
+    }
+
+    private fun batchEventRatings(ids: List<Long>): Map<Long, Pair<Double?, Long>> {
+        if (ids.isEmpty()) return emptyMap()
+        return reviewRepository.aggregateByEventIds(ids).associate { row ->
+            val id = (row[0] as Number).toLong()
+            val avg = (row[1] as? Number)?.toDouble()
+            val cnt = (row[2] as Number).toLong()
+            id to (avg to cnt)
+        }
+    }
+
+    private fun batchChannelRatings(ids: List<Long>): Map<Long, Pair<Double?, Long>> {
+        if (ids.isEmpty()) return emptyMap()
+        return reviewRepository.aggregateByChannelIds(ids).associate { row ->
+            val id = (row[0] as Number).toLong()
+            val avg = (row[1] as? Number)?.toDouble()
+            val cnt = (row[2] as Number).toLong()
+            id to (avg to cnt)
+        }
     }
 
     // 잘못된 enum 값은 400 으로 떨어뜨리지 않고 무시 — UX 우선.
@@ -93,7 +125,10 @@ class ExploreService(
     private fun parseContentType(raw: String?): ContentType? =
         raw?.takeIf { it.isNotBlank() }?.let { runCatching { ContentType.valueOf(it) }.getOrNull() }
 
-    private fun Event.toResponse() = EventResponse(
+    private fun Event.toResponse(
+        averageRating: Double? = null,
+        reviewCount: Long = 0L,
+    ) = EventResponse(
         id = id,
         channelId = channel.id,
         channelName = channel.name,
@@ -112,9 +147,14 @@ class ExploreService(
         status = status,
         contentType = contentType,
         createdAt = createdAt,
+        averageRating = averageRating,
+        reviewCount = reviewCount,
     )
 
-    private fun Channel.toResponse() = ChannelResponse(
+    private fun Channel.toResponse(
+        averageRating: Double? = null,
+        reviewCount: Long = 0L,
+    ) = ChannelResponse(
         id = id,
         ownerId = owner.id,
         ownerNickname = owner.nickname,
@@ -125,5 +165,7 @@ class ExploreService(
         thumbnailUrl = thumbnailUrl,
         subscriberCount = subscriberCount,
         createdAt = createdAt,
+        averageRating = averageRating,
+        reviewCount = reviewCount,
     )
 }

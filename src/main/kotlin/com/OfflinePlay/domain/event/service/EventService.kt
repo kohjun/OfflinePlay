@@ -19,6 +19,7 @@ import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.notification.entity.NotificationType
 import com.contenido.domain.notification.service.NotificationService
+import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.ticket.entity.Ticket
 import com.contenido.domain.ticket.entity.TicketStatus
 import com.contenido.domain.ticket.repository.TicketRepository
@@ -52,6 +53,7 @@ class EventService(
     private val ticketService: TicketService,
     private val ticketRepository: TicketRepository,
     private val paymentAttemptRepository: com.contenido.domain.payment.repository.PaymentAttemptRepository,
+    private val reviewRepository: ReviewRepository,
     private val publisher: ApplicationEventPublisher,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -105,12 +107,21 @@ class EventService(
 
     fun getEvents(channelId: Long, page: Int, size: Int): Page<EventResponse> {
         val channel = findChannel(channelId)
-        return eventRepository.findByChannelOrderByStartAtDesc(channel, PageRequest.of(page, size))
-            .map { it.toResponse() }
+        val events = eventRepository.findByChannelOrderByStartAtDesc(channel, PageRequest.of(page, size))
+        val ratingMap = ratingsByEventIds(events.content.map { it.id })
+        return events.map { e ->
+            val r = ratingMap[e.id]
+            e.toResponse(averageRating = r?.first, reviewCount = r?.second ?: 0L)
+        }
     }
 
-    fun getEvent(eventId: Long): EventResponse =
-        findEvent(eventId).toResponse()
+    fun getEvent(eventId: Long): EventResponse {
+        val event = findEvent(eventId)
+        return event.toResponse(
+            averageRating = reviewRepository.averageRatingByEventId(eventId),
+            reviewCount = reviewRepository.countByEvent(event),
+        )
+    }
 
     /**
      * 이벤트 수정. 채널 owner 또는 ADMIN 만 허용. 모든 필드 nullable — null 은 변경하지 않음.
@@ -162,7 +173,10 @@ class EventService(
 
         publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "EVENT", event.id))
 
-        return event.toResponse()
+        return event.toResponse(
+            averageRating = reviewRepository.averageRatingByEventId(event.id),
+            reviewCount = reviewRepository.countByEvent(event),
+        )
     }
 
     // ─── Participation: 신청 → 승인/거절 워크플로 ─────────────────────────────────
@@ -517,7 +531,10 @@ class EventService(
         return user
     }
 
-    private fun Event.toResponse() = EventResponse(
+    private fun Event.toResponse(
+        averageRating: Double? = null,
+        reviewCount: Long = 0L,
+    ) = EventResponse(
         id = id,
         channelId = channel.id,
         channelName = channel.name,
@@ -536,7 +553,24 @@ class EventService(
         status = status,
         contentType = contentType,
         createdAt = createdAt,
+        averageRating = averageRating,
+        reviewCount = reviewCount,
     )
+
+    /**
+     * PR47 — eventId 묶음에 대한 (averageRating, reviewCount) 매핑을 batch 로 조회.
+     * 후기가 0건인 이벤트는 결과에 포함되지 않으므로 caller 가 null 처리.
+     * eventIds 가 비어 있으면 즉시 빈 map.
+     */
+    private fun ratingsByEventIds(eventIds: List<Long>): Map<Long, Pair<Double?, Long>> {
+        if (eventIds.isEmpty()) return emptyMap()
+        return reviewRepository.aggregateByEventIds(eventIds).associate { row ->
+            val id = (row[0] as Number).toLong()
+            val avg = (row[1] as? Number)?.toDouble()
+            val cnt = (row[2] as Number).toLong()
+            id to (avg to cnt)
+        }
+    }
 
     private fun EventParticipation.toResponse() = ParticipationResponse(
         id = id,

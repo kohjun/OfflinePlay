@@ -40,6 +40,9 @@ data class ChannelResponse(
     val thumbnailUrl: String?,
     val subscriberCount: Long,
     val createdAt: LocalDateTime,
+    /** PR47 — 채널 내 모든 이벤트 후기 평균. 후기 0건이면 null. */
+    val averageRating: Double? = null,
+    val reviewCount: Long = 0L,
 )
 
 data class ChannelDetailResponse(
@@ -54,4 +57,7 @@ data class ChannelDetailResponse(
     val subscriberCount: Long,
     val createdAt: LocalDateTime,
     val isSubscribed: Boolean,
+    /** PR47 — 채널 내 모든 이벤트 후기 평균. 후기 0건이면 null. */
+    val averageRating: Double? = null,
+    val reviewCount: Long = 0L,
 )

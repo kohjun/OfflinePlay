@@ -33,6 +33,7 @@ class ExploreServiceTest {
     @MockK lateinit var channelRepository: ChannelRepository
     @MockK lateinit var eventRepository: EventRepository
     @MockK lateinit var popularSearchService: PopularSearchService
+    @MockK lateinit var reviewRepository: com.contenido.domain.review.repository.ReviewRepository
 
     private lateinit var service: ExploreService
 
@@ -60,7 +61,10 @@ class ExploreServiceTest {
 
     @BeforeEach
     fun setUp() {
-        service = ExploreService(channelRepository, eventRepository, popularSearchService)
+        service = ExploreService(channelRepository, eventRepository, popularSearchService, reviewRepository)
+        // PR47: 결과 매핑 시 rating batch 조회. 후기 0건 기본 stub.
+        every { reviewRepository.aggregateByEventIds(any()) } returns emptyList()
+        every { reviewRepository.aggregateByChannelIds(any()) } returns emptyList()
         // 기본 stub — 각 테스트가 필요 시 verify 로 인자 검증.
         every {
             eventRepository.searchForExplore(

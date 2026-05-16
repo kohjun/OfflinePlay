@@ -12,6 +12,7 @@ import com.contenido.domain.channel.entity.ChannelSubscription
 import com.contenido.domain.channel.repository.ChannelMemberRepository
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
+import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
@@ -30,6 +31,7 @@ class ChannelService(
     private val channelMemberRepository: ChannelMemberRepository,
     private val channelSubscriptionRepository: ChannelSubscriptionRepository,
     private val userRepository: UserRepository,
+    private val reviewRepository: ReviewRepository,
     private val publisher: ApplicationEventPublisher,
 ) {
 
@@ -70,7 +72,11 @@ class ChannelService(
             user?.let { channelSubscriptionRepository.existsBySubscriberAndChannel(it, channel) } ?: false
         } ?: false
 
-        return channel.toDetailResponse(isSubscribed)
+        // PR47 — 채널 hero 에 노출할 평균 별점 + 후기 수.
+        val averageRating = reviewRepository.averageRatingByChannelId(channelId)
+        val reviewCount = reviewRepository.countByChannelId(channelId)
+
+        return channel.toDetailResponse(isSubscribed, averageRating, reviewCount)
     }
 
     @Transactional
@@ -91,8 +97,12 @@ class ChannelService(
 
     fun getChannelsByCategory(category: ChannelCategory, page: Int, size: Int): Page<ChannelResponse> {
         val pageable = PageRequest.of(page, size)
-        return channelRepository.findByCategoryOrderBySubscriberCountDesc(category, pageable)
-            .map { it.toResponse() }
+        val channels = channelRepository.findByCategoryOrderBySubscriberCountDesc(category, pageable)
+        val ratingMap = ratingsByChannelIds(channels.content.map { it.id })
+        return channels.map { ch ->
+            val r = ratingMap[ch.id]
+            ch.toResponse(averageRating = r?.first, reviewCount = r?.second ?: 0L)
+        }
     }
 
     @Transactional
@@ -124,8 +134,12 @@ class ChannelService(
     fun getMySubscriptions(userId: Long, page: Int, size: Int): Page<ChannelResponse> {
         val user = findActiveUser(userId)
         val pageable = PageRequest.of(page, size)
-        return channelSubscriptionRepository.findBySubscriber(user, pageable)
-            .map { it.channel.toResponse() }
+        val subs = channelSubscriptionRepository.findBySubscriber(user, pageable)
+        val ratingMap = ratingsByChannelIds(subs.content.map { it.channel.id })
+        return subs.map { sub ->
+            val r = ratingMap[sub.channel.id]
+            sub.channel.toResponse(averageRating = r?.first, reviewCount = r?.second ?: 0L)
+        }
     }
 
     // ── private ──────────────────────────────────────────────────────────────
@@ -139,7 +153,10 @@ class ChannelService(
     private fun findChannel(channelId: Long): Channel =
         channelRepository.findById(channelId).orElseThrow { ChannelNotFoundException() }
 
-    private fun Channel.toResponse() = ChannelResponse(
+    private fun Channel.toResponse(
+        averageRating: Double? = null,
+        reviewCount: Long = 0L,
+    ) = ChannelResponse(
         id = id,
         ownerId = owner.id,
         ownerNickname = owner.nickname,
@@ -150,9 +167,15 @@ class ChannelService(
         thumbnailUrl = thumbnailUrl,
         subscriberCount = subscriberCount,
         createdAt = createdAt,
+        averageRating = averageRating,
+        reviewCount = reviewCount,
     )
 
-    private fun Channel.toDetailResponse(isSubscribed: Boolean) = ChannelDetailResponse(
+    private fun Channel.toDetailResponse(
+        isSubscribed: Boolean,
+        averageRating: Double? = null,
+        reviewCount: Long = 0L,
+    ) = ChannelDetailResponse(
         id = id,
         ownerId = owner.id,
         ownerNickname = owner.nickname,
@@ -164,5 +187,22 @@ class ChannelService(
         subscriberCount = subscriberCount,
         createdAt = createdAt,
         isSubscribed = isSubscribed,
+        averageRating = averageRating,
+        reviewCount = reviewCount,
     )
+
+    /**
+     * PR47 — channelId 묶음에 대한 (averageRating, reviewCount) 매핑을 batch 로 조회.
+     * 후기가 0건인 채널은 결과에 포함되지 않으므로 caller 가 null 처리.
+     * channelIds 가 비어 있으면 즉시 빈 map.
+     */
+    private fun ratingsByChannelIds(channelIds: List<Long>): Map<Long, Pair<Double?, Long>> {
+        if (channelIds.isEmpty()) return emptyMap()
+        return reviewRepository.aggregateByChannelIds(channelIds).associate { row ->
+            val id = (row[0] as Number).toLong()
+            val avg = (row[1] as? Number)?.toDouble()
+            val cnt = (row[2] as Number).toLong()
+            id to (avg to cnt)
+        }
+    }
 }

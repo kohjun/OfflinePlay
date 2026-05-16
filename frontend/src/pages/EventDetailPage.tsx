@@ -615,6 +615,14 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
           <Badge tone={statusTone(event.status)}>{STATUS_LABEL[event.status]}</Badge>
           {event.contentType ? <Badge tone="primary">{CONTENT_TYPE_LABEL[event.contentType]}</Badge> : null}
           <Badge tone="neutral">{event.channelName}</Badge>
+          {/* PR47: hero 에 별점 칩 — 후기 1건 이상일 때만. 0건은 아래 후기 섹션 summary 에 위임. */}
+          {event.averageRating != null && (event.reviewCount ?? 0) > 0 ? (
+            <span className="ct-rating-chip" aria-label={`평균 별점 ${event.averageRating.toFixed(1)}, 후기 ${event.reviewCount}건`}>
+              <span aria-hidden="true">★</span>
+              <strong>{event.averageRating.toFixed(1)}</strong>
+              <span className="muted">({event.reviewCount})</span>
+            </span>
+          ) : null}
         </div>
         <h1 className="ct-event-title">{event.title}</h1>
         <p className="ct-event-summary">{event.description}</p>

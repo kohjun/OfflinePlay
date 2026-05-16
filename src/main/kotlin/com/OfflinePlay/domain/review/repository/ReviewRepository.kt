@@ -53,4 +53,16 @@ interface ReviewRepository : JpaRepository<Review, Long> {
         WHERE r.event.channel.id = :channelId
     """)
     fun countByChannelId(@Param("channelId") channelId: Long): Long
+
+    /**
+     * 다수 채널의 (channelId, average, count) 묶음 — Channel 목록 응답이 N+1 없이 별점을 채우기 위함.
+     * channelIds 가 비어 있으면 caller 가 호출 전에 가드.
+     */
+    @Query("""
+        SELECT r.event.channel.id, AVG(r.rating), COUNT(r)
+        FROM Review r
+        WHERE r.event.channel.id IN :channelIds
+        GROUP BY r.event.channel.id
+    """)
+    fun aggregateByChannelIds(@Param("channelIds") channelIds: Collection<Long>): List<Array<Any>>
 }

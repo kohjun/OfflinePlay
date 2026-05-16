@@ -56,6 +56,7 @@ class EventServiceTest {
     @MockK lateinit var ticketService: TicketService
     @MockK lateinit var ticketRepository: TicketRepository
     @MockK lateinit var paymentAttemptRepository: com.contenido.domain.payment.repository.PaymentAttemptRepository
+    @MockK lateinit var reviewRepository: com.contenido.domain.review.repository.ReviewRepository
     @MockK lateinit var publisher: ApplicationEventPublisher
 
     private lateinit var eventService: EventService
@@ -73,8 +74,13 @@ class EventServiceTest {
             ticketService = ticketService,
             ticketRepository = ticketRepository,
             paymentAttemptRepository = paymentAttemptRepository,
+            reviewRepository = reviewRepository,
             publisher = publisher,
         )
+        // PR47: 모든 EventResponse-반환 경로가 rating 을 조회한다. 후기 0건 기본 stub.
+        every { reviewRepository.averageRatingByEventId(any()) } returns null
+        every { reviewRepository.countByEvent(any()) } returns 0L
+        every { reviewRepository.aggregateByEventIds(any()) } returns emptyList()
         every { notificationService.notify(any(), any(), any(), any(), any(), any()) } just Runs
         every { publisher.publishEvent(any<ContentSyncEvent>()) } just Runs
         every { channelSubscriptionRepository.findByChannel(any()) } returns emptyList()
@@ -290,6 +296,70 @@ class EventServiceTest {
         // 기존 participationFee=0 으로 그대로 보내면 변경 없음 — 통과.
         eventService.updateEvent(1L, 100L, UpdateEventRequest(participationFee = 0L, title = "ok"))
         assertThat(event.title).isEqualTo("ok")
+    }
+
+    // ── PR47: getEvent / getEvents 가 ReviewRepository 집계를 응답에 채운다 ──
+
+    @Test
+    fun `getEvent 단건 응답에 averageRating + reviewCount 가 채워진다`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val event = createEvent(id = 200L, channel = createChannel(id = 10L, owner = owner))
+
+        every { eventRepository.findById(200L) } returns Optional.of(event)
+        // setUp 의 기본 stub 은 null/0 — 이 케이스만 실제 값으로 override.
+        every { reviewRepository.averageRatingByEventId(200L) } returns 4.6
+        every { reviewRepository.countByEvent(event) } returns 17L
+
+        val response = eventService.getEvent(200L)
+
+        assertThat(response.averageRating).isEqualTo(4.6)
+        assertThat(response.reviewCount).isEqualTo(17L)
+    }
+
+    @Test
+    fun `getEvent 후기 0건이면 averageRating=null + reviewCount=0`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val event = createEvent(id = 201L, channel = createChannel(id = 11L, owner = owner))
+
+        every { eventRepository.findById(201L) } returns Optional.of(event)
+        // 기본 stub 그대로 (null / 0L).
+
+        val response = eventService.getEvent(201L)
+
+        assertThat(response.averageRating).isNull()
+        assertThat(response.reviewCount).isZero()
+    }
+
+    @Test
+    fun `getEvents 목록은 aggregateByEventIds batch 한 번으로 rating 매핑한다 (N+1 회피)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+        val e1 = createEvent(id = 100L, channel = channel)
+        val e2 = createEvent(id = 101L, channel = channel)
+        val e3 = createEvent(id = 102L, channel = channel)
+
+        every { channelRepository.findById(10L) } returns Optional.of(channel)
+        every {
+            eventRepository.findByChannelOrderByStartAtDesc(channel, any())
+        } returns PageImpl(listOf(e1, e2, e3), PageRequest.of(0, 20), 3)
+        // batch: e1=4.0(5건), e2=2.0(3건), e3 은 후기 0건이라 결과 미포함.
+        every { reviewRepository.aggregateByEventIds(listOf(100L, 101L, 102L)) } returns listOf(
+            arrayOf<Any>(100L, 4.0, 5L),
+            arrayOf<Any>(101L, 2.0, 3L),
+        )
+
+        val page = eventService.getEvents(10L, 0, 20)
+
+        assertThat(page.content).hasSize(3)
+        assertThat(page.content[0].averageRating).isEqualTo(4.0)
+        assertThat(page.content[0].reviewCount).isEqualTo(5L)
+        assertThat(page.content[1].averageRating).isEqualTo(2.0)
+        assertThat(page.content[1].reviewCount).isEqualTo(3L)
+        // e3 은 결과에 없으므로 default (null / 0).
+        assertThat(page.content[2].averageRating).isNull()
+        assertThat(page.content[2].reviewCount).isZero()
+        // N+1 회피 검증 — 개별 averageRatingByEventId 호출이 없어야 한다.
+        verify(exactly = 0) { reviewRepository.averageRatingByEventId(any()) }
     }
 
     // ── applyForEvent (PENDING) ───────────────────────────────────────────────

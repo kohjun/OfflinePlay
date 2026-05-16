@@ -43,6 +43,14 @@ export function ChannelCard({ channel, onOpen, onToggleSubscribe }: ChannelCardP
       <div className="card-body">
         <div className="badge-row">
           <Badge tone="primary">{channel.categoryDisplayName}</Badge>
+          {/* PR47: 후기 1건 이상일 때만 칩 노출. */}
+          {channel.averageRating != null && (channel.reviewCount ?? 0) > 0 ? (
+            <span className="ct-rating-chip" aria-label={`평균 별점 ${channel.averageRating.toFixed(1)}, 후기 ${channel.reviewCount}건`}>
+              <span aria-hidden="true">★</span>
+              <strong>{channel.averageRating.toFixed(1)}</strong>
+              <span className="muted">({channel.reviewCount})</span>
+            </span>
+          ) : null}
         </div>
         <h3 className="ct-channel-card-title">{channel.name}</h3>
         <p className="ct-channel-card-desc">{channel.description}</p>

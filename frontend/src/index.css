@@ -4637,6 +4637,33 @@ textarea {
   font-weight: 800;
 }
 
+/* PR47 — 공용 별점 chip (EventCard / ChannelCard / EventDetail hero / ChannelDetail hero) */
+.ct-rating-chip {
+  align-items: center;
+  background: var(--c-primary-soft);
+  border-radius: var(--radius-pill);
+  color: var(--c-primary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 4px;
+  padding: 2px 10px;
+}
+
+.ct-rating-chip strong {
+  color: var(--c-primary);
+  font-family: var(--font-en);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ct-rating-chip .muted {
+  color: var(--c-primary);
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
 .ct-review-form {
   background: var(--surface);
   border: 1.5px solid var(--c-primary);

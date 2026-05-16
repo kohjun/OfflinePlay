@@ -41,6 +41,9 @@ export interface Channel {
   createdAt: string
   /** present only on detail responses */
   isSubscribed?: boolean
+  /** PR47 — 채널 내 모든 이벤트 후기 평균. 후기 0건이면 null. */
+  averageRating?: number | null
+  reviewCount?: number
 }
 
 export type EventStatus = 'UPCOMING' | 'ONGOING' | 'CLOSED'

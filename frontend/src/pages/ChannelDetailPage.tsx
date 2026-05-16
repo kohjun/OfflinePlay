@@ -387,6 +387,14 @@ export function ChannelDetailPage({ channelId, onNavigate }: ChannelDetailPagePr
         <div className="ct-channel-hero-body">
           <div className="badge-row">
             <Badge tone="primary">{channel.categoryDisplayName}</Badge>
+            {/* PR47: hero 별점 칩 — 후기 1건 이상일 때만. */}
+            {channel.averageRating != null && (channel.reviewCount ?? 0) > 0 ? (
+              <span className="ct-rating-chip" aria-label={`평균 별점 ${channel.averageRating.toFixed(1)}, 후기 ${channel.reviewCount}건`}>
+                <span aria-hidden="true">★</span>
+                <strong>{channel.averageRating.toFixed(1)}</strong>
+                <span className="muted">({channel.reviewCount})</span>
+              </span>
+            ) : null}
           </div>
           <h1 className="ct-channel-title">{channel.name}</h1>
           <p className="ct-channel-summary">{channel.description}</p>
@@ -399,6 +407,13 @@ export function ChannelDetailPage({ channelId, onNavigate }: ChannelDetailPagePr
               <span>운영자</span>
               <strong>{channel.ownerNickname}</strong>
             </div>
+            {/* 후기 수가 양수면 통계 그리드에도 노출 — 0건은 hero 칩과 동일하게 숨김. */}
+            {(channel.reviewCount ?? 0) > 0 ? (
+              <div>
+                <span>후기</span>
+                <strong>{channel.reviewCount}</strong>
+              </div>
+            ) : null}
           </div>
           <button
             type="button"

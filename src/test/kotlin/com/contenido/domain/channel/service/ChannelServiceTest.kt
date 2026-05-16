@@ -34,6 +34,7 @@ class ChannelServiceTest {
     @MockK lateinit var channelMemberRepository: ChannelMemberRepository
     @MockK lateinit var channelSubscriptionRepository: ChannelSubscriptionRepository
     @MockK lateinit var userRepository: UserRepository
+    @MockK lateinit var reviewRepository: com.contenido.domain.review.repository.ReviewRepository
     @MockK lateinit var publisher: ApplicationEventPublisher
 
     private lateinit var channelService: ChannelService
@@ -45,12 +46,17 @@ class ChannelServiceTest {
             channelMemberRepository = channelMemberRepository,
             channelSubscriptionRepository = channelSubscriptionRepository,
             userRepository = userRepository,
+            reviewRepository = reviewRepository,
             publisher = publisher,
         )
         every { publisher.publishEvent(any<ChannelSyncEvent>()) } just Runs
         // Owner-as-member 라인이 항상 한 번씩 실행되므로 기본 동작을 미리 stub.
         every { channelMemberRepository.existsByChannelAndUser(any(), any()) } returns false
         every { channelMemberRepository.save(any()) } answers { firstArg() }
+        // PR47: 채널 응답이 항상 rating 을 조회한다. 후기 0건 기본 stub.
+        every { reviewRepository.averageRatingByChannelId(any()) } returns null
+        every { reviewRepository.countByChannelId(any()) } returns 0L
+        every { reviewRepository.aggregateByChannelIds(any()) } returns emptyList()
     }
 
     // ── createChannel ─────────────────────────────────────────────────────────
@@ -163,6 +169,37 @@ class ChannelServiceTest {
         channelService.unsubscribe(2L, 1L)
 
         assertThat(channel.subscriberCount).isEqualTo(0L)
+    }
+
+    // ── PR47: getChannel detail 에 averageRating + reviewCount ───────────────
+
+    @Test
+    fun `getChannel 단건 detail 에 averageRating + reviewCount 가 채워진다`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 5L, owner = owner)
+
+        every { channelRepository.findById(5L) } returns Optional.of(channel)
+        every { reviewRepository.averageRatingByChannelId(5L) } returns 4.2
+        every { reviewRepository.countByChannelId(5L) } returns 12L
+
+        val detail = channelService.getChannel(channelId = 5L, userId = null)
+
+        assertThat(detail.averageRating).isEqualTo(4.2)
+        assertThat(detail.reviewCount).isEqualTo(12L)
+    }
+
+    @Test
+    fun `getChannel 후기 0건이면 averageRating=null + reviewCount=0`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 6L, owner = owner)
+
+        every { channelRepository.findById(6L) } returns Optional.of(channel)
+        // 기본 stub 그대로 — averageRatingByChannelId=null / countByChannelId=0
+
+        val detail = channelService.getChannel(channelId = 6L, userId = null)
+
+        assertThat(detail.averageRating).isNull()
+        assertThat(detail.reviewCount).isZero()
     }
 
     // ── fixtures ──────────────────────────────────────────────────────────────

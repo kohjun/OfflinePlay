@@ -71,6 +71,14 @@ export function EventCard({ event, onOpen }: EventCardProps) {
         <div className="badge-row">
           <Badge tone="neutral">{event.channelName}</Badge>
           {event.contentType ? <Badge tone="primary">{CONTENT_TYPE_LABEL[event.contentType]}</Badge> : null}
+          {/* PR47: 후기 1건 이상일 때만 칩 노출. 0건이면 조용히 숨김. */}
+          {event.averageRating != null && (event.reviewCount ?? 0) > 0 ? (
+            <span className="ct-rating-chip" aria-label={`평균 별점 ${event.averageRating.toFixed(1)}, 후기 ${event.reviewCount}건`}>
+              <span aria-hidden="true">★</span>
+              <strong>{event.averageRating.toFixed(1)}</strong>
+              <span className="muted">({event.reviewCount})</span>
+            </span>
+          ) : null}
         </div>
         <h3 className="ct-event-card-title">{event.title}</h3>
         <p className="event-card-desc">{event.description}</p>
