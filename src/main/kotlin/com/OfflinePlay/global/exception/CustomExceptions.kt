@@ -376,3 +376,8 @@ class AuditLogArchiveStaleException : ContENIDOException(
 class ArchivedModerationAuditLogNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "아카이브된 감사 로그를 찾을 수 없습니다."
 )
+
+/** PR70 — scheduler cron 표현식 형식 오류. CronExpression.parse 실패 시. */
+class InvalidSchedulerCronException(message: String) : ContENIDOException(
+    HttpStatus.BAD_REQUEST, message,
+)

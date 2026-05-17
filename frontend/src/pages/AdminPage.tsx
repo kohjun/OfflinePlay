@@ -284,9 +284,11 @@ export function AdminPage() {
   const [archivePreviewLoading, setArchivePreviewLoading] = useState(false)
   const [archiveExecuting, setArchiveExecuting] = useState(false)
   const [archiveConfirmText, setArchiveConfirmText] = useState('')
-  // PR68 — archive scheduler 토글. 기본 OFF. cron 은 표시 only (다음 부팅 후 반영).
+  // PR68 — archive scheduler 토글. 기본 OFF.
+  // PR70 — cron 변경이 즉시 runtime 에 반영 + cronDraft 로 입력 → 저장 분리.
   const [schedulerSettings, setSchedulerSettings] = useState<AuditLogRetentionScheduler | null>(null)
   const [schedulerSaving, setSchedulerSaving] = useState(false)
+  const [schedulerCronDraft, setSchedulerCronDraft] = useState('')
   // PR60 — 자동 hide 임계치. ADMIN 이 운영 지표를 본 뒤 직접 조정.
   const [thresholds, setThresholds] = useState<ModerationThreshold[]>([])
   // 입력 중간 상태 — 빈 문자열도 허용해 typing UX 유지. submit 시 number 변환 + 1..100 검증.
@@ -329,6 +331,7 @@ export function AdminPage() {
         setRetentionDraft(String(retentionRes.retentionDays))
         setArchivePreview(archivePreviewRes)
         setSchedulerSettings(schedulerRes)
+        setSchedulerCronDraft(schedulerRes.cron)
         setThresholdDraft({
           REVIEW: String(thresholdsRes.find((t) => t.targetType === 'REVIEW')?.threshold ?? ''),
           COMMENT: String(thresholdsRes.find((t) => t.targetType === 'COMMENT')?.threshold ?? ''),
@@ -781,20 +784,21 @@ export function AdminPage() {
     }
   }
 
-  // PR68 — scheduler enabled 토글. cron 은 기본값을 유지 (display only). updatedBy 는 backend
-  // 가 호출 admin 으로 박는다. 성공 시 화면의 settings 상태 갱신 + 토스트.
+  // PR68 — scheduler enabled 토글. updatedBy 는 backend 가 호출 admin 으로 박는다.
+  // PR70 — cron / enabled 변경이 commit 직후 runtime 에 즉시 반영. 토스트 카피도 "즉시" 로.
   async function handleSchedulerToggle(nextEnabled: boolean) {
     if (schedulerSaving) return
     setSchedulerSaving(true)
     try {
       const updated = await updateAuditLogRetentionScheduler({ enabled: nextEnabled })
       setSchedulerSettings(updated)
+      setSchedulerCronDraft(updated.cron)
       showToast({
         title: nextEnabled
           ? '아카이브 스케줄러를 켰어요'
           : '아카이브 스케줄러를 껐어요',
         message: nextEnabled
-          ? `매일 ${updated.cron} 시간대에 자동으로 archive 합니다 (다음 부팅 후 cron 변경 반영).`
+          ? `매일 ${updated.cron} 시간대에 자동 archive 가 실행됩니다 (스케줄이 즉시 반영되었어요).`
           : '자동 archive 가 멈췄어요. 수동 archive 는 계속 가능합니다.',
         tone: nextEnabled ? 'success' : 'info',
       })
@@ -802,6 +806,50 @@ export function AdminPage() {
       showToast({
         title: '스케줄러 설정에 실패했어요',
         message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSchedulerSaving(false)
+    }
+  }
+
+  // PR70 — cron 만 별도 저장. backend 가 사전 검증 → 잘못된 cron 은 400 + 친절한 메시지로 토스트.
+  // 성공 시 즉시 runtime 에 반영됨을 안내.
+  async function handleSchedulerCronSave() {
+    if (schedulerSaving) return
+    const trimmed = schedulerCronDraft.trim()
+    if (trimmed === '') {
+      showToast({
+        title: 'cron 표현식을 입력해 주세요',
+        message: '예: "0 30 3 * * *" (매일 새벽 3시 30분).',
+        tone: 'warning',
+      })
+      return
+    }
+    if (schedulerSettings && trimmed === schedulerSettings.cron) {
+      showToast({
+        title: '바뀐 값이 없어요',
+        message: '현재 cron 과 동일합니다.',
+        tone: 'info',
+      })
+      return
+    }
+    setSchedulerSaving(true)
+    try {
+      const updated = await updateAuditLogRetentionScheduler({ cron: trimmed })
+      setSchedulerSettings(updated)
+      setSchedulerCronDraft(updated.cron)
+      showToast({
+        title: 'cron 을 저장했어요',
+        message: `이제부터 "${updated.cron}" 로 동작합니다 (스케줄이 즉시 반영되었어요).`,
+        tone: 'success',
+      })
+    } catch (error) {
+      showToast({
+        title: 'cron 저장에 실패했어요',
+        message: error instanceof Error
+          ? error.message
+          : 'cron 표현식 형식을 확인해 주세요 (예: 0 30 3 * * *).',
         tone: 'danger',
       })
     } finally {
@@ -1724,12 +1772,13 @@ export function AdminPage() {
               </div>
             </div>
           ) : null}
-          {/* PR68 — archive 스케줄러 toggle. 기본 OFF. cron 은 표시 only (다음 부팅 후 반영). */}
+          {/* PR68 — archive 스케줄러 toggle. 기본 OFF.
+              PR70 — cron 변경이 즉시 runtime 에 반영. runtimeScheduled / lastRescheduledAt 노출. */}
           {schedulerSettings ? (
             <div className="ct-archive-panel" style={{ marginTop: '12px' }}>
               <p className="muted" style={{ marginBottom: '8px' }}>
                 자동 아카이브 스케줄러 — 기본 OFF. 수동 아카이브와 같은 로직을 사용하며,
-                <strong> hard delete 는 발생하지 않습니다.</strong> cron 변경은 다음 부팅 후 반영됩니다.
+                <strong> hard delete 는 발생하지 않습니다.</strong> cron 변경은 저장 즉시 반영됩니다.
               </p>
               <div className="ct-archive-summary">
                 <span>
@@ -1738,7 +1787,18 @@ export function AdminPage() {
                     {schedulerSettings.enabled ? '켜짐 (매일 자동 archive)' : '꺼짐 (수동만)'}
                   </strong>
                 </span>
+                <span className="muted">
+                  runtime:{' '}
+                  <strong>
+                    {schedulerSettings.runtimeScheduled ? '실행 예약됨' : '꺼짐'}
+                  </strong>
+                </span>
                 <span className="muted">cron: {schedulerSettings.cron}</span>
+                {schedulerSettings.lastRescheduledAt ? (
+                  <span className="muted">
+                    마지막 재등록: {new Date(schedulerSettings.lastRescheduledAt).toLocaleString()}
+                  </span>
+                ) : null}
                 {schedulerSettings.updatedBy != null ? (
                   <span className="muted">
                     마지막 변경 ADMIN #{schedulerSettings.updatedBy} ·{' '}
@@ -1748,7 +1808,10 @@ export function AdminPage() {
                   <span className="muted">아직 토글한 ADMIN 이 없어 자동 archive 가 동작하지 않아요.</span>
                 )}
               </div>
-              <div className="admin-actions" style={{ marginTop: '10px' }}>
+              <div
+                className="admin-actions"
+                style={{ marginTop: '10px', flexWrap: 'wrap', gap: '8px' }}
+              >
                 <button
                   type="button"
                   className={`button ${
@@ -1763,6 +1826,38 @@ export function AdminPage() {
                     : schedulerSettings.enabled
                     ? '스케줄러 끄기'
                     : '스케줄러 켜기'}
+                </button>
+              </div>
+              {/* PR70 — cron 직접 편집. 잘못된 식은 backend 에서 400. */}
+              <div
+                className="admin-actions"
+                style={{ marginTop: '10px', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}
+              >
+                <label htmlFor="scheduler-cron-input" className="muted">
+                  cron (Spring 6-field)
+                </label>
+                <input
+                  id="scheduler-cron-input"
+                  type="text"
+                  value={schedulerCronDraft}
+                  onChange={(e) => setSchedulerCronDraft(e.target.value)}
+                  placeholder="0 30 3 * * *"
+                  maxLength={64}
+                  disabled={schedulerSaving}
+                  style={{ minWidth: '200px', flex: '1 1 auto' }}
+                />
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={handleSchedulerCronSave}
+                  disabled={
+                    schedulerSaving ||
+                    schedulerCronDraft.trim() === '' ||
+                    schedulerCronDraft.trim() === schedulerSettings.cron
+                  }
+                  title="cron 저장 (즉시 반영)"
+                >
+                  cron 저장
                 </button>
               </div>
             </div>

@@ -109,15 +109,21 @@ data class ArchivedModerationAuditLogResponse(
 )
 
 /**
- * PR68 — scheduler 현재 설정. 기본 enabled=false, cron `0 30 3 * * *`.
- *  - updatedBy 가 null 이면 한 번도 운영자가 토글하지 않은 상태 — scheduler 가 ON 이어도 archive
- *    실행 시 actor 가 없어 skip + 경고 로그.
+ * PR68 신설, PR69 부터 actor null 이어도 system actor 가 archive 실행. PR70 부터 runtime
+ * scheduling 상태도 함께 노출.
+ *
+ *  - enabled / cron / updatedBy / updatedAt : DB 의 영구 설정.
+ *  - runtimeScheduled : 현재 프로세스에 등록된 schedule future 가 살아 있는지. test profile /
+ *    runner 미등록 환경에서는 항상 false.
+ *  - lastRescheduledAt : 마지막 reschedule 시각. null 이면 아직 한 번도 등록 안 됨.
  */
 data class AuditLogRetentionSchedulerResponse(
     val enabled: Boolean,
     val cron: String,
     val updatedBy: Long?,
     val updatedAt: LocalDateTime,
+    val runtimeScheduled: Boolean = false,
+    val lastRescheduledAt: LocalDateTime? = null,
 )
 
 /**

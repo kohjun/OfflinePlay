@@ -5,21 +5,28 @@ import com.contenido.domain.admin.dto.UpdateAuditLogRetentionSchedulerRequest
 import com.contenido.domain.admin.entity.AuditLogRetentionSchedulerSetting
 import com.contenido.domain.admin.repository.AuditLogRetentionSchedulerSettingRepository
 import com.contenido.domain.user.repository.UserRepository
+import com.contenido.global.exception.InvalidSchedulerCronException
 import com.contenido.global.exception.UserNotFoundException
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.scheduling.support.CronExpression
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.LocalDateTime
 
 /**
  * PR68 — audit log archive scheduler 의 운영 설정 + tick 진입점.
+ * PR69 — system actor 도입 후 "no actor skip" 정책 제거.
+ * PR70 — cron 사전 검증 + DB 저장 commit 직후 runtime schedule 동적 재등록.
  *
  * 정책:
- *  - 단일 row (id=1). seed 가 없는 운영 환경에서도 첫 호출 시 default OFF 로 생성.
- *  - 기본 OFF. ADMIN 이 명시적으로 ON 으로 토글해야 [runIfEnabled] 가 실제 archive 를 실행.
- *  - 실패해도 앱 전체 중단 금지 — logger.warn / error 만 남김 (`@Scheduled` 호출자가 swallowing).
- *  - scheduler 실행은 audit 로 남기지 않는다 (system actor 모델이 없으므로) — application log 에만 기록.
- *    수동 archive 만 [ModerationAuditAction.AUDIT_LOGS_ARCHIVED] 를 audit 에 기록 (PR66).
+ *  - 단일 row (id=1). seed 없으면 default OFF 로 생성.
+ *  - 기본 OFF. ADMIN 이 명시적으로 ON 으로 토글해야 archive 실행.
+ *  - 실패해도 앱 전체 중단 금지 — logger.warn / error 만 남김.
+ *  - PR70: cron 변경 / enable 토글이 즉시 runtime 에 반영. afterCommit hook 으로 DB rollback
+ *    시 runtime 도 동기화되지 않도록 안전.
  */
 @Service
 @Transactional(readOnly = true)
@@ -27,6 +34,11 @@ class AuditLogRetentionSchedulerService(
     private val repository: AuditLogRetentionSchedulerSettingRepository,
     private val moderationAuditLogArchiveService: ModerationAuditLogArchiveService,
     private val userRepository: UserRepository,
+    /**
+     * PR70 — runner 는 `@Profile("!test")` 라 test context 에서는 bean 이 없다. ObjectProvider
+     * 로 받아 ifAvailable 패턴으로 호출 — null 가드 + 회로 단절.
+     */
+    private val schedulerRunnerProvider: ObjectProvider<AuditLogRetentionSchedulerRunner>,
 ) {
 
     companion object {
@@ -36,15 +48,17 @@ class AuditLogRetentionSchedulerService(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    /**
-     * 현재 설정 조회. row 가 없으면 default(OFF, 03:30) 으로 새로 만든다 (V8 seed 누락 안전판).
-     * read-only 트랜잭션이지만 자동 생성 분기는 별도 [@Transactional] 메서드로 분리해 안전.
-     */
     fun getSettings(): AuditLogRetentionSchedulerResponse {
         return loadOrCreate().toResponse()
     }
 
-    /** PR68 — settings 갱신. updatedBy 는 호출 admin. cron 은 형식 깊게 검증하지 않음 (길이만). */
+    /**
+     * settings 갱신. PR70: cron 사전 검증 + commit 후 runner.reschedule.
+     *
+     *  - cron 이 비어 있지 않으면 [CronExpression.parse] 로 형식 검증 — 실패 시 400.
+     *  - DB 저장 후 [TransactionSynchronizationManager] 의 afterCommit 에 runner 호출을 예약 →
+     *    트랜잭션이 rollback 되면 runtime 도 그대로 유지.
+     */
     @Transactional
     fun updateSettings(
         adminUserId: Long,
@@ -52,8 +66,15 @@ class AuditLogRetentionSchedulerService(
     ): AuditLogRetentionSchedulerResponse {
         val admin = userRepository.findById(adminUserId).orElseThrow { UserNotFoundException() }
         val nextCron = request.cron?.trim()?.takeIf { it.isNotEmpty() }
-        require((nextCron?.length ?: 0) <= MAX_CRON_LENGTH) {
-            "cron 표현식이 너무 깁니다 (최대 ${MAX_CRON_LENGTH}자)."
+        if (nextCron != null) {
+            if (nextCron.length > MAX_CRON_LENGTH) {
+                throw InvalidSchedulerCronException(
+                    "cron 표현식이 너무 깁니다 (최대 ${MAX_CRON_LENGTH}자)."
+                )
+            }
+            if (!CronExpression.isValidExpression(nextCron)) {
+                throw InvalidSchedulerCronException("cron 표현식 형식이 잘못됐어요: '$nextCron'.")
+            }
         }
         val current = loadOrCreate()
         current.update(
@@ -62,20 +83,13 @@ class AuditLogRetentionSchedulerService(
             updatedBy = admin,
             at = LocalDateTime.now(),
         )
+        // commit 후 runner 갱신. tx 활성화 안 됐을 때 (테스트 직접 호출 등) 는 즉시 호출.
+        val effectiveEnabled = current.enabled
+        val effectiveCron = current.cron
+        scheduleRuntimeReschedule(effectiveEnabled, effectiveCron)
         return current.toResponse()
     }
 
-    /**
-     * PR68 신설, PR69 에서 system actor 도입 후 "no actor skip" 정책 제거.
-     *
-     * enabled=true 이면 archive 실행. archive 자체의 actor 는 system actor 가 책임지고
-     * (`SystemActorService`), `settings.updatedBy` 는 audit 의 부가 컨텍스트 (scheduledBy) 로
-     * 그대로 전달된다 — null 이어도 archive 는 동작.
-     *
-     * 모든 예외를 swallow 해 다음 tick 영향이 없도록 한다. test profile 에서는
-     * [AuditLogRetentionSchedulerBean] 이 등록되지 않아 본 메서드도 자동 호출되지 않는다 —
-     * 단위 테스트는 이 메서드를 직접 호출.
-     */
     @Transactional
     fun runIfEnabled() {
         val settings = runCatching { loadOrCreate() }.getOrElse {
@@ -114,10 +128,38 @@ class AuditLogRetentionSchedulerService(
         }
     }
 
-    private fun AuditLogRetentionSchedulerSetting.toResponse() = AuditLogRetentionSchedulerResponse(
-        enabled = enabled,
-        cron = cron,
-        updatedBy = updatedBy?.id,
-        updatedAt = updatedAt,
-    )
+    /**
+     * PR70 — afterCommit hook 으로 runner.reschedule 호출 예약. tx 활성화 안 된 호출 경로 (테스트
+     * 직접 호출 등) 에서는 즉시 실행. runner bean 이 등록되지 않은 환경 (test profile) 에서는 no-op.
+     */
+    private fun scheduleRuntimeReschedule(enabled: Boolean, cron: String) {
+        val runner = schedulerRunnerProvider.ifAvailable ?: return
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                object : TransactionSynchronization {
+                    override fun afterCommit() {
+                        runCatching { runner.reschedule(enabled, cron) }.onFailure { ex ->
+                            log.warn("audit-log-retention scheduler: runtime reschedule failed", ex)
+                        }
+                    }
+                },
+            )
+        } else {
+            runCatching { runner.reschedule(enabled, cron) }.onFailure { ex ->
+                log.warn("audit-log-retention scheduler: runtime reschedule failed", ex)
+            }
+        }
+    }
+
+    private fun AuditLogRetentionSchedulerSetting.toResponse(): AuditLogRetentionSchedulerResponse {
+        val runner = schedulerRunnerProvider.ifAvailable
+        return AuditLogRetentionSchedulerResponse(
+            enabled = enabled,
+            cron = cron,
+            updatedBy = updatedBy?.id,
+            updatedAt = updatedAt,
+            runtimeScheduled = runner?.isRuntimeScheduled() ?: false,
+            lastRescheduledAt = runner?.lastRescheduledAt,
+        )
+    }
 }

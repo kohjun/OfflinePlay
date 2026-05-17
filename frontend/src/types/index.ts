@@ -557,12 +557,19 @@ export interface ArchivedModerationAuditLog {
   archivedBy: number
 }
 
-/** PR68 — audit log retention scheduler 현재 설정. 기본 enabled=false. */
+/**
+ * PR68 — audit log retention scheduler 현재 설정. 기본 enabled=false.
+ * PR70 — runtime 등록 상태 (runtimeScheduled / lastRescheduledAt) 추가.
+ *   - runtimeScheduled : 현재 프로세스에 살아있는 schedule future 가 있는지.
+ *   - lastRescheduledAt : 마지막 reschedule 시각 (ISO string). 한 번도 등록 안 되면 null.
+ */
 export interface AuditLogRetentionScheduler {
   enabled: boolean
   cron: string
   updatedBy: number | null
   updatedAt: string
+  runtimeScheduled?: boolean
+  lastRescheduledAt?: string | null
 }
 
 /** PR68 — scheduler 부분 갱신. enabled / cron 둘 다 optional. */
