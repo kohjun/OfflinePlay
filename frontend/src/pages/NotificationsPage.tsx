@@ -19,7 +19,9 @@ import type { NotificationPreference, NotificationType, UserRole } from '../type
 import {
   getNotificationLabel,
   getNotificationTone,
+  NOTIFICATION_PREFERENCE_BUNDLES,
   pathForNotification,
+  type NotificationPreferenceBundleId,
 } from '../utils/notificationMeta'
 
 const STATUS_LABEL: Record<StreamStatus, string> = {
@@ -106,6 +108,48 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
       setSavingTypes((s) => {
         const next = new Set(s)
         next.delete(type)
+        return next
+      })
+    }
+  }
+
+  /**
+   * PR99 — 카테고리/전체 묶음 토글. types 의 enabled 값을 한 번의 PATCH 로 갱신.
+   *  - optimistic: 해당 types 를 모두 nextEnabled 로 표시
+   *  - saving: 해당 types 를 savingTypes 에 추가해 개별 checkbox 와 다른 bundle 버튼도 disabled
+   *  - 실패: 이전 preferences snapshot 으로 rollback + error toast
+   */
+  async function handleBundleToggle(types: readonly NotificationType[], nextEnabled: boolean) {
+    if (types.length === 0) return
+    const prev = preferences
+    if (!prev) return
+    // 진행 중인 type 이 하나라도 있으면 무시 (bundle 끼리 충돌 방지).
+    if (types.some((t) => savingTypes.has(t))) return
+
+    const wanted = new Set(types)
+    setPreferences(prev.map((p) => (wanted.has(p.type) ? { ...p, enabled: nextEnabled } : p)))
+    setSavingTypes((s) => {
+      const next = new Set(s)
+      types.forEach((t) => next.add(t))
+      return next
+    })
+    try {
+      const saved = await updateNotificationPreferences({
+        preferences: types.map((t) => ({ type: t, enabled: nextEnabled })),
+      })
+      setPreferences(saved)
+      showToast({ title: '알림 수신 설정을 저장했어요', tone: 'success' })
+    } catch (error) {
+      setPreferences(prev)
+      showToast({
+        title: '설정 저장에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSavingTypes((s) => {
+        const next = new Set(s)
+        types.forEach((t) => next.delete(t))
         return next
       })
     }
@@ -264,28 +308,82 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
               </button>
             </div>
           ) : preferences ? (
-            <ul className="notification-preferences__list">
-              {preferences.map((pref) => {
-                const id = `notif-pref-${pref.type}`
-                const label = getNotificationLabel(pref.type)
-                const saving = savingTypes.has(pref.type)
+            <>
+              {(() => {
+                // PR99 — 묶음 토글 영역. 각 bundle 의 현재 상태에 따라 "끄기" vs "켜기" 라벨 분기.
+                // 모든 type 이 enabled=true 면 "끄기" 버튼, 하나라도 false 면 "켜기" 버튼.
+                const prefByType = new Map(preferences.map((p) => [p.type, p.enabled] as const))
+                const allTypes: NotificationType[] = preferences.map((p) => p.type)
+                const allEnabled = preferences.every((p) => p.enabled)
+                const allSaving = allTypes.length > 0 && allTypes.every((t) => savingTypes.has(t))
                 return (
-                  <li key={pref.type} className="notification-preferences__item">
-                    <label htmlFor={id} className="notification-preferences__label">
-                      <span>{label}</span>
-                      <input
-                        id={id}
-                        type="checkbox"
-                        checked={pref.enabled}
-                        disabled={saving}
-                        aria-busy={saving}
-                        onChange={(e) => handleTogglePreference(pref.type, e.target.checked)}
-                      />
-                    </label>
-                  </li>
+                  <section
+                    className="notification-preferences__bundles"
+                    aria-label="알림 묶음 토글"
+                  >
+                    <div className="notification-preferences__bundle-row">
+                      <strong>전체 알림</strong>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        disabled={allSaving}
+                        aria-busy={allSaving}
+                        onClick={() => handleBundleToggle(allTypes, !allEnabled)}
+                      >
+                        {allEnabled ? '전체 끄기' : '전체 켜기'}
+                      </button>
+                    </div>
+                    {NOTIFICATION_PREFERENCE_BUNDLES.map((bundle) => {
+                      const types = bundle.types
+                      const bundleEnabled = types.every((t) => prefByType.get(t) ?? true)
+                      const bundleSaving = types.some((t) => savingTypes.has(t))
+                      const id: NotificationPreferenceBundleId = bundle.id
+                      return (
+                        <div key={id} className="notification-preferences__bundle-row">
+                          <div className="notification-preferences__bundle-label">
+                            <strong>{bundle.label}</strong>
+                            {bundle.description ? (
+                              <span className="muted">{bundle.description}</span>
+                            ) : null}
+                          </div>
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            disabled={bundleSaving}
+                            aria-busy={bundleSaving}
+                            onClick={() => handleBundleToggle(types, !bundleEnabled)}
+                          >
+                            {bundleEnabled ? `${bundle.label} 끄기` : `${bundle.label} 켜기`}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </section>
                 )
-              })}
-            </ul>
+              })()}
+              <ul className="notification-preferences__list">
+                {preferences.map((pref) => {
+                  const id = `notif-pref-${pref.type}`
+                  const label = getNotificationLabel(pref.type)
+                  const saving = savingTypes.has(pref.type)
+                  return (
+                    <li key={pref.type} className="notification-preferences__item">
+                      <label htmlFor={id} className="notification-preferences__label">
+                        <span>{label}</span>
+                        <input
+                          id={id}
+                          type="checkbox"
+                          checked={pref.enabled}
+                          disabled={saving}
+                          aria-busy={saving}
+                          onChange={(e) => handleTogglePreference(pref.type, e.target.checked)}
+                        />
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            </>
           ) : null}
         </section>
       ) : null}

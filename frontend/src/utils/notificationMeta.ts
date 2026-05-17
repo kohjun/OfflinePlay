@@ -116,6 +116,78 @@ export function getNotificationTone(type: string): NotificationTone {
 }
 
 /**
+ * PR99 — 알림 설정 패널의 카테고리 묶음 토글 정의.
+ *
+ *  - `all` 은 별도 bundle 로 보지 않고 호출처가 모든 NotificationType 을 직접 사용 (모든 type 의
+ *    합집합이라 한 곳에서 계산하기 쉽다 — UI 의 "전체 켜기/끄기" 가 이를 활용).
+ *  - 나머지 5 bundle 은 NotificationType 을 빠짐없이 분할(partition) — 한 type 이 두 bundle 에
+ *    동시에 속하지 않는다. 새 enum 이 추가되면 이 정의도 함께 갱신해 모든 type 이 최소 하나의
+ *    bundle 에 속하도록 유지한다.
+ *  - 컨벤션: bundle 이 "끄기" 면 해당 type 들을 enabled=false 로 PATCH, "켜기" 면 enabled=true.
+ */
+export type NotificationPreferenceBundleId = 'participation' | 'payment' | 'content' | 'moderation' | 'system'
+
+interface NotificationPreferenceBundle {
+  id: NotificationPreferenceBundleId
+  label: string
+  /** 토글 버튼에 노출할 짧은 설명 (선택). UI 가 사용. */
+  description?: string
+  types: readonly NotificationType[]
+}
+
+export const NOTIFICATION_PREFERENCE_BUNDLES: readonly NotificationPreferenceBundle[] = [
+  {
+    id: 'participation',
+    label: '참가 관련',
+    description: '신청 / 승인 / 거절 / 취소 / 티켓 발급·체크인',
+    types: [
+      'PARTICIPATION_REQUESTED',
+      'PARTICIPATION_APPROVED',
+      'PARTICIPATION_REJECTED',
+      'PARTICIPATION_CANCELED',
+      'TICKET_ISSUED',
+      'TICKET_CHECKED_IN',
+    ],
+  },
+  {
+    id: 'payment',
+    label: '결제 관련',
+    description: '환불 완료 같은 결제 흐름 알림',
+    types: ['REFUND_COMPLETED'],
+  },
+  {
+    id: 'content',
+    label: '콘텐츠 관련',
+    description: '구독 채널의 새 이벤트 / 새 글 / 댓글 / 좋아요',
+    types: ['NEW_EVENT', 'NEW_POST', 'NEW_COMMENT', 'NEW_LIKE'],
+  },
+  {
+    id: 'moderation',
+    label: '운영 알림',
+    description: '운영자가 내 채널을 제재했을 때',
+    types: ['CHANNEL_BANNED'],
+  },
+  {
+    id: 'system',
+    label: '시스템 알림',
+    description: '크리에이터 신청 결과 / 채널 제재 해제',
+    types: ['APPLICATION_APPROVED', 'APPLICATION_REJECTED', 'CHANNEL_UNBANNED'],
+  },
+] as const
+
+export function getNotificationPreferenceBundleTypes(
+  bundleId: NotificationPreferenceBundleId,
+): readonly NotificationType[] {
+  return NOTIFICATION_PREFERENCE_BUNDLES.find((b) => b.id === bundleId)?.types ?? []
+}
+
+export function getNotificationPreferenceBundleLabel(
+  bundleId: NotificationPreferenceBundleId,
+): string {
+  return NOTIFICATION_PREFERENCE_BUNDLES.find((b) => b.id === bundleId)?.label ?? bundleId
+}
+
+/**
  * PR97 — 알림 → 라우팅 규칙 단일 정의. 모르는 (type, targetType) 조합은 null 반환 → 호출처가
  * "읽음 처리만" 으로 폴백.
  *

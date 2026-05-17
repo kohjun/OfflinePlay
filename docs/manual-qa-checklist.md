@@ -425,6 +425,30 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 사용자가 알림 종류별로 ON/OFF 를 즉시 토글할 수 있고, OFF 한 알림은 발송 단계에서 차단된다. 실패 시에는 UI 가 이전 상태로 안전하게 복귀한다.
 
+### 20a. 알림 묶음 토글 (PR99)
+**목적**: NotificationsPage 알림 설정 패널의 "전체 / 카테고리별" 묶음 토글이 PR95 의 PATCH 엔드포인트를 한 번의 호출로 묶어 처리하고, 개별 체크박스 상태와 일관성을 유지하는지 확인.
+
+**사전 조건**: 일반 사용자 계정 1명. 알림 설정 패널을 열어 둔 상태.
+
+- [ ] 🖱 패널 상단에 묶음 영역 노출 — "전체 알림" + 참가/결제/콘텐츠/운영/시스템 5 카테고리 행, 각 행 우측에 "끄기/켜기" 버튼
+- [ ] 🖱 초기 상태(모두 ON)에서 "전체 끄기" 클릭 → 모든 체크박스가 즉시 unchecked + 한 번의 PATCH 요청 발생 + success toast
+- [ ] 🖱 이어서 "전체 켜기" 클릭 → 모든 체크박스가 즉시 checked + 한 번의 PATCH 발생
+- [ ] 🖱 "참가 관련 끄기" 클릭 → `PARTICIPATION_*` (4) + `TICKET_*` (2) 만 OFF 로 토글, 다른 카테고리는 영향 없음
+- [ ] 🖱 "결제 관련 끄기" → `REFUND_COMPLETED` 한 type 만 OFF
+- [ ] 🖱 "콘텐츠 관련 끄기" → `NEW_EVENT` / `NEW_POST` / `NEW_COMMENT` / `NEW_LIKE` 4개만 OFF
+- [ ] 🖱 "운영 알림 끄기" → `CHANNEL_BANNED` 한 type만 OFF
+- [ ] 🖱 "시스템 알림 끄기" → `APPLICATION_APPROVED` / `APPLICATION_REJECTED` / `CHANNEL_UNBANNED` 3개만 OFF
+- [ ] 🖱 카테고리 안의 type 을 개별 체크박스로 하나만 OFF → 해당 카테고리 버튼 라벨이 "{카테고리명} 끄기" 에서 "{카테고리명} 켜기" 로 자동 전환 (every-true → false)
+- [ ] 🖱 같은 카테고리의 모든 type 을 개별 체크박스로 모두 ON 으로 복귀 → 버튼 라벨이 다시 "끄기" 로 전환
+- [ ] 🖱 진행 중인 묶음 PATCH 가 끝나기 전 같은 카테고리 버튼 또는 그 안의 개별 체크박스 클릭 → saving 가드로 무시 (`aria-busy="true"` / `disabled`)
+- [ ] 🖱 PATCH 실패 (devtools 로 차단) → 묶음 토글 직전 snapshot 으로 rollback (해당 카테고리 type 들만 복원) + danger toast
+- [ ] 📋 묶음 PATCH 요청의 payload `preferences` 배열에 해당 카테고리 type 만 포함, 다른 카테고리 type 은 포함되지 않음 (devtools Network 탭)
+- [ ] 📋 "전체 끄기" 클릭 시 payload 가 15 개 NotificationType 전체에 대해 `{ type, enabled: false }` 를 포함
+- [ ] 📋 backend `user_notification_preferences` 테이블에서 카테고리 묶음 PATCH 결과가 row 단위로 정확히 반영 (개별 PATCH 와 같은 결과)
+- [ ] 📋 PR95 fail-open 정책 유지: 묶음 PATCH 실패 시에도 알림 발송 흐름은 그대로 동작 (rollback 후 기존 row 기준)
+
+**기대 결과**: 사용자가 한 번의 클릭으로 카테고리 단위 알림을 켜고 끌 수 있고, 개별 체크박스 상태와 묶음 버튼 라벨이 항상 일치한다. 실패 시 묶음 단위로 깨끗하게 복원된다.
+
 ### 21. 알림 메타데이터 일관성 (PR97)
 **목적**: NotificationType 별 라벨/tone/라우팅이 NotificationsPage 알림 카드와 알림 설정 패널에서 일치하고, 모든 enum 값에 정의가 있는지 확인.
 

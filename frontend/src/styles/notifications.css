@@ -210,3 +210,32 @@
   flex-wrap: wrap;
 }
 
+/* PR99 — 묶음 토글 영역. 패널 상단 list 위에 컴팩트한 행으로 배치. */
+.notification-preferences__bundles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed var(--border);
+}
+.notification-preferences__bundle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+}
+.notification-preferences__bundle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+}
+.notification-preferences__bundle-label .muted {
+  font-size: 12px;
+}
+.notification-preferences__bundle-row .button {
+  flex: 0 0 auto;
+}
+
