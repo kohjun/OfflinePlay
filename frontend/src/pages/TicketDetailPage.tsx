@@ -4,6 +4,7 @@ import { refundTicket } from '../api/payments'
 import { Badge } from '../components/Badge'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
+import { useCoalescedRefresh } from '../hooks/useCoalescedRefresh'
 import { useToast } from '../hooks/useToast'
 import { notificationStore } from '../stores/notificationStore'
 import type { TicketDetail, TicketStatus } from '../types'
@@ -125,14 +126,16 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
     }
   }, [ticketId])
 
-  // SSE 로 TICKET_CHECKED_IN 같은 이 티켓 관련 알림이 오면 자동 새로고침.
+  // SSE 로 TICKET_CHECKED_IN / REFUND_COMPLETED 같은 이 티켓 관련 알림이 오면 자동 새로고침.
+  // 짧은 시간에 다수가 도착해도 refetch 는 한 번으로 묶는다 (PR92).
+  const { scheduleRefresh: scheduleTicketRefresh } = useCoalescedRefresh(refreshTicket)
   useEffect(() => {
     return notificationStore.onIncoming((n) => {
       if (n.targetType === 'tickets' && n.targetId === ticketId) {
-        refreshTicket()
+        scheduleTicketRefresh(n.type)
       }
     })
-  }, [ticketId, refreshTicket])
+  }, [ticketId, scheduleTicketRefresh])
 
   function handleBack() {
     if (typeof window !== 'undefined' && window.history.length > 1) {

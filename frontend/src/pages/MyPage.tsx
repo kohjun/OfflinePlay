@@ -6,6 +6,7 @@ import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { notificationStore } from '../stores/notificationStore'
+import { useCoalescedRefresh } from '../hooks/useCoalescedRefresh'
 import type {
   EventParticipationStatus,
   MyParticipationItem,
@@ -309,7 +310,9 @@ export function MyPage({ onNavigate }: MyPageProps) {
     }
   }, [])
 
-  // SSE 알림 수신 시 내 신청/티켓 목록을 새로고침.
+  // SSE 알림 수신 시 내 신청/티켓 목록을 새로고침. 짧은 시간에 여러 알림이 도착해도
+  // (예: 승인 → 티켓 발급) refetch 는 한 번으로 묶는다 (PR92).
+  const { scheduleRefresh: scheduleListRefresh } = useCoalescedRefresh(loadItems)
   useEffect(() => {
     const relevant = new Set([
       'PARTICIPATION_APPROVED',
@@ -320,13 +323,9 @@ export function MyPage({ onNavigate }: MyPageProps) {
       'REFUND_COMPLETED',
     ])
     return notificationStore.onIncoming((n) => {
-      if (relevant.has(n.type)) {
-        loadItems().catch(() => {
-          /* non-fatal */
-        })
-      }
+      if (relevant.has(n.type)) scheduleListRefresh(n.type)
     })
-  }, [loadItems])
+  }, [scheduleListRefresh])
 
   useEffect(() => {
     let alive = true

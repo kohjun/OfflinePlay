@@ -8,6 +8,7 @@ import {
 } from '../../../api/events'
 import { getEventCheckIns, type EventCheckInSummary } from '../../../api/tickets'
 import { useAuth } from '../../../hooks/useAuth'
+import { useCoalescedRefresh } from '../../../hooks/useCoalescedRefresh'
 import { useToast } from '../../../hooks/useToast'
 import { notificationStore } from '../../../stores/notificationStore'
 import type {
@@ -187,8 +188,21 @@ export function useEventDetailData({
 
   // SSE 알림이 짧은 시간에 여러 번 와도 refetch 는 한 번만. 300ms 디바운스로 묶는다.
   // (예: 승인 → 티켓 발급이 백엔드에서 거의 동시에 두 알림으로 도달하는 케이스)
-  const refreshTimerRef = useRef<number | null>(null)
+  //
+  // PR92 — 타이머/cleanup 메커니즘은 [useCoalescedRefresh] 에 위임하고, "어느 필드를 refetch
+  // 할지" 의 flag 병합은 본 hook 만의 정책이라 ref 로 유지한다.
   const refreshFlagsRef = useRef({ event: false, my: false, applicants: false, checkIn: false })
+
+  const { scheduleRefresh: flushPendingRefresh } = useCoalescedRefresh(
+    useCallback(() => {
+      const f = refreshFlagsRef.current
+      refreshFlagsRef.current = { event: false, my: false, applicants: false, checkIn: false }
+      if (f.event) refreshEvent()
+      if (f.my) refreshMyParticipation()
+      if (f.applicants) refreshApplicants()
+      if (f.checkIn) refreshCheckInSummary()
+    }, [refreshApplicants, refreshCheckInSummary, refreshEvent, refreshMyParticipation]),
+  )
 
   const scheduleRefresh = useCallback(
     (flags: Partial<{ event: boolean; my: boolean; applicants: boolean; checkIn: boolean }>) => {
@@ -196,29 +210,10 @@ export function useEventDetailData({
       if (flags.my) refreshFlagsRef.current.my = true
       if (flags.applicants) refreshFlagsRef.current.applicants = true
       if (flags.checkIn) refreshFlagsRef.current.checkIn = true
-      if (refreshTimerRef.current != null) return
-      refreshTimerRef.current = window.setTimeout(() => {
-        refreshTimerRef.current = null
-        const f = refreshFlagsRef.current
-        refreshFlagsRef.current = { event: false, my: false, applicants: false, checkIn: false }
-        if (f.event) refreshEvent()
-        if (f.my) refreshMyParticipation()
-        if (f.applicants) refreshApplicants()
-        if (f.checkIn) refreshCheckInSummary()
-      }, 300)
+      flushPendingRefresh('event-detail')
     },
-    [refreshApplicants, refreshCheckInSummary, refreshEvent, refreshMyParticipation],
+    [flushPendingRefresh],
   )
-
-  // 언마운트 시 펜딩 타이머 정리.
-  useEffect(() => {
-    return () => {
-      if (refreshTimerRef.current != null) {
-        window.clearTimeout(refreshTimerRef.current)
-        refreshTimerRef.current = null
-      }
-    }
-  }, [])
 
   // SSE 알림 수신 시 이 이벤트에 관련된 데이터만 refetch (이벤트 본문 포함 — 정원/상태 변화 반영).
   useEffect(() => {

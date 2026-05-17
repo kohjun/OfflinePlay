@@ -4,6 +4,7 @@ import { getCreatorHiddenContent, getCreatorStudio } from '../api/creator'
 import { createReportAppeal } from '../api/reportAppeals'
 import { Badge } from '../components/Badge'
 import { useAuth } from '../hooks/useAuth'
+import { useCoalescedRefresh } from '../hooks/useCoalescedRefresh'
 import { useToast } from '../hooks/useToast'
 import { notificationStore } from '../stores/notificationStore'
 import type {
@@ -178,6 +179,8 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
   // 참가 신청/취소/티켓 발급 알림이 오면 studio 를 다시 받아와 summary tile 의
   // pendingApplicants / approvedParticipants 카운트를 즉시 반영. 이벤트별로 따로
   // 받지 않고 묶음 갱신 — 대시보드는 본인 채널 전체 합계라 부분 patch 가 의미 없다.
+  // 짧은 시간에 묶음 알림(요청 → 승인 → 티켓) 이 도착해도 한 번의 refetch 로 합친다 (PR92).
+  const { scheduleRefresh: scheduleStudioRefresh } = useCoalescedRefresh(refreshStudio)
   useEffect(() => {
     if (role !== 'CREATOR' && role !== 'ADMIN') return
     const RELEVANT = new Set([
@@ -189,9 +192,9 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
       'TICKET_CHECKED_IN',
     ])
     return notificationStore.onIncoming((n) => {
-      if (RELEVANT.has(n.type)) refreshStudio()
+      if (RELEVANT.has(n.type)) scheduleStudioRefresh(n.type)
     })
-  }, [role])
+  }, [role, scheduleStudioRefresh])
 
   async function handleCreateChannel(event: FormEvent) {
     event.preventDefault()

@@ -338,6 +338,18 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] CANCELED 티켓 진입 → VOID 스탬프 + "취소됨" 뱃지 + 환불 요청 버튼 미노출
 - [ ] 알림에서 진입했을 때도 같은 화면 (별도 hidden/404 분기 X)
 
+### 17a. 알림 묶음 refetch 코얼레싱 (PR92)
+**목적**: 승인 → 티켓 발급처럼 같은 동작이 짧은 시간에 두 알림으로 도착해도 화면 refetch 가 한 번으로 묶이는지 확인.
+
+**사전 조건**: EventDetailPage / MyPage / TicketDetailPage / CreatorDashboardPage 에 진입 가능한 계정. devtools Network 탭으로 동일 API 의 동시 호출 수를 셀 수 있어야 함.
+
+- [ ] EventDetailPage 에서 같은 이벤트에 대해 다른 시크릿창이 신청 후 owner 가 즉시 승인 → SSE 로 두 알림이 거의 동시에 도착. devtools Network 에 `/events/{id}` GET 이 한 번만 발생 (PR89 이전엔 두 번)
+- [ ] MyPage 진입 중 같은 시간대에 PARTICIPATION_APPROVED + TICKET_ISSUED 가 도착 → `getMyParticipations` 호출이 한 번만 발생
+- [ ] CreatorDashboardPage 에서 PARTICIPATION_REQUESTED + PARTICIPATION_APPROVED 가 묶음으로 도착 → `getCreatorStudio` 호출이 한 번만 발생
+- [ ] TicketDetailPage 에서 동일 ticketId 의 TICKET_CHECKED_IN 알림이 빠르게 두 번 (devtools 등으로 강제) → `getTicket` 호출이 한 번만 발생
+- [ ] 펜딩 refresh 가 있는 상태에서 페이지를 이탈 → 타이머 cleanup 으로 unmount 후 추가 fetch 발생 안 함 (devtools Network 패널 확인)
+- [ ] 알림 UI(뱃지/카운트/리스트) 동작은 변경 없음 — 카드 수 / unread 카운트 / 뱃지 색이 PR91 시점과 동일
+
 ### 17. EventDetail 남은 자리 라이브 강조 (PR91)
 **목적**: 정원/잔여 자리 변화가 SSE refetch 로 들어왔을 때, 사용자가 변화한 사실을 즉시 알아챌 수 있게 한다.
 
