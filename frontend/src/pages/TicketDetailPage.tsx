@@ -175,15 +175,30 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
       })
     } catch (err) {
       const status = (err as { status?: number } | null)?.status
-      const msg = err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.'
-      // 409 는 시간 가드 / USED / 이미 환불 등 도메인 거부 — 백엔드 메시지가 사용자 친화적.
-      const title =
-        status === 403
-          ? '환불 권한이 없습니다'
-          : status === 409
-            ? '환불할 수 없어요'
-            : '환불 처리에 실패했어요'
-      showToast({ title, message: msg, tone: 'danger' })
+      const rawMsg = err instanceof Error ? err.message : ''
+      // 백엔드 한국어 메시지를 prefix 매칭해 친화적 title/안내 카피로 치환.
+      // - RefundDeadlinePassedException : "이벤트가 이미 시작되어 환불할 수 없습니다."
+      // - PaymentNotRefundableException  : "취소된 티켓..", "PG 결제 키..", "PAID 상태인.." 등
+      // - TicketAlreadyRefundedException : "이미 환불 처리된 티켓입니다."
+      let title: string
+      let message: string
+      if (status === 403) {
+        title = '환불 권한이 없습니다'
+        message = rawMsg || '본인 또는 관리자만 환불할 수 있어요.'
+      } else if (status === 409 && rawMsg.includes('이벤트가 이미 시작')) {
+        title = '환불 가능 시간이 지났어요'
+        message = '환불은 이벤트 시작 전까지만 가능해요. 부득이한 사정은 운영자에게 문의해주세요.'
+      } else if (status === 409 && (rawMsg.includes('이미 환불') || rawMsg.includes('취소된 티켓'))) {
+        title = '환불할 수 없어요'
+        message = '이미 환불되었거나 환불할 수 없는 결제입니다.'
+      } else if (status === 409) {
+        title = '환불할 수 없어요'
+        message = rawMsg || '현재 상태에서는 환불할 수 없어요.'
+      } else {
+        title = '환불 처리에 실패했어요'
+        message = rawMsg ? `${rawMsg} 잠시 후 다시 시도해주세요.` : '잠시 후 다시 시도해주세요.'
+      }
+      showToast({ title, message, tone: 'danger' })
     } finally {
       setRefunding(false)
     }
@@ -415,19 +430,26 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
           이벤트 상세 보기
         </button>
         {canRefund ? (
-          <button
-            type="button"
-            className="button button-secondary is-block"
-            onClick={handleRefund}
-            disabled={refunding}
-            aria-busy={refunding}
-          >
-            {refunding ? <span className="button-spinner" aria-hidden="true" /> : null}
-            {refunding ? '환불 처리 중...' : '환불 요청'}
-          </button>
+          <>
+            <button
+              type="button"
+              className="button button-secondary is-block"
+              onClick={handleRefund}
+              disabled={refunding}
+              aria-busy={refunding}
+            >
+              {refunding ? <span className="button-spinner" aria-hidden="true" /> : null}
+              {refunding ? '환불 처리 중...' : '환불 요청'}
+            </button>
+            {hoursToStart != null && hoursToStart < 24 ? (
+              <p className="ct-ticket-refund-closed muted" role="status">
+                곧 환불 마감이에요. 이벤트 시작 후엔 환불할 수 없으니 서둘러주세요.
+              </p>
+            ) : null}
+          </>
         ) : !isStaffViewer && isUsable && ticket.participationFee > 0 ? (
           <p className="ct-ticket-refund-closed muted" role="status">
-            이벤트가 시작되어 환불 가능 시간이 지났어요.
+            이벤트가 시작되어 환불 가능 시간이 지났어요. 부득이한 사정은 운영자에게 문의해주세요.
           </p>
         ) : null}
       </section>

@@ -174,10 +174,23 @@ interface ParticipationCardProps {
 function ParticipationCard({ item, onOpen, onOpenTicket }: ParticipationCardProps) {
   const isApproved = item.status === 'APPROVED'
   const initial = item.eventTitle.slice(0, 1).toUpperCase()
+  // 환불/취소된 티켓이 있으면 "티켓 보기" 버튼은 숨기지만(아래) 카드 자체엔 결제 내역을 노출.
   const hasTicket = isApproved && item.ticketId != null
+  // PR77 — 티켓이 REFUNDED/CANCELED 면 "참가 확정" 뱃지가 오해를 일으키므로 ticket 상태로 덮어쓴다.
+  const isTerminalTicket =
+    item.ticketStatus === 'REFUNDED' || item.ticketStatus === 'CANCELED'
+  const statusTone = isTerminalTicket
+    ? item.ticketStatus === 'REFUNDED'
+      ? 'danger'
+      : 'neutral'
+    : STATUS_TONE[item.status]
+  const statusLabel = isTerminalTicket
+    ? TICKET_STATUS_LABEL[item.ticketStatus as 'REFUNDED' | 'CANCELED']
+    : STATUS_LABEL[item.status]
+  const canViewTicket = hasTicket && !isTerminalTicket
 
   return (
-    <div className={`ct-my-app-card ${isApproved ? 'is-approved' : ''}`}>
+    <div className={`ct-my-app-card ${isApproved && !isTerminalTicket ? 'is-approved' : ''}`}>
       <button
         type="button"
         className="ct-my-app-card-main"
@@ -198,7 +211,7 @@ function ParticipationCard({ item, onOpen, onOpenTicket }: ParticipationCardProp
         <div className="ct-my-app-card-body">
           <div className="ct-my-app-card-tags">
             <Badge tone="neutral">{item.channelName}</Badge>
-            <Badge tone={STATUS_TONE[item.status]}>{STATUS_LABEL[item.status]}</Badge>
+            <Badge tone={statusTone}>{statusLabel}</Badge>
           </div>
           <strong className="ct-my-app-card-title">{item.eventTitle}</strong>
           <ul className="ct-my-app-card-meta">
@@ -248,13 +261,21 @@ function ParticipationCard({ item, onOpen, onOpenTicket }: ParticipationCardProp
           ) : null}
         </div>
       </button>
-      {hasTicket ? (
+      {canViewTicket ? (
         <button
           type="button"
           className="button button-primary ct-my-app-card-ticket-btn"
           onClick={() => onOpenTicket(item.ticketId as number)}
         >
           티켓 보기
+        </button>
+      ) : hasTicket ? (
+        <button
+          type="button"
+          className="button button-secondary ct-my-app-card-ticket-btn"
+          onClick={() => onOpenTicket(item.ticketId as number)}
+        >
+          영수증 보기
         </button>
       ) : null}
     </div>

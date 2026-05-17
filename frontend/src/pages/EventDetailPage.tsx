@@ -687,7 +687,9 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
             ) : null}
             {status === 'APPROVED' &&
             new Date(event.startAt).getTime() > Date.now() &&
-            participation?.ticketStatus !== 'USED' ? (
+            participation?.ticketStatus !== 'USED' &&
+            participation?.ticketStatus !== 'REFUNDED' &&
+            participation?.ticketStatus !== 'CANCELED' ? (
               event.participationFee > 0 ? (
                 <span className="muted">취소·환불은 티켓 페이지에서 진행해주세요</span>
               ) : (
