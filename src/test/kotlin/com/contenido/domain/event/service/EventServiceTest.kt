@@ -822,6 +822,60 @@ class EventServiceTest {
         assertThat(event.currentParticipants).isEqualTo(1)
     }
 
+    // ── cancelMyApplication paid 가드 (PR76) ─────────────────────────────────
+
+    @Test
+    fun `cancelMyApplication 유료 APPROVED 는 PaidParticipationCancelRequiresRefundException 으로 거부되고 상태 변화 없음`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val participant = createUser(id = 2L)
+        val event = createEvent(
+            id = 1L,
+            channel = createChannel(id = 1L, owner = owner),
+            currentParticipants = 5,
+            participationFee = 5000L,
+        )
+        val approved = createParticipation(
+            id = 50L, event = event, participant = participant, status = ParticipationStatus.APPROVED,
+        )
+        val ticket = createTicket(id = 555L, event = event, buyer = participant, status = TicketStatus.PAID)
+
+        every { userRepository.findById(2L) } returns Optional.of(participant)
+        every { eventRepository.findById(1L) } returns Optional.of(event)
+        every { eventParticipationRepository.findByEventAndParticipant(event, participant) } returns Optional.of(approved)
+
+        assertThrows<PaidParticipationCancelRequiresRefundException> { eventService.cancelMyApplication(2L, 1L) }
+
+        // ticket / participation / 정원 / 알림 모두 변화 없음 (가드가 가장 먼저 throw).
+        assertThat(approved.status).isEqualTo(ParticipationStatus.APPROVED)
+        assertThat(event.currentParticipants).isEqualTo(5)
+        assertThat(ticket.status).isEqualTo(TicketStatus.PAID)
+        verify(exactly = 0) { ticketRepository.findByBuyerAndEventIdIn(any(), any()) }
+        verify(exactly = 0) { notificationService.notify(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `cancelMyApplication 유료 PENDING 은 결제 전이므로 기존대로 취소 허용`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val participant = createUser(id = 2L)
+        val event = createEvent(
+            id = 1L,
+            channel = createChannel(id = 1L, owner = owner),
+            participationFee = 5000L,
+        )
+        val pending = createParticipation(
+            id = 50L, event = event, participant = participant, status = ParticipationStatus.PENDING,
+        )
+
+        every { userRepository.findById(2L) } returns Optional.of(participant)
+        every { eventRepository.findById(1L) } returns Optional.of(event)
+        every { eventParticipationRepository.findByEventAndParticipant(event, participant) } returns Optional.of(pending)
+
+        val result = eventService.cancelMyApplication(2L, 1L)
+
+        assertThat(result.status).isEqualTo(ParticipationStatus.CANCELED)
+        assertThat(pending.status).isEqualTo(ParticipationStatus.CANCELED)
+    }
+
     // ── approveParticipation ──────────────────────────────────────────────────
 
     @Test
@@ -1303,6 +1357,7 @@ class EventServiceTest {
             maxParticipants: Int = 10,
             currentParticipants: Int = 0,
             status: EventStatus = EventStatus.UPCOMING,
+            participationFee: Long = 0L,
         ): Event {
             val event = Event(
                 channel = channel,
@@ -1313,7 +1368,7 @@ class EventServiceTest {
                 startAt = LocalDateTime.now().plusDays(1),
                 endAt = LocalDateTime.now().plusDays(2),
                 maxParticipants = maxParticipants,
-                participationFee = 0L,
+                participationFee = participationFee,
                 refundPolicy = "전액 환불",
                 detailContent = "Test Detail",
                 status = status,

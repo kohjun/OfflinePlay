@@ -310,6 +310,18 @@ class TicketAlreadyRefundedException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 환불 처리된 티켓입니다."
 )
 
+/**
+ * PR76 — 유료 이벤트의 APPROVED 참가자가 cancelMyApplication 으로 직접 취소를 시도.
+ *
+ * 정책: cancelMyApplication 은 PG 환불을 트리거하지 않고 ticket.cancel() 만 수행한다.
+ * 그대로 두면 PAID 티켓이 CANCELED 로 잠겨 이후 환불 endpoint 가 PaymentNotRefundableException
+ * 으로 거부 — 결과적으로 유료 결제만 돌려받지 못한다. 따라서 유료 APPROVED 는 cancel 자체를
+ * 막고 사용자가 ticket refund endpoint 로 가도록 유도한다.
+ */
+class PaidParticipationCancelRequiresRefundException : ContENIDOException(
+    HttpStatus.CONFLICT, "유료 이벤트는 티켓 환불 요청으로 취소해주세요."
+)
+
 class PaymentNotRefundableException(detail: String = "현재 상태에서는 환불할 수 없습니다.") :
     ContENIDOException(HttpStatus.CONFLICT, detail)
 

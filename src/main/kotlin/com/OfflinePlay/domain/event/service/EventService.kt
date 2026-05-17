@@ -235,10 +235,14 @@ class EventService(
      * 참가자 본인이 신청을 취소.
      *
      *  - PENDING : 즉시 CANCELED 로 전환 (정원/티켓 영향 없음).
-     *  - APPROVED: 이벤트 시작 전이고 티켓이 USED 가 아닐 때만 허용.
+     *  - APPROVED (무료): 이벤트 시작 전이고 티켓이 USED 가 아닐 때만 허용.
      *    - CANCELED 전환 + Event.currentParticipants 감소
      *    - 연결된 PAID 티켓이 있으면 CANCELED 로 전환
      *    - 채널 owner + STAFF 에게 PARTICIPATION_CANCELED 알림 (best-effort, ADMIN 제외)
+     *  - APPROVED (유료): [PaidParticipationCancelRequiresRefundException].
+     *    cancelMyApplication 은 PG 환불을 트리거하지 않으므로, 유료 결제는 ticket refund
+     *    endpoint 로만 취소·환불해야 한다. 그대로 취소를 허용하면 티켓이 CANCELED 로 잠겨
+     *    이후 환불이 PaymentNotRefundableException 으로 거부된다 (= 결제만 못 돌려받음).
      *  - REJECTED/CANCELED: [ParticipationNotPendingException] (이미 종료된 상태).
      */
     @Transactional
@@ -254,6 +258,9 @@ class EventService(
                 p.cancel()
             }
             ParticipationStatus.APPROVED -> {
+                if (event.participationFee > 0L) {
+                    throw PaidParticipationCancelRequiresRefundException()
+                }
                 if (!event.startAt.isAfter(LocalDateTime.now())) {
                     throw EventAlreadyStartedException()
                 }
