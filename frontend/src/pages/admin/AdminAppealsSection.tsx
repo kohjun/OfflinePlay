@@ -8,7 +8,7 @@ import type { ReportAppeal, ReportTargetType } from '../../types'
 const TARGET_TYPE_LABEL: Record<ReportTargetType, string> = {
   REVIEW: '후기',
   COMMENT: '댓글',
-  POST: '공지',
+  POST: '게시글',
   EVENT: '이벤트',
   CHANNEL: '채널',
 }
@@ -17,12 +17,17 @@ export function AdminAppealsSection() {
   const { user } = useAuth()
   const { showToast } = useToast()
   const [appeals, setAppeals] = useState<ReportAppeal[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
+    setLoading(true)
+    setError(null)
     getAdminReportAppeals({ size: 20, status: 'PENDING' })
       .then((page) => setAppeals(page.content))
-      .catch(() => {})
+      .catch((err) => setError(err instanceof Error ? err.message : '불러오지 못했어요.'))
+      .finally(() => setLoading(false))
   }, [user?.role])
 
   async function handleApproveAppeal(id: number) {
@@ -31,10 +36,10 @@ export function AdminAppealsSection() {
       setAppeals((items) => items.filter((item) => item.id !== id))
       showToast({ title: '숨김을 해제했어요', tone: 'success' })
       void updated
-    } catch (error) {
+    } catch (err) {
       showToast({
         title: '이의 제기 승인에 실패했어요',
-        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
         tone: 'danger',
       })
     }
@@ -47,10 +52,10 @@ export function AdminAppealsSection() {
       await rejectReportAppeal(id, { rejectReason: rejectReason || null })
       setAppeals((items) => items.filter((item) => item.id !== id))
       showToast({ title: '이의 제기를 거절했어요', tone: 'success' })
-    } catch (error) {
+    } catch (err) {
       showToast({
         title: '이의 제기 거절에 실패했어요',
-        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
         tone: 'danger',
       })
     }
@@ -62,7 +67,11 @@ export function AdminAppealsSection() {
         <h2>이의 제기 큐</h2>
       </div>
       <div className="stack">
-        {appeals.length === 0 ? (
+        {loading ? (
+          <p className="muted" aria-live="polite">불러오는 중…</p>
+        ) : error ? (
+          <p className="muted" role="alert">불러오기 실패: {error}</p>
+        ) : appeals.length === 0 ? (
           <p className="muted">처리 대기 중인 이의 제기가 없어요.</p>
         ) : (
           appeals.map((appeal) => (

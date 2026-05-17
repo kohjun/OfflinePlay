@@ -101,6 +101,7 @@ export function AdminModerationOverviewSection() {
     CHANNEL: '',
   })
   const [thresholdSaving, setThresholdSaving] = useState(false)
+  const [initialLoading, setInitialLoading] = useState(true)
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
@@ -124,6 +125,7 @@ export function AdminModerationOverviewSection() {
           tone: 'danger',
         })
       })
+      .finally(() => setInitialLoading(false))
   }, [showToast, user?.role])
 
   async function refreshQueue() {
@@ -316,6 +318,10 @@ export function AdminModerationOverviewSection() {
         tone: 'danger',
       })
     }
+  }
+
+  if (initialLoading) {
+    return <p className="muted" style={{ padding: '16px' }} aria-live="polite">불러오는 중…</p>
   }
 
   return (

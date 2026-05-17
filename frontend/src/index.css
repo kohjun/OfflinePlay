@@ -1098,6 +1098,11 @@ textarea {
   white-space: nowrap;
 }
 
+.ct-report-target-preview {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 /* PR62 — 감사 로그 필터 폼. 모바일 420 에서 한 줄 안 들어가면 wrap. */
 .ct-audit-filters {
   display: grid;

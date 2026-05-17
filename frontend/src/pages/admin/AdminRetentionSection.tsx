@@ -187,7 +187,9 @@ export function AdminRetentionSection() {
     }
   }
 
-  if (!retentionPolicy) return null
+  if (!retentionPolicy) {
+    return <p className="muted" style={{ padding: '16px' }} aria-live="polite">불러오는 중…</p>
+  }
 
   return (
     <section className="section">

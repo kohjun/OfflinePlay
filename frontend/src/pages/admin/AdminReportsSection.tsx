@@ -35,14 +35,19 @@ export function AdminReportsSection() {
   const { showToast } = useToast()
   const [reports, setReports] = useState<Report[]>([])
   const [reportFilter, setReportFilter] = useState<ReportFilter>('ALL')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
+    setLoading(true)
+    setError(null)
     const params: Parameters<typeof getReports>[0] =
       reportFilter === 'ALL' ? { size: 20 } : { size: 20, targetType: reportFilter }
     getReports(params)
       .then((page) => setReports(page.content))
-      .catch(() => {})
+      .catch((err) => setError(err instanceof Error ? err.message : '불러오지 못했어요.'))
+      .finally(() => setLoading(false))
   }, [reportFilter, user?.role])
 
   async function handleManualHide(targetType: ReportTargetType, targetId: number) {
@@ -134,7 +139,11 @@ export function AdminReportsSection() {
         ))}
       </div>
       <div className="stack">
-        {reports.length === 0 ? (
+        {loading ? (
+          <p className="muted" aria-live="polite">불러오는 중…</p>
+        ) : error ? (
+          <p className="muted" role="alert">불러오기 실패: {error}</p>
+        ) : reports.length === 0 ? (
           <p className="muted">처리 대기 중인 신고가 없어요.</p>
         ) : (
           reports.map((report) => (

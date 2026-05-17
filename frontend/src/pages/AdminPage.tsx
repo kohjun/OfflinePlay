@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { approveCreatorApplication, getAdminChannels, getCreatorApplications, rejectCreatorApplication } from '../api/admin'
 import { Badge } from '../components/Badge'
 import { useAuth } from '../hooks/useAuth'
@@ -35,12 +35,34 @@ export function AdminPage() {
   const [mountedTabs, setMountedTabs] = useState<Set<AdminTab>>(() => new Set([readTabFromUrl()]))
   const [applications, setApplications] = useState<CreatorApplication[]>([])
   const [channels, setChannels] = useState<Channel[]>([])
+  const isFirstRender = useRef(true)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     params.set('tab', activeTab)
-    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+    const url = `${window.location.pathname}?${params.toString()}`
+    if (isFirstRender.current) {
+      window.history.replaceState({ tab: activeTab }, '', url)
+      isFirstRender.current = false
+    } else {
+      window.history.pushState({ tab: activeTab }, '', url)
+    }
   }, [activeTab])
+
+  useEffect(() => {
+    function handlePopState() {
+      const tab = readTabFromUrl()
+      setActiveTab(tab)
+      setMountedTabs((prev) => {
+        if (prev.has(tab)) return prev
+        const next = new Set(prev)
+        next.add(tab)
+        return next
+      })
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
 
   function handleTabChange(tab: AdminTab) {
     setActiveTab(tab)
@@ -108,9 +130,11 @@ export function AdminPage() {
         {ALL_TABS.map((tab) => (
           <button
             key={tab}
+            id={`admin-tab-${tab}`}
             type="button"
             role="tab"
             aria-selected={activeTab === tab}
+            aria-controls={`admin-panel-${tab}`}
             className={`chip${activeTab === tab ? ' is-active' : ''}`}
             onClick={() => handleTabChange(tab)}
           >
@@ -120,31 +144,31 @@ export function AdminPage() {
       </div>
 
       {mountedTabs.has('overview') ? (
-        <div style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
+        <div id="admin-panel-overview" role="tabpanel" aria-labelledby="admin-tab-overview" style={{ display: activeTab === 'overview' ? undefined : 'none' }}>
           <AdminModerationOverviewSection />
         </div>
       ) : null}
 
       {mountedTabs.has('reports') ? (
-        <div style={{ display: activeTab === 'reports' ? undefined : 'none' }}>
+        <div id="admin-panel-reports" role="tabpanel" aria-labelledby="admin-tab-reports" style={{ display: activeTab === 'reports' ? undefined : 'none' }}>
           <AdminReportsSection />
         </div>
       ) : null}
 
       {mountedTabs.has('appeals') ? (
-        <div style={{ display: activeTab === 'appeals' ? undefined : 'none' }}>
+        <div id="admin-panel-appeals" role="tabpanel" aria-labelledby="admin-tab-appeals" style={{ display: activeTab === 'appeals' ? undefined : 'none' }}>
           <AdminAppealsSection />
         </div>
       ) : null}
 
       {mountedTabs.has('audit') ? (
-        <div style={{ display: activeTab === 'audit' ? undefined : 'none' }}>
+        <div id="admin-panel-audit" role="tabpanel" aria-labelledby="admin-tab-audit" style={{ display: activeTab === 'audit' ? undefined : 'none' }}>
           <AdminAuditLogsSection />
         </div>
       ) : null}
 
       {mountedTabs.has('retention') ? (
-        <div style={{ display: activeTab === 'retention' ? undefined : 'none' }}>
+        <div id="admin-panel-retention" role="tabpanel" aria-labelledby="admin-tab-retention" style={{ display: activeTab === 'retention' ? undefined : 'none' }}>
           <AdminRetentionSection />
         </div>
       ) : null}
