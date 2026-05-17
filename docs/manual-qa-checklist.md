@@ -283,6 +283,32 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 **Backend 멱등 / 가드 회귀**
 - [ ] `.\gradlew.bat test` green (특히 PaymentService refund 관련)
 
+### 15. 결제·환불·재신청 정합성 (PR76 / PR78 / PR79)
+
+사전 조건: 유료 이벤트 1건 (시작 시각 24h+ 후, 정원 여유), 본인 계정으로 로그인.
+
+**Backend 가드 (PR76 — paid APPROVED cancel 차단)**
+- [ ] `PATCH /events/{id}/participations/me/cancel` 을 paid APPROVED 상태에서 직접 호출 → 409 `PaidParticipationCancelRequiresRefundException`
+- [ ] 응답 메시지: "유료 이벤트는 티켓 환불 요청으로 취소해주세요."
+- [ ] ticket / participation / currentParticipants 상태 변화 없음 (guard 가 가장 먼저 throw)
+- [ ] 무료 APPROVED 는 기존대로 동작 (참가 취소 + 정원 -1 + 무료 티켓 CANCELED)
+- [ ] paid PENDING 은 결제 전이므로 기존대로 취소 허용
+
+**환불 cascade (PR78)**
+- [ ] paid + APPROVED 사용자가 TicketDetail 환불 → ticket REFUNDED + participation CANCELED + currentParticipants -1
+- [ ] MyPage 결제 탭에서 status 뱃지 "환불됨" + "영수증 보기" 버튼
+- [ ] EventDetail 진입 → sticky CTA 가 "참가 신청하기" 또는 "다시 신청하기" 로 복귀 (티켓 보기 미노출)
+- [ ] 이미 REFUNDED 인 ticket 에 (devtools 등으로) 환불 재호출 → backend 멱등 응답, currentParticipants 변화 없음
+- [ ] 이미 CANCELED 인 participation 에 환불이 들어오면 정원 추가 감소 없음 (PR78 wasActive 가드)
+
+**재신청 (PR79)**
+- [ ] 환불로 participation 이 CANCELED 가 된 사용자 → EventDetail "다시 신청하기" CTA 활성
+- [ ] 유료 이벤트: CTA → `/events/{id}/payment` 진입 → 새 PaymentAttempt(또는 기존 READY 멱등 응답) → 정상 결제
+- [ ] 무료 이벤트: CTA → applyEvent → PENDING (재신청도 owner 에게 알림 1회)
+- [ ] 이미 PENDING / APPROVED 인 상태에서 재신청 → 409 `AlreadyJoinedException`
+- [ ] REJECTED 사용자도 재신청 가능 (reapply 시 rejectReason 초기화)
+- [ ] 정원이 다 찼다면 reapply 시 EventFullException (정상)
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결
