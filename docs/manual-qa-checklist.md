@@ -449,6 +449,31 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 사용자가 한 번의 클릭으로 카테고리 단위 알림을 켜고 끌 수 있고, 개별 체크박스 상태와 묶음 버튼 라벨이 항상 일치한다. 실패 시 묶음 단위로 깨끗하게 복원된다.
 
+### 20b. 알림 카드 Quick Mute + Undo (PR101)
+**목적**: NotificationsPage 알림 카드의 "이 유형 끄기" 버튼이 해당 NotificationType 1건만 OFF 로 PATCH 하고, 5초 안에 되돌릴 수 있으며, 알림 설정 패널과 상태가 동기화되는지 확인.
+
+**사전 조건**: 일반 사용자 계정 1명 + 같은 사용자에게 알림을 발생시킬 수 있는 다른 계정. 알림이 한 건 이상 있는 상태.
+
+- [ ] 🖱 알림 카드 우측 상단에 "이 유형 끄기" 작은 버튼이 노출
+- [ ] 🖱 알림 본문(카드 내부) 클릭 시 기존 라우팅 동작 그대로 유지 (mute 버튼 클릭이 라우팅으로 번지지 않음)
+- [ ] 🖱 mute 버튼 클릭 → 단일 PATCH 발생, "{라벨} 알림을 껐어요" success toast, 화면 상단에 undo banner 5초 표시
+- [ ] 🖱 5초 안에 undo banner 의 "되돌리기" 클릭 → 같은 type 을 enabled=true 로 PATCH, "{라벨} 알림을 다시 켰어요" success toast, banner 즉시 사라짐
+- [ ] 🖱 5초 지나면 undo banner 가 자동으로 사라짐 (만료) — 이후 같은 type 의 알림 카드에는 "꺼짐" 배지만 표시
+- [ ] 🖱 같은 type 의 다른 알림 카드 mute 버튼을 연속으로 클릭 → 첫 PATCH 진행 중에는 버튼 disabled + `aria-busy="true"`
+- [ ] 🖱 서로 다른 type 을 빠르게 mute → undo banner 가 마지막 mute 한 type 으로 교체됨 (5초 카운트도 그 시점부터 재시작)
+- [ ] 🖱 알림 설정 패널을 한 번도 열지 않은 상태에서 mute → PATCH 성공, 이후 패널을 열면 backend 에서 최신 상태로 fetch (해당 type 이 OFF 인 채로 표시)
+- [ ] 🖱 알림 설정 패널이 열려 있는 상태에서 mute → 패널의 체크박스가 즉시 unchecked 로 동기화
+- [ ] 🖱 같은 상황에서 undo → 체크박스가 즉시 checked 로 복귀
+- [ ] 🖱 이미 enabled=false 인 type 의 알림 카드 → "이 유형 끄기" 버튼 대신 "꺼짐" 배지 노출, 액션 없음
+- [ ] 🖱 mute PATCH 실패 (devtools 로 network 차단) → preferences snapshot rollback, danger toast, undo banner 안 뜸
+- [ ] 🖱 undo PATCH 실패 → preferences snapshot rollback, danger toast
+- [ ] 📋 mute PATCH payload `preferences` 배열에 해당 type 1건만 포함, 다른 type 미포함 (devtools Network)
+- [ ] 📋 undo PATCH payload `[{ type: <같은 type>, enabled: true }]` 만 포함
+- [ ] 📋 notification row 자체 / isRead 상태 / 라우팅(`pathForNotification`) 동작은 변경 없음 (회귀 가드)
+- [ ] 📋 페이지 이탈 시 펜딩 undo 타이머가 cleanup 됨 (unmount 후 추가 setTimeout fire X)
+
+**기대 결과**: 사용자가 알림 목록에서 한 번의 클릭으로 특정 유형 알림을 끌 수 있고, 실수했을 때 5초 안에 되돌릴 수 있다. 알림 설정 패널과 상태가 항상 일치한다.
+
 ### 21. 알림 메타데이터 일관성 (PR97)
 **목적**: NotificationType 별 라벨/tone/라우팅이 NotificationsPage 알림 카드와 알림 설정 패널에서 일치하고, 모든 enum 값에 정의가 있는지 확인.
 

@@ -57,6 +57,27 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
   const [prefsLoading, setPrefsLoading] = useState(false)
   const [prefsError, setPrefsError] = useState(false)
   const [savingTypes, setSavingTypes] = useState<Set<NotificationType>>(() => new Set())
+  // PR101 — quick mute (카드의 "이 유형 끄기") 중 type 들 + 5초 undo banner state.
+  const [quickMuting, setQuickMuting] = useState<Set<NotificationType>>(() => new Set())
+  const [undoMute, setUndoMute] = useState<{ type: NotificationType; label: string } | null>(null)
+  const undoTimerRef = useRef<number | null>(null)
+
+  // 컴포넌트 unmount 시 펜딩 undo 타이머 정리.
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current != null) {
+        window.clearTimeout(undoTimerRef.current)
+        undoTimerRef.current = null
+      }
+    }
+  }, [])
+
+  function clearUndoTimer() {
+    if (undoTimerRef.current != null) {
+      window.clearTimeout(undoTimerRef.current)
+      undoTimerRef.current = null
+    }
+  }
 
   const loadPreferences = useCallback(() => {
     setPrefsLoading(true)
@@ -150,6 +171,100 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
       setSavingTypes((s) => {
         const next = new Set(s)
         types.forEach((t) => next.delete(t))
+        return next
+      })
+    }
+  }
+
+  /**
+   * PR101 — 알림 카드의 "이 유형 끄기" quick mute.
+   *
+   *  - 해당 type 한 건만 enabled=false 로 PATCH.
+   *  - preferences 가 이미 로드돼 있으면 (패널 열려 있던 적 있음) state 동기화 — 패널의
+   *    체크박스가 즉시 false 로 반영된다. 로드 안 됐으면 그대로 둔다 (다음에 패널을 열면
+   *    backend 에서 최신 상태로 fetch).
+   *  - 성공 시 5초 undo banner 를 띄움. 이미 다른 undo 가 떠 있으면 새 type 으로 교체.
+   *  - 실패 시 preferences snapshot rollback + error toast.
+   */
+  async function handleQuickMute(type: NotificationType, label: string) {
+    if (quickMuting.has(type)) return
+    const prevPrefs = preferences
+    if (prevPrefs) {
+      setPreferences(prevPrefs.map((p) => (p.type === type ? { ...p, enabled: false } : p)))
+    }
+    setQuickMuting((s) => {
+      const next = new Set(s)
+      next.add(type)
+      return next
+    })
+    try {
+      const saved = await updateNotificationPreferences({
+        preferences: [{ type, enabled: false }],
+      })
+      // 패널이 한 번이라도 열렸어서 preferences 가 로드된 상태라면 최신 응답으로 동기화.
+      // 한 번도 안 열렸으면 다음에 열 때 fresh fetch 되므로 그대로 둔다.
+      if (prevPrefs) setPreferences(saved)
+      showToast({ title: `${label} 알림을 껐어요`, tone: 'success' })
+      // undo banner 띄우기. 기존 펜딩이 있으면 교체.
+      clearUndoTimer()
+      setUndoMute({ type, label })
+      undoTimerRef.current = window.setTimeout(() => {
+        undoTimerRef.current = null
+        setUndoMute((curr) => (curr?.type === type ? null : curr))
+      }, 5000)
+    } catch (error) {
+      if (prevPrefs) setPreferences(prevPrefs)
+      showToast({
+        title: '설정 저장에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setQuickMuting((s) => {
+        const next = new Set(s)
+        next.delete(type)
+        return next
+      })
+    }
+  }
+
+  /**
+   * PR101 — undo banner 의 "다시 켜기" 액션. 같은 type 을 enabled=true 로 PATCH.
+   *  - undo banner 는 즉시 사라지고, 진행 중 가드는 quickMuting 재사용.
+   *  - preferences 가 로드돼 있으면 true 로 동기화. 안 됐으면 그대로.
+   */
+  async function handleUndoMute() {
+    const current = undoMute
+    if (!current) return
+    if (quickMuting.has(current.type)) return
+    clearUndoTimer()
+    setUndoMute(null)
+    const prevPrefs = preferences
+    if (prevPrefs) {
+      setPreferences(prevPrefs.map((p) => (p.type === current.type ? { ...p, enabled: true } : p)))
+    }
+    setQuickMuting((s) => {
+      const next = new Set(s)
+      next.add(current.type)
+      return next
+    })
+    try {
+      const saved = await updateNotificationPreferences({
+        preferences: [{ type: current.type, enabled: true }],
+      })
+      if (prevPrefs) setPreferences(saved)
+      showToast({ title: `${current.label} 알림을 다시 켰어요`, tone: 'success' })
+    } catch (error) {
+      if (prevPrefs) setPreferences(prevPrefs)
+      showToast({
+        title: '되돌리기에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setQuickMuting((s) => {
+        const next = new Set(s)
+        next.delete(current.type)
         return next
       })
     }
@@ -407,34 +522,69 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
         </div>
       ) : (
         <>
+          {undoMute ? (
+            <div className="notification-undo" role="status" aria-live="polite">
+              <span>{undoMute.label} 알림을 껐어요. 실수였다면 5초 안에 되돌릴 수 있어요.</span>
+              <button
+                type="button"
+                className="button button-tertiary notification-undo__action"
+                onClick={handleUndoMute}
+                disabled={quickMuting.has(undoMute.type)}
+                aria-busy={quickMuting.has(undoMute.type)}
+              >
+                되돌리기
+              </button>
+            </div>
+          ) : null}
           <section className="stack">
             {items.map((item) => {
               const typeLabel = getNotificationLabel(item.type)
               const typeTone = getNotificationTone(item.type)
               const navigable = pathForNotification(item.targetType, item.targetId, item.type, user?.role) !== null
+              // PR101 — preferences 가 로드된 상태에서 해당 type 이 이미 false 면 "꺼짐" 표시.
+              // 로드 안 됐으면(null) "이 유형 끄기" 버튼을 보이고 클릭 시 바로 PATCH.
+              const itemType = item.type as NotificationType
+              const muted =
+                preferences != null && preferences.some((p) => p.type === itemType && !p.enabled)
+              const muting = quickMuting.has(itemType)
               return (
-                <button
-                  key={item.id}
-                  className={`notification-item ${item.isRead ? '' : 'is-unread'}${navigable ? ' is-navigable' : ''}`}
-                  onClick={() => handleClick(item.id, item.targetType, item.targetId, item.type, item.isRead)}
-                  type="button"
-                  aria-label={navigable ? `${item.title} — 자세히 보기` : item.title}
-                >
-                  <div>
-                    <div className="card-heading-row">
-                      <strong>{item.title}</strong>
-                      {!item.isRead ? <Badge tone="primary">New</Badge> : null}
+                <div key={item.id} className="notification-row">
+                  <button
+                    className={`notification-item ${item.isRead ? '' : 'is-unread'}${navigable ? ' is-navigable' : ''}`}
+                    onClick={() => handleClick(item.id, item.targetType, item.targetId, item.type, item.isRead)}
+                    type="button"
+                    aria-label={navigable ? `${item.title} — 자세히 보기` : item.title}
+                  >
+                    <div>
+                      <div className="card-heading-row">
+                        <strong>{item.title}</strong>
+                        {!item.isRead ? <Badge tone="primary">New</Badge> : null}
+                      </div>
+                      <div className="notification-type-row">
+                        <Badge tone={typeTone}>{typeLabel}</Badge>
+                        {navigable ? (
+                          <span className="notification-cta-hint" aria-hidden="true">자세히 →</span>
+                        ) : null}
+                      </div>
+                      <p>{item.message}</p>
+                      <span className="muted">{new Date(item.createdAt).toLocaleString()}</span>
                     </div>
-                    <div className="notification-type-row">
-                      <Badge tone={typeTone}>{typeLabel}</Badge>
-                      {navigable ? (
-                        <span className="notification-cta-hint" aria-hidden="true">자세히 →</span>
-                      ) : null}
-                    </div>
-                    <p>{item.message}</p>
-                    <span className="muted">{new Date(item.createdAt).toLocaleString()}</span>
-                  </div>
-                </button>
+                  </button>
+                  {muted ? (
+                    <span className="notification-mute notification-mute--off" aria-label={`${typeLabel} 알림 꺼짐`}>꺼짐</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="notification-mute button button-tertiary"
+                      onClick={() => handleQuickMute(itemType, typeLabel)}
+                      disabled={muting}
+                      aria-busy={muting}
+                      aria-label={`${typeLabel} 알림 끄기`}
+                    >
+                      {muting ? '처리 중…' : '이 유형 끄기'}
+                    </button>
+                  )}
+                </div>
               )
             })}
           </section>

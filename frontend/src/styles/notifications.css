@@ -239,3 +239,40 @@
   flex: 0 0 auto;
 }
 
+/* PR101 — 카드 quick mute + undo banner. */
+.notification-row {
+  position: relative;
+}
+.notification-mute {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill, 999px);
+  line-height: 1.2;
+}
+.notification-mute--off {
+  background: var(--surface-2, var(--c-surface-2));
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+}
+.notification-undo {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  background: var(--c-primary-soft);
+  color: var(--c-text);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.notification-undo__action {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
