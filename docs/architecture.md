@@ -272,7 +272,7 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 알림 카드 클릭 → §5.5 라우팅 + `markRead` 호출. 카드 라벨/뱃지 tone/라우팅 규칙은 §6.6 의 단일 모듈에서 가져온다.
 
-### 6.4 Preferences — DB · API (PR95)
+### 6.4 Preferences — DB · API (PR95 + PR104)
 
 사용자가 NotificationType 별로 알림 수신을 켜고 끌 수 있게 하는 영속 설정.
 
@@ -288,10 +288,21 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 | 메서드/경로 | 책임 |
 |---|---|
-| `GET /api/v1/notifications/preferences` | 모든 `NotificationType` 에 대한 응답 (row 없는 type 은 enabled=true 채워서 반환) |
+| `GET /api/v1/notifications/preferences` | 모든 `NotificationType` 에 대한 응답 (row 없는 type 은 enabled=true 채워서 반환). PR104: row 있는 type 은 `updatedAt` 동봉. |
 | `PATCH /api/v1/notifications/preferences` | 부분 갱신. request 에 없는 type 은 기존 값 유지. 같은 type 중복이 한 요청에 들어오면 **마지막 값** 채택 (단순화). 응답은 갱신 후의 전체 preference 목록. |
 
 요청 페이로드: `{ preferences: [{ type: NotificationType, enabled: boolean }, ...] }`.
+
+응답 페이로드: `[{ type, enabled, updatedAt? }, ...]`. `updatedAt` 정책 (PR104):
+
+| 케이스 | 응답 `updatedAt` |
+|---|---|
+| DB row 가 있는 type | `row.updatedAt` (ISO LocalDateTime) |
+| DB row 가 없는 type (한 번도 설정한 적 없음) | `null` |
+| PATCH 직후 응답 — 변경된 type | `update()` 가 `LocalDateTime.now()` 로 in-place 갱신한 시각. 같은 트랜잭션 안에서 다시 읽어도 갱신 값이 보인다. |
+| PATCH 직후 응답 — request 에 없는 type | 그대로 유지 (entity 자체를 건드리지 않음) |
+
+> **주의**: `updatedAt` 은 "마지막 row 변경 시각" 만 보여주는 lightweight signal 이다. **변경 이력 / actor / 변경 전·후 값을 저장하지 않으며, audit / history 가 아니다.** 변경 audit 가 필요해지면 §10 의 "Preference 변경 audit / 이력" 항목을 채우는 별도 PR 이 필요하다.
 
 ### 6.5 발송 시 preference 필터 (PR95)
 
@@ -304,7 +315,7 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 복수 receiver 발송에서는 일부 receiver 만 필터링되며 나머지에게는 정상 발송된다 (`receiverIds.filter { isEnabled(it, type) }`).
 
-### 6.6 Frontend — NotificationsPage 알림 설정 패널 (PR96 + PR99)
+### 6.6 Frontend — NotificationsPage 알림 설정 패널 (PR96 + PR99 + PR104)
 
 `pages/NotificationsPage.tsx` 헤더에 "알림 설정" 토글 버튼이 있고, 클릭 시 collapsible 패널이 열려 NotificationType 별 체크박스를 나열한다.
 
@@ -315,8 +326,11 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 | 묶음 토글 (PR99) | 패널 상단 "전체 알림 + 5 카테고리" 행. 단일 PATCH 로 해당 bundle type 들을 한 번에 갱신 — §6.6.1 참고 |
 | 응답 처리 | 응답으로 전체 preferences 갱신, "알림 수신 설정을 저장했어요" success toast |
 | 실패 처리 | 토글 직전 snapshot 으로 rollback (개별 토글은 해당 type 만, 묶음 토글은 bundle type 전체) + danger toast |
+| 마지막 저장 표시 (PR104) | 각 row 라벨 아래 muted text — `updatedAt` 있으면 "마지막 저장: {상대시간}" (방금 전 / N분 전 / N시간 전 / N일 전 / 7일 이상은 로컬 날짜), 없으면 "기본값". 토글/묶음/quick mute/undo 응답이 도착하면 `setPreferences(saved)` 가 동기적으로 갱신해 표시도 즉시 새 시각으로 바뀐다. |
 | 중복 클릭 가드 | `savingTypes: Set<NotificationType>` 가 type 단위 가드. 묶음 토글은 자신의 bundle type 들을 모두 set 에 추가해 같은 시간 동안 그 안의 개별 체크박스와 다른 bundle 버튼이 모두 disabled + `aria-busy` |
 | accessibility | 토글 버튼 `aria-expanded` / `aria-controls`, 섹션 `aria-labelledby`, 체크박스 `htmlFor`/`id`, 묶음 영역 `aria-label="알림 묶음 토글"` |
+
+상대 시간 포맷은 `pages/NotificationsPage.tsx` 의 inline `formatRelativeTime` helper — 새 라이브러리 없이 분/시간/일 단위만 표현하고 7일 이상은 `Date.toLocaleDateString()` fallback. "마지막 저장" 은 §6.4 의 lightweight signal 정책 그대로 — 변경 이력이 아니라 row 의 마지막 변경 시각만 보여준다.
 
 #### 6.6.1 카테고리 묶음 정의 (PR99)
 
@@ -503,7 +517,7 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 | **Kafka outbox** | 도입 설계만 ([kafka-outbox-plan.md](kafka-outbox-plan.md)). 현재 알림은 직접 SSE push. | 향후 PR |
 | **실시간 잔여 자리 / QR 회전 / 푸시** | EventDetail 의 잔여 자리는 SSE refetch 기반. QR 30초 회전 / 푸시 / 시스템 밝기는 미구현. | 향후 PR |
 | **Push / Email 채널별 preference** | preference 는 NotificationType 차원만 다룬다. 같은 type 을 SSE 만 받고 push 는 끄는 등 채널별 선택 불가 (현재 채널은 SSE/in-app 1종). | 향후 PR |
-| **Preference 변경 audit / 이력** | preference 변경은 `moderation_audit_logs` 에 기록되지 않으며 별도 이력 테이블도 없음. | 향후 PR |
+| **Preference 변경 audit / 이력** | preference 변경은 `moderation_audit_logs` 에 기록되지 않으며 별도 이력 테이블도 없음. PR104 부터 `UserNotificationPreference.updatedAt` 의 "마지막 row 변경 시각" 만 응답에 노출 — 변경 이력 / actor / 전·후 값은 여전히 미저장. | 향후 PR |
 
 운영 검증 미수행 / 백엔드 영향 있는 변경은 [manual-qa-checklist.md](manual-qa-checklist.md) 의 항목 단위로 추적한다. 알림 preference + 메타데이터 흐름의 수동 QA 는 §20 / §21 참고.
 
@@ -545,5 +559,8 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR100 — bundle 분류표 / 동작 정책 문서화 (§6.6 + §6.6.1) + 묶음 토글 Known Exclusion 제거
 - PR101 — 알림 카드 quick mute + 5초 undo banner
 - PR102 — quick mute 흐름 문서화 (§6.6.2) + PR 히스토리 갱신
+- PR103 — Ship-ready release-notes-local-bundle.md 추가 (push 전 self-audit)
+- PR104 — Notification preference `updatedAt` 응답 노출 + 패널 "마지막 저장 / 기본값" 표시 (lightweight signal, history 아님)
+- PR105 — `updatedAt` 정책 문서화 (§6.4 응답 표 + §6.6 표시 행) + §10 Known Exclusions 보강
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
