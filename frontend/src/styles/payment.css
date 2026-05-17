@@ -1,0 +1,714 @@
+/* =========================================================================
+   Ticket detail — 참가자 패스/QR 화면
+   ========================================================================= */
+.ct-ticket-page {
+  display: grid;
+  gap: 16px;
+  padding-bottom: calc(var(--tab-bar-height) + 24px);
+  position: relative;
+}
+
+.ct-ticket-hero {
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
+  border-radius: var(--radius-xl);
+  color: #fff;
+  display: grid;
+  gap: 10px;
+  padding: 24px 22px 28px;
+  position: relative;
+}
+
+.ct-ticket-hero.is-unusable {
+  background: linear-gradient(135deg, #7c7c8c 0%, #555661 100%);
+}
+
+.ct-ticket-hero-top {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.ct-ticket-eyebrow {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.ct-ticket-hero-top .badge {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.ct-ticket-title {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.ct-ticket-channel {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  margin: 0;
+}
+
+/* perforation 효과 — pass 카드 사이 살짝 끊긴 느낌 */
+.ct-ticket-pass {
+  background: var(--surface);
+  border: 1.5px solid var(--c-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 6px 18px rgba(250, 82, 82, 0.08);
+  display: grid;
+  gap: 14px;
+  overflow: hidden;
+  padding: 24px 20px;
+  position: relative;
+}
+
+.ct-ticket-pass::before,
+.ct-ticket-pass::after {
+  background: var(--background-outside);
+  border: 1.5px solid var(--c-primary);
+  border-radius: 50%;
+  content: '';
+  height: 20px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  z-index: 1;
+}
+
+.ct-ticket-pass::before {
+  left: -11px;
+}
+
+.ct-ticket-pass::after {
+  right: -11px;
+}
+
+.ct-ticket-pass.is-unusable {
+  border-color: var(--c-text-tertiary);
+  box-shadow: var(--shadow-sm);
+  filter: grayscale(0.4);
+  opacity: 0.7;
+}
+
+.ct-ticket-pass.is-unusable::before,
+.ct-ticket-pass.is-unusable::after {
+  border-color: var(--c-text-tertiary);
+}
+
+.ct-ticket-stamp {
+  align-items: center;
+  border: 3px solid currentColor;
+  border-radius: 8px;
+  color: var(--c-status-used);
+  font-family: var(--font-en);
+  font-size: 28px;
+  font-weight: 800;
+  inset: 0;
+  justify-content: center;
+  letter-spacing: 0.12em;
+  margin: auto;
+  opacity: 0.85;
+  padding: 6px 18px;
+  pointer-events: none;
+  position: absolute;
+  text-transform: uppercase;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  height: max-content;
+  left: 50%;
+  top: 50%;
+  width: max-content;
+  z-index: 2;
+}
+
+.ct-ticket-stamp.is-refunded {
+  color: var(--c-status-refunded);
+}
+
+.ct-ticket-stamp.is-canceled {
+  color: var(--c-status-canceled);
+}
+
+.ct-ticket-qr {
+  align-self: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  height: 200px;
+  justify-content: center;
+  margin: 0 auto;
+  padding: 10px;
+  width: 200px;
+}
+
+.ct-ticket-qr-grid {
+  animation: ct-ticket-qr-fade var(--dur-slow) var(--ease-out);
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(9, 1fr);
+  grid-template-rows: repeat(9, 1fr);
+  height: 100%;
+  width: 100%;
+}
+
+@keyframes ct-ticket-qr-fade {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ct-ticket-qr-cell {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.ct-ticket-qr-cell.is-filled {
+  background: var(--text-primary);
+}
+
+.ct-ticket-qr-meter {
+  align-items: center;
+  display: grid;
+  gap: 4px;
+  margin: 0 auto;
+  max-width: 200px;
+}
+
+.ct-ticket-qr-meter__label {
+  color: var(--text-tertiary);
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.ct-ticket-qr-meter__track {
+  background: var(--surface-muted);
+  border-radius: 999px;
+  height: 3px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.ct-ticket-qr-meter__fill {
+  background: var(--c-primary);
+  display: block;
+  height: 100%;
+  transition: width 1s linear;
+}
+
+.ct-ticket-code {
+  align-items: center;
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+  border-top: 1.5px dashed var(--c-primary);
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr auto;
+  padding: 14px 14px 12px;
+  position: relative;
+}
+
+.ct-ticket-pass.is-unusable .ct-ticket-code {
+  border-top-color: var(--c-text-tertiary);
+}
+
+.ct-ticket-code-label {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  grid-column: 1 / -1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ct-ticket-code-value {
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-ticket-code-copy {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.04s;
+}
+
+.ct-ticket-code-copy:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.ct-ticket-code-copy:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.ct-ticket-hint {
+  font-size: 12px;
+  margin: 0;
+  text-align: center;
+}
+
+.ct-ticket-unusable {
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+  color: var(--danger-text);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.ct-ticket-info {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 8px 4px;
+}
+
+.ct-ticket-info ul {
+  display: grid;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ct-ticket-info li {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 90px 1fr;
+  padding: 12px 16px;
+}
+
+.ct-ticket-info li:last-child {
+  border-bottom: 0;
+}
+
+.ct-ticket-info-label {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ct-ticket-info-value {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ct-ticket-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.ct-ticket-actions .button {
+  min-height: 42px;
+}
+
+.ct-ticket-hero-skeleton {
+  background: var(--surface-muted);
+  height: 120px;
+}
+
+.ct-ticket-deadline {
+  align-items: center;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: var(--radius-md);
+  color: var(--c-status-refunded);
+  display: flex;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.ct-ticket-deadline__dot {
+  background: var(--c-status-refunded);
+  border-radius: 50%;
+  flex: 0 0 8px;
+  height: 8px;
+  width: 8px;
+}
+
+.ct-ticket-deadline__label {
+  color: var(--text-secondary);
+}
+
+.ct-ticket-deadline__value {
+  color: var(--c-status-refunded);
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.ct-ticket-refund-closed {
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+/* =========================================================================
+   Ticket check-in — 스태프 코드 입력 화면
+   ========================================================================= */
+.ct-check-in-page {
+  display: grid;
+  gap: 16px;
+  padding-bottom: calc(var(--tab-bar-height) + 24px);
+}
+
+.ct-check-in-header {
+  display: grid;
+  gap: 4px;
+}
+
+.ct-check-in-header h1 {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.ct-check-in-form {
+  display: grid;
+  gap: 12px;
+}
+
+.ct-check-in-field {
+  color: var(--text-secondary);
+  display: grid;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.ct-check-in-input-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr auto;
+}
+
+.ct-check-in-input-row input {
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  letter-spacing: 0.02em;
+  min-width: 0;
+}
+
+.ct-check-in-result {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.ct-check-in-result-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.ct-check-in-result-title {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.ct-check-in-result-meta {
+  color: var(--text-secondary);
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ct-check-in-result-meta li {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.ct-studio-checkin-cta {
+  margin-top: 4px;
+}
+
+/* =========================================================================
+   PR47 Handoff utilities — PaymentPage (화면 08)
+   ========================================================================= */
+.pay-page {
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  background: var(--c-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 96px;
+}
+
+.pay-appbar {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: var(--c-surface);
+  gap: 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.pay-appbar__back {
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 0;
+  font: 700 24px/1 var(--font-ko);
+  color: var(--c-text);
+  cursor: pointer;
+  padding: 0;
+}
+.pay-appbar__title {
+  flex: 1;
+  text-align: center;
+  font: 700 17px/1 var(--font-ko);
+  margin-right: 32px;
+  color: var(--c-text);
+}
+
+.pay-page__loading {
+  padding: 40px 20px;
+  text-align: center;
+  font: var(--t-body);
+  color: var(--c-text-tertiary);
+}
+
+.pay-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.pay-section {
+  background: var(--c-surface);
+  padding: 20px;
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+}
+.pay-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.pay-section__head h2 {
+  font: 700 17px/1.3 var(--font-ko);
+  margin: 0;
+  color: var(--c-text);
+}
+.pay-section__step {
+  font: 600 13px/1 var(--font-en);
+  color: var(--c-primary);
+}
+
+.pay-attendee {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0;
+}
+.pay-attendee + .pay-attendee {
+  border-top: 1px solid var(--c-divider);
+}
+.pay-attendee__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 600 13px/1 var(--font-ko);
+  color: var(--c-text-secondary);
+}
+.pay-attendee__remove {
+  background: none;
+  border: 0;
+  color: var(--c-danger);
+  font: 500 12px/1 var(--font-ko);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.pay-field {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+.pay-field > span {
+  font: 500 13px/1 var(--font-ko);
+  color: var(--c-text);
+}
+.pay-field input {
+  height: 48px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-md);
+  padding: 0 14px;
+  font: 400 14px/1 var(--font-ko);
+  color: var(--c-text);
+  background: var(--c-surface);
+}
+.pay-field input:focus {
+  outline: none;
+  border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px var(--c-primary-soft);
+}
+
+.pay-add {
+  margin-top: 8px;
+  background: none;
+  border: 0;
+  color: var(--c-primary);
+  font: 600 13px/1.4 var(--font-ko);
+  cursor: pointer;
+  padding: 8px 0;
+  text-align: left;
+}
+
+.pay-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.pay-method {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 14px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  background: var(--c-surface);
+  transition: border-color var(--dur-fast) var(--ease-std);
+}
+.pay-method.is-active {
+  border: 1.5px solid var(--c-primary);
+}
+.pay-method input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.pay-method__radio {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--c-border-strong);
+  position: relative;
+  flex-shrink: 0;
+}
+.pay-method.is-active .pay-method__radio {
+  border-color: var(--c-primary);
+}
+.pay-method.is-active .pay-method__radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: var(--r-pill);
+  background: var(--c-primary);
+}
+.pay-method__logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 14px/1 var(--font-en);
+}
+.pay-method__label {
+  flex: 1;
+  font: 500 14px/1 var(--font-ko);
+  color: var(--c-text);
+}
+
+.pay-agree {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font: 500 12px/1.4 var(--font-ko);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+}
+.pay-agree input {
+  accent-color: var(--c-primary);
+  margin-top: 2px;
+}
+.pay-agree__view {
+  background: none;
+  border: 0;
+  color: var(--c-text-secondary);
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pay-summary {
+  background: var(--c-surface-2);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+.pay-summary__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 0;
+  font: var(--t-body);
+  color: var(--c-text-secondary);
+}
+.pay-summary__row strong {
+  color: var(--c-text);
+  font-weight: 600;
+}
+.pay-summary__row--total {
+  border-top: 1px solid var(--c-border);
+  margin-top: 8px;
+  padding-top: 14px;
+  font: 700 15px/1 var(--font-ko);
+}
+.pay-summary__row--total strong {
+  font: 700 18px/1 var(--font-ko);
+  color: var(--c-primary);
+}

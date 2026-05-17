@@ -1,0 +1,705 @@
+/* =========================================================================
+   Apply stepper
+   ========================================================================= */
+.apply-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.apply-step {
+  align-items: center;
+  color: var(--text-tertiary);
+  display: flex;
+  flex: 1 1 30%;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 8px;
+  min-width: 100px;
+}
+
+.apply-step-dot {
+  align-items: center;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-tertiary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.apply-step.is-current {
+  color: var(--primary);
+}
+.apply-step.is-current .apply-step-dot {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.apply-step.is-done {
+  color: var(--primary);
+}
+.apply-step.is-done .apply-step-dot {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* =========================================================================
+   Creator Studio — operational dashboard
+   ========================================================================= */
+.ct-studio-page {
+  display: grid;
+  gap: 18px;
+}
+
+.ct-studio-eyebrow {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ct-studio-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+/* ── Apply hero (PARTICIPANT) ──────────────────────────────────────────── */
+.ct-studio-apply-hero {
+  background: linear-gradient(160deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
+  border-radius: var(--radius-xl);
+  display: grid;
+  gap: 10px;
+  padding: 28px 22px;
+  text-align: left;
+}
+
+.ct-studio-apply-eyebrow {
+  color: var(--primary-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ct-studio-apply-hero h1 {
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.ct-studio-apply-hero .muted {
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 320px;
+}
+
+.ct-studio-apply-hero .button {
+  margin-top: 6px;
+  width: fit-content;
+}
+
+/* ── Hero (studio home) ────────────────────────────────────────────────── */
+.ct-studio-hero {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--primary-soft) 220%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+}
+
+.ct-studio-hero-top {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.ct-studio-hero-title {
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.ct-studio-hero-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.ct-studio-hero-meta {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 4px 8px;
+  margin-top: 2px;
+}
+
+.ct-studio-hero-meta strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.ct-studio-dot {
+  color: var(--text-quaternary);
+}
+
+.ct-studio-hero-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 10px;
+}
+
+.ct-studio-hero-actions .button {
+  min-height: 40px;
+}
+
+.ct-studio-hero-empty h1 {
+  font-size: 20px;
+}
+
+/* ── Loading skeleton ──────────────────────────────────────────────────── */
+.ct-studio-hero-skeleton {
+  gap: 10px;
+}
+
+.ct-studio-skeleton-line {
+  background: linear-gradient(90deg, var(--surface-muted), var(--surface-hover), var(--surface-muted));
+  background-size: 200% 100%;
+  animation: ct-studio-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+  display: block;
+  height: 14px;
+}
+
+.ct-studio-skeleton-line.is-eyebrow {
+  height: 12px;
+  width: 40%;
+}
+
+.ct-studio-skeleton-line.is-title {
+  height: 24px;
+  width: 70%;
+}
+
+.ct-studio-skeleton-line.is-desc {
+  height: 12px;
+  width: 55%;
+}
+
+.ct-studio-skeleton-tile {
+  background: linear-gradient(90deg, var(--surface-muted), var(--surface-hover), var(--surface-muted));
+  background-size: 200% 100%;
+  animation: ct-studio-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-md);
+  height: 64px;
+}
+
+@keyframes ct-studio-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Summary tiles ─────────────────────────────────────────────────────── */
+.ct-studio-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.ct-studio-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.ct-studio-tile span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ct-studio-tile strong {
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.ct-studio-tile.is-attention {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--primary-soft) 300%);
+  border-color: rgba(250, 82, 82, 0.32);
+}
+
+.ct-studio-tile.is-attention strong {
+  color: var(--primary-text);
+}
+
+/* ── Growth chart (static) ────────────────────────────────────────────── */
+.ct-studio-growth {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.ct-studio-growth-head {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.ct-studio-growth-eyebrow {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ct-studio-growth-head strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ct-studio-growth-chart {
+  display: block;
+  height: 96px;
+  width: 100%;
+}
+
+/* polyline 길이가 viewBox 기준 약 340 — pathLength 도 명시 가능하지만 dashoffset
+   감소만으로 stroke 가 좌→우로 그려지는 entry 가 충분히 자연스럽다. */
+.ct-studio-growth-line {
+  animation: ct-studio-growth-draw 900ms var(--ease-out) both;
+  stroke-dasharray: 360;
+  stroke-dashoffset: 360;
+}
+
+@keyframes ct-studio-growth-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ct-studio-growth-dot {
+  animation: ct-studio-growth-dot-pop 220ms var(--ease-spring) both;
+  transform-origin: center;
+}
+
+@keyframes ct-studio-growth-dot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.ct-studio-growth-foot {
+  color: var(--text-tertiary);
+  display: grid;
+  font-size: 10px;
+  font-weight: 600;
+  grid-template-columns: repeat(7, 1fr);
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+/* ── Admin note (ADMIN without channel) ───────────────────────────────── */
+.ct-studio-admin-note {
+  background: var(--surface-muted);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+}
+
+.ct-studio-admin-note strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ct-studio-admin-note .muted {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ── Create channel form ───────────────────────────────────────────────── */
+.ct-studio-create > div {
+  display: grid;
+  gap: 4px;
+}
+
+.ct-studio-create h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.ct-studio-create .muted {
+  font-size: 12px;
+}
+
+/* ── Events section ────────────────────────────────────────────────────── */
+.ct-studio-events {
+  display: grid;
+  gap: 12px;
+}
+
+.ct-studio-events-head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.ct-studio-events-empty {
+  align-items: center;
+  background: var(--surface-muted);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.ct-studio-events-empty > span:first-child {
+  font-size: 32px;
+}
+
+.ct-studio-events-empty strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ct-studio-events-empty .muted {
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 260px;
+}
+
+.ct-studio-events-empty .button {
+  margin-top: 8px;
+}
+
+.ct-studio-event-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ct-studio-event-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.ct-studio-event-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ct-studio-pending-badge {
+  align-items: center;
+  background: var(--primary-soft);
+  border-radius: var(--radius-pill);
+  color: var(--primary-text);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.ct-studio-event-title {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.ct-studio-event-meta {
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 4px 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ct-studio-event-meta li {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.ct-studio-event-meta li > span:first-child {
+  font-size: 13px;
+}
+
+.ct-studio-event-actions {
+  display: grid;
+  gap: 8px;
+  /* 2-col 기본, 3번째 (체크인 현황) 는 전체 폭 차지. */
+  grid-template-columns: 1fr 1fr;
+}
+
+.ct-studio-event-actions > button:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.ct-studio-event-actions .button {
+  min-height: 38px;
+  position: relative;
+}
+
+.ct-studio-action-count {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+  padding: 2px 6px;
+}
+
+/* =========================================================================
+   Event create — 콘텐츠 유형 picker
+   ========================================================================= */
+.ct-content-type-picker {
+  border: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.ct-content-type-picker legend {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+}
+
+.ct-content-type-picker-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.ct-content-type-option {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, transform 0.04s;
+}
+
+.ct-content-type-option:hover {
+  border-color: var(--border-strong);
+}
+
+.ct-content-type-option:active {
+  transform: translateY(1px);
+}
+
+.ct-content-type-option.is-active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.ct-content-type-option strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ct-content-type-option span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.ct-content-type-option.is-active strong {
+  color: var(--primary-text);
+}
+
+/* =========================================================================
+   Media picker (대표 이미지 — EventCreate / EventEdit)
+   ========================================================================= */
+.ct-media-picker {
+  border: 0;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.ct-media-picker legend {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+}
+
+.ct-media-preview {
+  align-items: center;
+  aspect-ratio: 16 / 10;
+  background: var(--surface-muted);
+  border: 1px dashed var(--c-border-strong);
+  border-radius: var(--radius-lg);
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.ct-media-preview.has-image {
+  border-style: solid;
+  border-color: var(--c-primary);
+}
+
+.ct-media-preview.has-error {
+  background: rgba(239, 68, 68, 0.06);
+  border-color: rgba(239, 68, 68, 0.32);
+  border-style: solid;
+}
+
+.ct-media-preview img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.ct-media-preview__placeholder {
+  align-items: center;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 20px 24px;
+  text-align: center;
+}
+
+.ct-media-preview__icon {
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+
+.ct-media-preview__placeholder strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ct-media-preview__placeholder .muted {
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 280px;
+}
+
+.ct-media-preview__uploading {
+  align-items: center;
+  background: rgba(20, 20, 22, 0.55);
+  color: #fff;
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+}
+
+.ct-media-preview__uploading .button-spinner {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+
+.ct-media-picker__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ct-media-picker__actions .button {
+  flex: 1;
+  min-height: 40px;
+}
+
+.ct-media-picker__url {
+  display: grid;
+  gap: 4px;
+}
+
+.ct-media-picker__url > .muted {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 360px) {
+  .ct-content-type-picker-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 360px) {
+  .ct-check-in-input-row {
+    grid-template-columns: 1fr;
+  }
+}
+

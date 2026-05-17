@@ -1,0 +1,437 @@
+/* =========================================================================
+   CONTENIDO MY / Profile pages
+   ========================================================================= */
+.ct-my-page {
+  padding-top: 24px;
+}
+
+.ct-my-hero {
+  align-items: center;
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
+  border-radius: var(--radius-lg);
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ct-my-avatar {
+  align-items: center;
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
+  border-radius: 50%;
+  color: white;
+  display: inline-flex;
+  font-size: 22px;
+  font-weight: 800;
+  height: 56px;
+  justify-content: center;
+  width: 56px;
+}
+
+.ct-my-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.ct-my-meta strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ct-my-stats {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 12px;
+}
+
+.ct-my-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 4px;
+  padding: 14px 8px;
+  text-align: center;
+}
+
+.ct-my-stat strong {
+  color: var(--c-primary);
+  font-family: var(--font-en);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.ct-my-stat span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* PR44 — MY 탭 (신청 / 결제) + 결제 상태 필터 */
+.ct-my-tabs {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.ct-my-tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 4px;
+  margin-bottom: -1px;
+  padding: 10px 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ct-my-tab.is-active {
+  border-bottom-color: var(--c-primary);
+  color: var(--c-primary);
+}
+
+.ct-my-tab-count {
+  background: var(--surface-muted);
+  border-radius: var(--radius-pill);
+  color: var(--text-tertiary);
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+}
+
+.ct-my-tab.is-active .ct-my-tab-count {
+  background: var(--c-primary-soft);
+  color: var(--c-primary);
+}
+
+.ct-my-order-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.ct-my-app-card-order {
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  margin: 8px 0 0;
+  padding-top: 8px;
+}
+
+.ct-my-app-card-order > div {
+  display: grid;
+  gap: 1px;
+}
+
+.ct-my-app-card-order dt {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ct-my-app-card-order dd {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ct-my-app-card-order-id {
+  font-family: var(--font-en);
+  letter-spacing: 0.02em;
+}
+
+.ct-profile-page .form-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.ct-profile-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.ct-profile-row + .ct-profile-row {
+  border-top: 1px solid var(--border);
+}
+
+.ct-profile-row span {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.ct-profile-row strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ct-profile-edit-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 4px;
+}
+
+.ct-form-error {
+  color: var(--danger-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ct-password-input {
+  position: relative;
+}
+
+.ct-password-input input {
+  padding-right: 56px;
+}
+
+.ct-password-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.ct-password-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* =========================================================================
+   MY 페이지 — 내 신청/티켓 섹션
+   ========================================================================= */
+.ct-my-participations {
+  display: grid;
+  gap: 12px;
+}
+
+.ct-my-section-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.ct-my-empty {
+  align-items: center;
+  background: var(--surface-muted);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.ct-my-empty > span:first-child {
+  font-size: 32px;
+}
+
+.ct-my-empty strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ct-my-empty .muted {
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 240px;
+}
+
+.ct-my-empty .button {
+  margin-top: 8px;
+}
+
+.ct-my-app-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  padding: 12px;
+  transition: border-color 0.18s, box-shadow 0.18s;
+  width: 100%;
+}
+
+.ct-my-app-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.ct-my-app-card-main {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 80px 1fr;
+  padding: 0;
+  text-align: left;
+  transition: transform 0.12s;
+  width: 100%;
+}
+
+.ct-my-app-card-main:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.ct-my-app-card-ticket-btn {
+  width: 100%;
+}
+
+.ct-my-app-card-thumb {
+  align-items: center;
+  background: linear-gradient(135deg, var(--c-primary-soft) 0%, var(--c-primary-tint) 100%);
+  border-radius: var(--radius-md);
+  color: var(--primary-text);
+  display: flex;
+  flex-shrink: 0;
+  font-size: 24px;
+  font-weight: 800;
+  height: 80px;
+  justify-content: center;
+  overflow: hidden;
+  width: 80px;
+}
+
+.ct-my-app-card-thumb img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.ct-my-app-card-initial {
+  display: inline-flex;
+}
+
+.ct-my-app-card-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ct-my-app-card-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ct-my-app-card-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-my-app-card-meta {
+  color: var(--text-tertiary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 4px 10px;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+
+.ct-my-app-card-meta li {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ct-my-app-card-meta li > span:first-child {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.ct-my-app-card-meta li > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-my-app-card-ticket {
+  align-items: center;
+  background: var(--success-soft);
+  border-radius: var(--radius-md);
+  color: var(--success-text);
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 6px;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 6px 10px;
+}
+
+.ct-my-app-card-ticket > span:first-child {
+  letter-spacing: 0.04em;
+}
+
+.ct-my-app-card-reason {
+  background: var(--danger-soft);
+  border-radius: var(--radius-md);
+  color: var(--danger-text);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 4px 0 0;
+  padding: 6px 10px;
+}
+
+.ct-my-app-card.is-approved {
+  background: linear-gradient(135deg, var(--surface) 0%, var(--success-soft) 320%);
+  border-color: rgba(22, 163, 113, 0.35);
+  box-shadow: 0 4px 14px rgba(22, 163, 113, 0.12);
+}
+
+.ct-my-app-card.is-approved .ct-my-app-card-thumb {
+  background: linear-gradient(135deg, var(--success-soft) 0%, #cdf0de 100%);
+  color: var(--success-text);
+}
+
+@media (max-width: 360px) {
+  .ct-my-app-card-main {
+    grid-template-columns: 64px 1fr;
+  }
+  .ct-my-app-card-thumb {
+    height: 64px;
+    width: 64px;
+  }
+}
+

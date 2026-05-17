@@ -1,0 +1,374 @@
+/* =========================================================================
+   App shell — mobile-app frame, centered on desktop
+   ========================================================================= */
+#root {
+  background: var(--surface);
+  margin: 0 auto;
+  max-width: var(--app-max-width);
+  min-height: 100vh;
+  position: relative;
+}
+
+.app-shell {
+  background: var(--surface);
+  min-height: 100vh;
+  padding-bottom: calc(var(--tab-bar-height) + 24px);
+  position: relative;
+}
+
+.app-loading,
+.auth-shell {
+  align-items: center;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.app-loading strong {
+  background: linear-gradient(120deg, var(--c-primary), var(--c-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.app-loading span {
+  align-items: center;
+  color: var(--text-tertiary);
+  display: inline-flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.app-loading span::before {
+  animation: spin 0.85s linear infinite;
+  border: 2px solid var(--primary-soft);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  content: '';
+  display: inline-block;
+  height: 14px;
+  width: 14px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Desktop: show the app like a phone — centered column the full viewport tall.
+   We keep the bottom tab bar in viewport-fixed position, so #root spans the entire
+   viewport height; the lateral background gradient gives the "phone frame" feel. */
+@media (min-width: 640px) {
+  body {
+    background: radial-gradient(circle at top, #e6e8f5 0%, var(--background-outside) 60%);
+  }
+
+  #root {
+    box-shadow: 0 0 0 1px var(--border), var(--shadow-frame);
+  }
+}
+
+/* =========================================================================
+   Page shell (generic for sub-pages)
+   ========================================================================= */
+.page {
+  display: grid;
+  gap: 20px;
+  padding: 20px 16px 32px;
+}
+
+.page-header {
+  align-items: flex-end;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.eyebrow {
+  color: var(--primary-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.section {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.section-heading {
+  align-items: flex-end;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.card-heading-row {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.subtle,
+.muted {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr;
+}
+
+.compact-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+/* =========================================================================
+   Detail hero (channel + event) — stacked on mobile
+   ========================================================================= */
+.detail-hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1fr;
+  overflow: hidden;
+}
+
+.detail-hero > img {
+  aspect-ratio: 16 / 10;
+  background: var(--surface-muted);
+}
+
+.detail-hero > div {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+}
+
+.detail-hero .button {
+  margin-top: 4px;
+  width: fit-content;
+}
+
+.info-grid,
+.stats-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+  margin: 16px 0;
+}
+
+.info-grid div,
+.stats-grid div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.info-grid span,
+.stats-grid span {
+  color: var(--text-tertiary);
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.info-grid strong,
+.stats-grid strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* =========================================================================
+   CONTENIDO bottom tab bar (5 items with center Play)
+   ========================================================================= */
+.ct-tab-bar {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-top: 1px solid var(--border);
+  bottom: 0;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr 78px 1fr 1fr;
+  height: var(--tab-bar-height);
+  left: 50%;
+  max-width: var(--app-max-width);
+  padding: 8px 8px 14px;
+  position: fixed;
+  transform: translateX(-50%);
+  width: 100%;
+  z-index: 50;
+}
+
+.ct-tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 600;
+  gap: 2px;
+  height: 100%;
+  justify-content: center;
+  letter-spacing: 0;
+  padding: 4px;
+  transition: color 0.15s;
+}
+
+.ct-tab:hover {
+  color: var(--text-secondary);
+}
+
+.ct-tab.is-active {
+  color: var(--primary);
+}
+
+.ct-tab-icon {
+  align-items: center;
+  border-radius: 14px;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  position: relative;
+  transition: background 0.15s;
+  width: 48px;
+}
+
+.ct-tab.is-active .ct-tab-icon {
+  background: var(--primary-soft);
+}
+
+.ct-tab-icon svg {
+  height: 22px;
+  width: 22px;
+}
+
+.ct-tab-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.ct-tab:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.ct-tab-dot {
+  align-items: center;
+  background: var(--danger);
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  border-radius: var(--radius-pill);
+  color: white;
+  display: inline-flex;
+  font-size: 9px;
+  font-weight: 700;
+  height: 16px;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 4px;
+  position: absolute;
+  right: 2px;
+  top: -4px;
+}
+
+.ct-tab-play {
+  align-items: center;
+  background: linear-gradient(135deg, var(--c-primary) 0%, var(--c-accent) 100%);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 10px 22px rgba(250, 82, 82, 0.45), 0 2px 6px rgba(250, 82, 82, 0.18);
+  color: white;
+  display: inline-flex;
+  height: 60px;
+  justify-content: center;
+  margin-top: -28px;
+  transition: transform 0.12s ease-out, box-shadow 0.18s;
+  width: 60px;
+}
+
+.ct-tab-play:hover {
+  box-shadow: 0 14px 28px rgba(250, 82, 82, 0.5), 0 2px 6px rgba(250, 82, 82, 0.2);
+  transform: translateY(-2px);
+}
+
+.ct-tab-play.is-active {
+  background: linear-gradient(135deg, var(--c-primary-press) 0%, var(--c-primary) 100%);
+}
+
+.ct-tab-play svg {
+  height: 24px;
+  margin-left: 2px;
+  width: 24px;
+}
+
+/* =========================================================================
+   Detail page shell — shared by event/channel detail
+   ========================================================================= */
+.ct-detail-page {
+  display: grid;
+  gap: 20px;
+  padding: 0 0 32px;
+  position: relative;
+}
+
+.ct-back-btn {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: saturate(180%) blur(10px);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  box-shadow: 0 6px 16px rgba(15, 17, 22, 0.18);
+  color: var(--text-primary);
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  left: 12px;
+  position: absolute;
+  top: 12px;
+  width: 38px;
+  z-index: 12;
+}
+
+.ct-back-btn:active {
+  transform: scale(0.94);
+}
+
+.ct-back-btn svg {
+  height: 20px;
+  width: 20px;
+}
+

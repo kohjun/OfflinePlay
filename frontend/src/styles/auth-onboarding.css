@@ -1,0 +1,430 @@
+/* =========================================================================
+   Auth
+   ========================================================================= */
+.auth-shell {
+  background: radial-gradient(circle at top, rgba(250, 82, 82, 0.08), var(--surface) 60%);
+}
+
+.auth-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  width: 100%;
+}
+
+.auth-panel h1 {
+  margin: 2px 0;
+}
+
+/* =========================================================================
+   Signup role picker
+   ========================================================================= */
+.role-picker {
+  border: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.role-picker-legend {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+}
+
+.role-picker-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.role-option {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.role-option:hover {
+  border-color: var(--border-strong);
+}
+
+.role-option input[type='radio'] {
+  height: 0;
+  margin: 0;
+  opacity: 0;
+  padding: 0;
+  position: absolute;
+  width: 0;
+}
+
+.role-option strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+
+.role-option span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.role-option.is-active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.role-option.is-active strong {
+  color: var(--primary-text);
+}
+
+.role-option.is-active span {
+  color: var(--primary-text);
+  opacity: 0.85;
+}
+
+/* =========================================================================
+   Password field — wraps input + show/hide toggle
+   ========================================================================= */
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 56px;
+}
+
+.password-toggle {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: color 0.15s;
+}
+
+.password-toggle:hover {
+  color: var(--primary);
+}
+
+/* =========================================================================
+   Role picker — add icon slot inside each option
+   ========================================================================= */
+.role-option {
+  align-items: flex-start;
+  display: grid;
+  gap: 6px;
+  grid-template-rows: auto auto auto;
+}
+
+.role-option-icon {
+  align-items: center;
+  background: var(--surface-muted);
+  border-radius: 10px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  width: 32px;
+}
+
+.role-option-icon svg {
+  height: 18px;
+  width: 18px;
+}
+
+.role-option.is-active .role-option-icon {
+  background: white;
+  color: var(--primary);
+}
+
+/* =========================================================================
+   Auth panel — reserve a min-height on the form area to reduce layout shift
+   when toggling login ↔ signup
+   ========================================================================= */
+.auth-form {
+  display: grid;
+  gap: 14px;
+  min-height: 320px;
+}
+
+/* =========================================================================
+   PR43+ Handoff utilities — Onboarding (화면 01) / Auth (화면 02)
+   ========================================================================= */
+
+/* ===== Onboarding ===== */
+.ob-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px 24px;
+  background: linear-gradient(180deg, var(--c-surface) 0%, var(--c-primary-tint) 100%);
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+}
+
+.ob-brand {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.ob-brand__name {
+  font: 800 32px/1 var(--font-ko);
+  color: var(--c-primary);
+  letter-spacing: -0.02em;
+}
+.ob-brand__by {
+  font: 700 14px/1 var(--font-ko);
+  color: var(--c-text);
+}
+
+.ob-hero {
+  flex: 1;
+  min-height: 280px;
+  border-radius: var(--r-xl);
+  background: linear-gradient(135deg, #1A1A14 0%, #5A3818 100%);
+  position: relative;
+  margin-bottom: 32px;
+  overflow: hidden;
+}
+.ob-hero__chips {
+  position: absolute;
+  inset: auto 0 24px 0;
+  display: flex;
+  gap: 10px;
+  padding: 0 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.ob-hero__chip {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--c-text);
+  border-radius: var(--r-lg);
+  padding: 8px 14px;
+  font: 600 13px/1 var(--font-ko);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--e-2);
+}
+
+.ob-copy {
+  padding: 0 4px;
+  margin-bottom: 24px;
+}
+.ob-copy__title {
+  font: var(--t-display);
+  margin: 16px 0 12px;
+  white-space: pre-line;
+  color: var(--c-text);
+}
+.ob-copy__body {
+  font: var(--t-body);
+  color: var(--c-text-secondary);
+  margin: 0;
+  white-space: pre-line;
+}
+
+.ob-cta-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.ob-cta-dock__login {
+  background: none;
+  border: 0;
+  font: 500 13px/1 var(--font-ko);
+  color: var(--c-text-secondary);
+  padding: 8px;
+  cursor: pointer;
+}
+.ob-cta-dock__login em {
+  font-style: normal;
+  color: var(--c-primary);
+  font-weight: 600;
+}
+
+.ob-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.ob-dot {
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+  border-radius: var(--r-pill);
+  background: var(--c-border-strong);
+  transition: width var(--dur-base) var(--ease-std), background var(--dur-base) var(--ease-std);
+}
+.ob-dot--active {
+  width: 18px;
+  background: var(--c-primary);
+}
+
+/* ===== Auth (LoginPage v2 — wireframe 02) ===== */
+.auth-page {
+  min-height: 100vh;
+  padding: 24px 24px 32px;
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  background: var(--c-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.auth-page__head {
+  margin-bottom: 4px;
+}
+.auth-page__title {
+  font: 700 26px/1.3 var(--font-ko);
+  margin: 0 0 8px;
+  color: var(--c-text);
+}
+.auth-page__subtitle {
+  font: var(--t-body);
+  color: var(--c-text-secondary);
+  margin: 0;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.auth-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font: 600 13px/1.4 var(--font-ko);
+  color: var(--c-text);
+}
+.auth-form__field input {
+  height: 48px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--r-md);
+  padding: 0 14px;
+  font: 400 14px/1 var(--font-ko);
+  color: var(--c-text);
+  background: var(--c-surface);
+  transition: border-color var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+.auth-form__field input:focus {
+  outline: none;
+  border-color: var(--c-primary);
+  border-width: 1.5px;
+  box-shadow: 0 0 0 3px var(--c-primary-soft);
+}
+
+.auth-form__options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font: var(--t-caption);
+  color: var(--c-text-secondary);
+}
+.auth-form__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.auth-form__check input {
+  accent-color: var(--c-primary);
+}
+.auth-form__link {
+  background: none;
+  border: 0;
+  color: var(--c-text-secondary);
+  font: var(--t-caption);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.auth-form__submit {
+  height: 56px;
+  border-radius: var(--r-md);
+  font: var(--t-button-l);
+  margin-top: 4px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font: 500 12px/1 var(--font-ko);
+  color: var(--c-text-tertiary);
+  margin: 4px 0;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--c-border);
+}
+
+.auth-social {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-social__btn {
+  height: 52px;
+  border-radius: var(--r-md);
+  font: 600 14px/1 var(--font-ko);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  cursor: pointer;
+}
+.auth-social__btn--kakao {
+  background: #FEE500;
+  color: #191919;
+}
+.auth-social__btn--naver {
+  background: #03C75A;
+  color: #FFFFFF;
+}
+.auth-social__btn--apple {
+  background: #1A1A1A;
+  color: #FFFFFF;
+}
+
+.auth-page__terms {
+  font: 400 12px/1.55 var(--font-ko);
+  color: var(--c-text-tertiary);
+  text-align: center;
+  margin: 0;
+}
+.auth-page__terms a {
+  color: var(--c-text-tertiary);
+  text-decoration: underline;
+}
+

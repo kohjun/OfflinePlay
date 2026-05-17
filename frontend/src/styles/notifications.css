@@ -1,0 +1,147 @@
+/* =========================================================================
+   Notifications
+   ========================================================================= */
+.notification-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  display: block;
+  padding: 14px 16px;
+  text-align: left;
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+  width: 100%;
+}
+
+.notification-item.is-unread {
+  background: linear-gradient(180deg, rgba(250, 82, 82, 0.06), rgba(250, 82, 82, 0));
+  border-color: rgba(250, 82, 82, 0.32);
+}
+
+.notification-item.is-navigable {
+  cursor: pointer;
+}
+
+.notification-item.is-navigable:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.notification-item.is-navigable:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.notification-item strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.notification-item p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 4px 0;
+}
+
+.notification-type-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin: 4px 0 2px;
+}
+
+.notification-cta-hint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ct-notif-empty {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 36px 24px;
+  text-align: center;
+}
+
+.ct-notif-empty__icon {
+  font-size: 36px;
+  margin-bottom: 6px;
+}
+
+.ct-notif-empty strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ct-notif-empty .muted {
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+.ct-notif-empty .button {
+  margin-top: 8px;
+  min-width: 160px;
+}
+
+.notification-item.is-navigable:hover .notification-cta-hint {
+  color: var(--primary-text);
+}
+
+.stream-status {
+  align-items: center;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 4px 10px;
+}
+
+.stream-status-dot {
+  background: var(--text-tertiary);
+  border-radius: 50%;
+  display: inline-block;
+  height: 7px;
+  width: 7px;
+}
+
+.stream-status-connected {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+.stream-status-connected .stream-status-dot {
+  background: var(--success);
+}
+
+.stream-status-connecting {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.stream-status-connecting .stream-status-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+  background: var(--warning);
+}
+
+.stream-status-disconnected {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.stream-status-disconnected .stream-status-dot {
+  background: var(--danger);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
