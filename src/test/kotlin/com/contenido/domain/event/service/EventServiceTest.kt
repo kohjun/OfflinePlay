@@ -416,6 +416,21 @@ class EventServiceTest {
     }
 
     @Test
+    fun `applyForEvent 이미 APPROVED 상태면 AlreadyJoinedException (PR79 ACTIVE 가드)`() {
+        val participant = createUser(id = 2L)
+        val event = createEvent(id = 1L, channel = createChannel(id = 1L, owner = createUser(id = 1L, role = UserRole.CREATOR)))
+        val existing = createParticipation(event = event, participant = participant, status = ParticipationStatus.APPROVED)
+
+        every { userRepository.findById(2L) } returns Optional.of(participant)
+        every { eventRepository.findById(1L) } returns Optional.of(event)
+        every { eventParticipationRepository.findByEventAndParticipant(event, participant) } returns Optional.of(existing)
+
+        assertThrows<AlreadyJoinedException> { eventService.applyForEvent(2L, 1L) }
+        verify(exactly = 0) { eventParticipationRepository.save(any()) }
+        verify(exactly = 0) { notificationService.notify(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `applyForEvent CLOSED 이벤트면 EventClosedException 이고 알림 없음`() {
         val participant = createUser(id = 2L)
         val event = createEvent(
