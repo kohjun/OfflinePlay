@@ -404,6 +404,27 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: ADMIN 이 overview 한 화면에서 "지난 30일 동안 누가 얼마나 운영했는지" 를 한 번에 본다. system actor 자동 실행분이 사람 운영분과 섞이지 않고 분리되어 표시된다.
 
+### 20. 알림 수신 설정 (PR95/PR96)
+**목적**: 사용자가 NotificationType 별로 알림 수신을 끄거나 켤 수 있고, 끈 알림은 backend 발송 단계에서 차단되어 화면에 도착하지 않는지 확인.
+
+**사전 조건**: 일반 사용자 계정 1명 + 같은 사용자에게 알림을 발생시킬 수 있는 다른 계정 (owner / commenter 등) 1명.
+
+- [ ] 🖱 `/notifications` 진입 → 우측 상단에 "알림 설정" 버튼이 표시됨
+- [ ] 🖱 "알림 설정" 클릭 → 패널 펼침 + 모든 NotificationType 이 체크박스로 노출 (기본 ON)
+- [ ] 🖱 "알림 설정 닫기" 클릭 → 패널 접힘, 이후 다시 열면 마지막 상태 그대로 (재fetch 없이 캐시)
+- [ ] 🖱 NEW_COMMENT 같은 type 의 체크박스 OFF → 즉시 PATCH 요청 발생 + "알림 수신 설정을 저장했어요" success toast
+- [ ] 🖱 PATCH 진행 중 같은 체크박스 추가 클릭 → saving 가드로 변경 무시 (`aria-busy="true"` 노출, disabled)
+- [ ] 🖱 PATCH 실패 (devtools 로 network 차단 등) → 체크박스가 이전 값으로 rollback + "설정 저장에 실패했어요" error toast
+- [ ] 🖱 OFF 한 type 의 알림을 다른 계정으로 트리거 (예: NEW_COMMENT OFF 후 owner 가 본인 글에 댓글) → 본인 화면 NotificationsPage / 뱃지 / SSE 어디에도 알림 미도착
+- [ ] 🖱 다시 ON → 이후 새로 도착하는 알림부터 정상 표시 (과거에 차단된 알림은 복구되지 않음)
+- [ ] 🖱 새로고침 후 패널을 다시 열면 마지막 저장 상태가 그대로 표시 (DB에서 fetch)
+- [ ] 📋 `GET /api/v1/notifications/preferences` 응답이 모든 NotificationType 을 포함 — row 가 없는 type 도 enabled=true 로 채워짐
+- [ ] 📋 `PATCH /api/v1/notifications/preferences` request 에 같은 type 이 중복으로 들어가면 마지막 값 채택 (400 X)
+- [ ] 📋 OFF 한 type 의 알림 발송 시 `notifications` 테이블에 row 자체가 INSERT 되지 않음 (backend 멱등성 + DB 부하 절감)
+- [ ] 📋 preference 조회가 일시 실패해도 NotificationService 가 fail-open 으로 알림을 계속 발송 (회귀 가드)
+
+**기대 결과**: 사용자가 알림 종류별로 ON/OFF 를 즉시 토글할 수 있고, OFF 한 알림은 발송 단계에서 차단된다. 실패 시에는 UI 가 이전 상태로 안전하게 복귀한다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
+  getNotificationPreferences,
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  updateNotificationPreferences,
 } from '../api/notifications'
 import { Badge } from '../components/Badge'
 import { Skeleton } from '../components/Skeleton'
@@ -13,7 +15,7 @@ import {
   useNotificationStore,
   type StreamStatus,
 } from '../stores/notificationStore'
-import type { UserRole } from '../types'
+import type { NotificationPreference, NotificationType, UserRole } from '../types'
 
 const STATUS_LABEL: Record<StreamStatus, string> = {
   connecting: '연결 중',
@@ -109,6 +111,67 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  // PR96 — 알림 설정 패널. 기본 닫힘. 처음 열 때만 backend 에서 fetch.
+  const [prefsOpen, setPrefsOpen] = useState(false)
+  const [preferences, setPreferences] = useState<NotificationPreference[] | null>(null)
+  const [prefsLoading, setPrefsLoading] = useState(false)
+  const [prefsError, setPrefsError] = useState(false)
+  const [savingTypes, setSavingTypes] = useState<Set<NotificationType>>(() => new Set())
+
+  const loadPreferences = useCallback(() => {
+    setPrefsLoading(true)
+    setPrefsError(false)
+    getNotificationPreferences()
+      .then((res) => setPreferences(res))
+      .catch(() => setPrefsError(true))
+      .finally(() => setPrefsLoading(false))
+  }, [])
+
+  function handleOpenPreferences() {
+    setPrefsOpen((prev) => {
+      const next = !prev
+      if (next && preferences === null) loadPreferences()
+      return next
+    })
+  }
+
+  /**
+   * 토글 즉시 PATCH. 실패하면 해당 type 만 이전 값으로 rollback + error toast.
+   * 같은 type 이 saving 중이면 추가 클릭 무시.
+   */
+  async function handleTogglePreference(type: NotificationType, nextEnabled: boolean) {
+    if (savingTypes.has(type)) return
+    const prev = preferences
+    if (!prev) return
+    // optimistic update
+    setPreferences(prev.map((p) => (p.type === type ? { ...p, enabled: nextEnabled } : p)))
+    setSavingTypes((s) => {
+      const next = new Set(s)
+      next.add(type)
+      return next
+    })
+    try {
+      const saved = await updateNotificationPreferences({
+        preferences: [{ type, enabled: nextEnabled }],
+      })
+      setPreferences(saved)
+      showToast({ title: '알림 수신 설정을 저장했어요', tone: 'success' })
+    } catch (error) {
+      // rollback
+      setPreferences(prev)
+      showToast({
+        title: '설정 저장에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSavingTypes((s) => {
+        const next = new Set(s)
+        next.delete(type)
+        return next
+      })
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -225,10 +288,70 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
             {STATUS_LABEL[streamStatus]}
           </span>
         </div>
-        <button className="button button-secondary" onClick={handleReadAll} disabled={unreadCount === 0} type="button">
-          모두 읽음
-        </button>
+        <div className="notif-header-actions">
+          <button
+            type="button"
+            className="button button-tertiary"
+            onClick={handleOpenPreferences}
+            aria-expanded={prefsOpen}
+            aria-controls="notification-preferences-panel"
+          >
+            {prefsOpen ? '알림 설정 닫기' : '알림 설정'}
+          </button>
+          <button className="button button-secondary" onClick={handleReadAll} disabled={unreadCount === 0} type="button">
+            모두 읽음
+          </button>
+        </div>
       </section>
+
+      {prefsOpen ? (
+        <section
+          className="notification-preferences"
+          id="notification-preferences-panel"
+          aria-labelledby="notification-preferences-title"
+        >
+          <h2 id="notification-preferences-title" className="notification-preferences__title">
+            알림 종류별 수신 설정
+          </h2>
+          <p className="muted notification-preferences__hint">
+            끈 알림은 알림 목록에 표시되지 않고 실시간 알림도 도착하지 않아요. 다시 켜면 이후에 도착하는 알림부터 표시됩니다.
+          </p>
+          {prefsLoading ? (
+            <p className="muted">불러오는 중…</p>
+          ) : prefsError ? (
+            <div className="notification-preferences__error">
+              <p className="muted">설정을 불러오지 못했어요.</p>
+              <button type="button" className="button button-secondary" onClick={loadPreferences}>
+                다시 시도
+              </button>
+            </div>
+          ) : preferences ? (
+            <ul className="notification-preferences__list">
+              {preferences.map((pref) => {
+                const id = `notif-pref-${pref.type}`
+                const label = TYPE_LABEL[pref.type] ?? pref.type
+                const saving = savingTypes.has(pref.type)
+                return (
+                  <li key={pref.type} className="notification-preferences__item">
+                    <label htmlFor={id} className="notification-preferences__label">
+                      <span>{label}</span>
+                      <input
+                        id={id}
+                        type="checkbox"
+                        checked={pref.enabled}
+                        disabled={saving}
+                        aria-busy={saving}
+                        onChange={(e) => handleTogglePreference(pref.type, e.target.checked)}
+                      />
+                    </label>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
       {loading ? (
         <Skeleton lines={5} />
       ) : items.length === 0 ? (
