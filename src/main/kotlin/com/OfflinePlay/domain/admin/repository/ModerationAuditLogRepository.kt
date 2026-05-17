@@ -37,4 +37,10 @@ interface ModerationAuditLogRepository :
         cutoffAt: LocalDateTime,
         pageable: Pageable,
     ): List<ModerationAuditLog>
+
+    /**
+     * PR93 — actor 활동 요약용. 구간 안의 모든 audit row 를 fetch 한다. 본 MVP 에서는 30일 default
+     * 범위라 in-memory group 으로 충분 — DB 측 GROUP BY 최적화는 후속.
+     */
+    fun findByCreatedAtBetween(from: LocalDateTime, to: LocalDateTime): List<ModerationAuditLog>
 }

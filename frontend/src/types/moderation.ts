@@ -86,6 +86,32 @@ export interface AdminModerationStats {
 }
 
 /**
+ * PR93 — 운영자 활동 요약. moderation_audit_logs 를 actor 단위로 group.
+ * actorSystem true 는 V9 seed system actor (scheduler 자동 실행분) 표시 — 사람 운영분과 구분.
+ */
+export interface AdminModerationActorStatItem {
+  actorId: number
+  actorNickname: string
+  actorSystem: boolean
+  totalActionCount: number
+  hideCount: number
+  unhideCount: number
+  channelBanCount: number
+  channelUnbanCount: number
+  appealDecisionCount: number
+  reportDecisionCount: number
+  thresholdUpdateCount: number
+  archiveCount: number
+}
+
+export interface AdminModerationActorStats {
+  from: string
+  to: string
+  limit: number
+  items: AdminModerationActorStatItem[]
+}
+
+/**
  * PR58 — 채널 제재/해제 응답.
  * cascade*Count 는 본 호출에서 "새로 숨김 처리한" row 수 — 이미 hidden 이던 row 는 제외.
  */

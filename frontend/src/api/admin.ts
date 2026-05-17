@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type {
   AdminChannelBan,
+  AdminModerationActorStats,
   AdminModerationGranularity,
   AdminModerationPriority,
   AdminModerationQueueItem,
@@ -131,6 +132,20 @@ export function getModerationStats(params?: {
   granularity?: AdminModerationGranularity
 }) {
   return apiClient.get<AdminModerationStats>('/admin/moderation/stats', params)
+}
+
+/**
+ * GET /api/v1/admin/moderation/actor-stats
+ *
+ * PR93 — 운영자 활동 요약. 기본 30일 / Top 10. limit 1..50.
+ * system actor (scheduler 자동 실행분) 는 actorSystem=true 로 구분.
+ */
+export function getModerationActorStats(params?: {
+  from?: string
+  to?: string
+  limit?: number
+}) {
+  return apiClient.get<AdminModerationActorStats>('/admin/moderation/actor-stats', params)
 }
 
 /**

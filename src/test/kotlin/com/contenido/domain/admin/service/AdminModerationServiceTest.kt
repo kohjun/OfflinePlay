@@ -72,6 +72,11 @@ class AdminModerationServiceTest {
     // PR61 — hide/unhide 가 audit 를 기록. 상세 검증은 본 클래스의 audit 섹션에서 한다.
     @MockK(relaxed = true) lateinit var moderationAuditLogService: ModerationAuditLogService
 
+    // PR93 — facade 의 statsService 가 새로 의존하는 두 컴포넌트. hide/unhide 시나리오에선
+    // 호출되지 않지만 생성자 의존성으로 필요해 relaxed mock 으로 채운다.
+    @MockK(relaxed = true) lateinit var moderationAuditLogRepository: com.contenido.domain.admin.repository.ModerationAuditLogRepository
+    @MockK(relaxed = true) lateinit var systemActorService: SystemActorService
+
     private lateinit var service: AdminModerationService
 
     /** PR61 — admin actor id placeholder. */
@@ -107,6 +112,8 @@ class AdminModerationServiceTest {
             channelRepository = channelRepository,
             reportRepository = reportRepository,
             reportAppealRepository = reportAppealRepository,
+            moderationAuditLogRepository = moderationAuditLogRepository,
+            systemActorService = systemActorService,
         )
         service = AdminModerationService(
             reviewRepository = reviewRepository,

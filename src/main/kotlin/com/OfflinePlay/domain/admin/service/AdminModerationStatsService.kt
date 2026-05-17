@@ -1,10 +1,14 @@
 package com.contenido.domain.admin.service
 
+import com.contenido.domain.admin.dto.AdminModerationActorStatItem
+import com.contenido.domain.admin.dto.AdminModerationActorStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationGranularity
 import com.contenido.domain.admin.dto.AdminModerationStatsPoint
 import com.contenido.domain.admin.dto.AdminModerationStatsResponse
 import com.contenido.domain.admin.dto.AdminRiskyChannelResponse
 import com.contenido.domain.admin.dto.ChannelRiskLevel
+import com.contenido.domain.admin.entity.ModerationAuditAction
+import com.contenido.domain.admin.repository.ModerationAuditLogRepository
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.event.repository.EventRepository
@@ -42,6 +46,8 @@ class AdminModerationStatsService(
     private val channelRepository: ChannelRepository,
     private val reportRepository: ReportRepository,
     private val reportAppealRepository: ReportAppealRepository,
+    private val moderationAuditLogRepository: ModerationAuditLogRepository,
+    private val systemActorService: SystemActorService,
 ) {
 
     companion object {
@@ -53,6 +59,10 @@ class AdminModerationStatsService(
 
         /** 위험 채널 Top N. */
         const val RISKY_CHANNELS_LIMIT: Int = 5
+
+        /** PR93 — actor stats 기본/최대 limit. */
+        const val DEFAULT_ACTOR_STATS_LIMIT: Int = 10
+        const val MAX_ACTOR_STATS_LIMIT: Int = 50
     }
 
     fun getStats(
@@ -193,5 +203,63 @@ class AdminModerationStatsService(
                     else ChannelRiskLevel.WATCH,
                 )
             }
+    }
+
+    /**
+     * PR93 — 운영자 활동 요약. moderation_audit_logs 를 actor 단위로 group + action enum 별 분류.
+     *
+     *  - from null → to - [STATS_DEFAULT_DAYS]
+     *  - to null   → now
+     *  - limit null → [DEFAULT_ACTOR_STATS_LIMIT], 그 외엔 [1, MAX_ACTOR_STATS_LIMIT] 로 clamp
+     *  - 정렬 기준: totalActionCount DESC, tie 는 actorId ASC (안정 정렬)
+     *  - system actor (V9 seed) 는 `actorSystem=true` 로 표시 — 자동화 작업과 사람 운영분을 UI 에서 구분.
+     */
+    fun getActorStats(
+        from: LocalDateTime?,
+        to: LocalDateTime?,
+        limit: Int?,
+    ): AdminModerationActorStatsResponse {
+        val toEffective = to ?: LocalDateTime.now()
+        val fromEffective = from ?: toEffective.minusDays(STATS_DEFAULT_DAYS)
+        val limitEffective = (limit ?: DEFAULT_ACTOR_STATS_LIMIT).coerceIn(1, MAX_ACTOR_STATS_LIMIT)
+
+        val systemActorId = systemActorService.getSystemActorId()
+        val rows = moderationAuditLogRepository.findByCreatedAtBetween(fromEffective, toEffective)
+
+        val items = rows.groupBy { it.actor.id }
+            .map { (actorId, logs) ->
+                val actor = logs.first().actor
+                fun count(vararg actions: ModerationAuditAction): Long =
+                    logs.count { it.action in actions }.toLong()
+                AdminModerationActorStatItem(
+                    actorId = actorId,
+                    actorNickname = actor.nickname,
+                    actorSystem = actorId == systemActorId,
+                    totalActionCount = logs.size.toLong(),
+                    hideCount = count(ModerationAuditAction.TARGET_HIDDEN),
+                    unhideCount = count(ModerationAuditAction.TARGET_UNHIDDEN),
+                    channelBanCount = count(ModerationAuditAction.CHANNEL_BANNED),
+                    channelUnbanCount = count(ModerationAuditAction.CHANNEL_UNBANNED),
+                    appealDecisionCount = count(
+                        ModerationAuditAction.APPEAL_APPROVED,
+                        ModerationAuditAction.APPEAL_REJECTED,
+                    ),
+                    reportDecisionCount = count(
+                        ModerationAuditAction.REPORT_RESOLVED,
+                        ModerationAuditAction.REPORT_DISMISSED,
+                    ),
+                    thresholdUpdateCount = count(ModerationAuditAction.THRESHOLD_UPDATED),
+                    archiveCount = count(ModerationAuditAction.AUDIT_LOGS_ARCHIVED),
+                )
+            }
+            .sortedWith(compareByDescending<AdminModerationActorStatItem> { it.totalActionCount }.thenBy { it.actorId })
+            .take(limitEffective)
+
+        return AdminModerationActorStatsResponse(
+            from = fromEffective,
+            to = toEffective,
+            limit = limitEffective,
+            items = items,
+        )
     }
 }

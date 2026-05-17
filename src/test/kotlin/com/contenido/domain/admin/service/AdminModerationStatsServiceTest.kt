@@ -1,5 +1,8 @@
 package com.contenido.domain.admin.service
 
+import com.contenido.domain.admin.entity.ModerationAuditAction
+import com.contenido.domain.admin.entity.ModerationAuditLog
+import com.contenido.domain.admin.repository.ModerationAuditLogRepository
 import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
 import com.contenido.domain.channel.repository.ChannelRepository
@@ -48,6 +51,8 @@ class AdminModerationStatsServiceTest {
     @MockK lateinit var channelRepository: ChannelRepository
     @MockK lateinit var reportRepository: ReportRepository
     @MockK lateinit var reportAppealRepository: ReportAppealRepository
+    @MockK lateinit var moderationAuditLogRepository: ModerationAuditLogRepository
+    @MockK lateinit var systemActorService: SystemActorService
 
     private lateinit var service: AdminModerationStatsService
 
@@ -61,6 +66,8 @@ class AdminModerationStatsServiceTest {
             channelRepository = channelRepository,
             reportRepository = reportRepository,
             reportAppealRepository = reportAppealRepository,
+            moderationAuditLogRepository = moderationAuditLogRepository,
+            systemActorService = systemActorService,
         )
         // 모든 범위 조회가 비어 있으면 시계열은 0 만 채워진다.
         every { reportRepository.findByCreatedAtBetween(any(), any()) } returns emptyList()
@@ -77,6 +84,9 @@ class AdminModerationStatsServiceTest {
         every { postRepository.findByHiddenAtIsNotNullOrderByHiddenAtDesc() } returns emptyList()
         every { eventRepository.findByHiddenAtIsNotNullOrderByHiddenAtDesc() } returns emptyList()
         every { channelRepository.findByHiddenAtIsNotNullOrderByHiddenAtDesc() } returns emptyList()
+        // PR93 — actor stats 기본 stub.
+        every { moderationAuditLogRepository.findByCreatedAtBetween(any(), any()) } returns emptyList()
+        every { systemActorService.getSystemActorId() } returns -1L
     }
 
     @Test
@@ -309,5 +319,146 @@ class AdminModerationStatsServiceTest {
             ReflectionTestUtils.setField(this, "updatedAt", now)
             hide(ReportService.AUTO_HIDE_REASON)
         }
+    }
+
+    // ── PR93 — Actor stats ──────────────────────────────────────────────────
+
+    @Test
+    fun `getActorStats 기본 30일 범위 + default limit 10`() {
+        val response = service.getActorStats(from = null, to = null, limit = null)
+
+        assertThat(response.limit).isEqualTo(10)
+        assertThat(response.items).isEmpty()
+        // from = to - 30 days (now 기준).
+        val days = java.time.Duration.between(response.from, response.to).toDays()
+        assertThat(days).isEqualTo(30L)
+    }
+
+    @Test
+    fun `getActorStats actor 별 group 과 action 분류가 정확하다`() {
+        val now = LocalDateTime.now()
+        val admin = createUser(id = 1L, role = UserRole.ADMIN, nickname = "운영자A")
+        val logs = listOf(
+            createAuditLog(id = 1L, actor = admin, action = ModerationAuditAction.TARGET_HIDDEN, createdAt = now.minusDays(1)),
+            createAuditLog(id = 2L, actor = admin, action = ModerationAuditAction.TARGET_HIDDEN, createdAt = now.minusDays(2)),
+            createAuditLog(id = 3L, actor = admin, action = ModerationAuditAction.TARGET_UNHIDDEN, createdAt = now.minusDays(3)),
+            createAuditLog(id = 4L, actor = admin, action = ModerationAuditAction.CHANNEL_BANNED, createdAt = now.minusDays(4)),
+            createAuditLog(id = 5L, actor = admin, action = ModerationAuditAction.CHANNEL_UNBANNED, createdAt = now.minusDays(5)),
+            createAuditLog(id = 6L, actor = admin, action = ModerationAuditAction.APPEAL_APPROVED, createdAt = now.minusDays(6)),
+            createAuditLog(id = 7L, actor = admin, action = ModerationAuditAction.APPEAL_REJECTED, createdAt = now.minusDays(7)),
+            createAuditLog(id = 8L, actor = admin, action = ModerationAuditAction.REPORT_RESOLVED, createdAt = now.minusDays(8)),
+            createAuditLog(id = 9L, actor = admin, action = ModerationAuditAction.REPORT_DISMISSED, createdAt = now.minusDays(9)),
+            createAuditLog(id = 10L, actor = admin, action = ModerationAuditAction.THRESHOLD_UPDATED, createdAt = now.minusDays(10)),
+        )
+        every { moderationAuditLogRepository.findByCreatedAtBetween(any(), any()) } returns logs
+
+        val response = service.getActorStats(from = null, to = null, limit = null)
+
+        assertThat(response.items).hasSize(1)
+        val item = response.items[0]
+        assertThat(item.actorId).isEqualTo(1L)
+        assertThat(item.actorNickname).isEqualTo("운영자A")
+        assertThat(item.actorSystem).isFalse()
+        assertThat(item.totalActionCount).isEqualTo(10L)
+        assertThat(item.hideCount).isEqualTo(2L)
+        assertThat(item.unhideCount).isEqualTo(1L)
+        assertThat(item.channelBanCount).isEqualTo(1L)
+        assertThat(item.channelUnbanCount).isEqualTo(1L)
+        assertThat(item.appealDecisionCount).isEqualTo(2L)
+        assertThat(item.reportDecisionCount).isEqualTo(2L)
+        assertThat(item.thresholdUpdateCount).isEqualTo(1L)
+        assertThat(item.archiveCount).isZero()
+    }
+
+    @Test
+    fun `getActorStats 여러 actor가 있을 때 totalActionCount 내림차순 정렬`() {
+        val now = LocalDateTime.now()
+        val a = createUser(id = 1L, role = UserRole.ADMIN, nickname = "A")
+        val b = createUser(id = 2L, role = UserRole.ADMIN, nickname = "B")
+        val c = createUser(id = 3L, role = UserRole.ADMIN, nickname = "C")
+        val logs = listOf(
+            createAuditLog(1L, a, ModerationAuditAction.TARGET_HIDDEN, now.minusDays(1)),
+            createAuditLog(2L, a, ModerationAuditAction.TARGET_HIDDEN, now.minusDays(2)),
+            createAuditLog(3L, b, ModerationAuditAction.TARGET_HIDDEN, now.minusDays(3)),
+            createAuditLog(4L, b, ModerationAuditAction.CHANNEL_BANNED, now.minusDays(4)),
+            createAuditLog(5L, b, ModerationAuditAction.REPORT_RESOLVED, now.minusDays(5)),
+            createAuditLog(6L, c, ModerationAuditAction.TARGET_HIDDEN, now.minusDays(6)),
+        )
+        every { moderationAuditLogRepository.findByCreatedAtBetween(any(), any()) } returns logs
+
+        val response = service.getActorStats(null, null, null)
+
+        assertThat(response.items).extracting<Long> { it.actorId }.containsExactly(2L, 1L, 3L)
+        assertThat(response.items[0].totalActionCount).isEqualTo(3L) // B
+        assertThat(response.items[1].totalActionCount).isEqualTo(2L) // A
+        assertThat(response.items[2].totalActionCount).isEqualTo(1L) // C
+    }
+
+    @Test
+    fun `getActorStats system actor 는 actorSystem true 로 표시된다`() {
+        val now = LocalDateTime.now()
+        val systemUser = createUser(id = 999L, nickname = "System")
+        every { systemActorService.getSystemActorId() } returns 999L
+        every { moderationAuditLogRepository.findByCreatedAtBetween(any(), any()) } returns listOf(
+            createAuditLog(1L, systemUser, ModerationAuditAction.AUDIT_LOGS_ARCHIVED, now.minusDays(1)),
+        )
+
+        val response = service.getActorStats(null, null, null)
+
+        assertThat(response.items).hasSize(1)
+        val item = response.items[0]
+        assertThat(item.actorId).isEqualTo(999L)
+        assertThat(item.actorSystem).isTrue()
+        assertThat(item.archiveCount).isEqualTo(1L)
+    }
+
+    @Test
+    fun `getActorStats limit 은 1과 50 사이로 clamp 된다`() {
+        val now = LocalDateTime.now()
+        val logs = (1..3L).map { i ->
+            val u = createUser(id = i, nickname = "u$i")
+            createAuditLog(i, u, ModerationAuditAction.TARGET_HIDDEN, now.minusDays(i))
+        }
+        every { moderationAuditLogRepository.findByCreatedAtBetween(any(), any()) } returns logs
+
+        val r0 = service.getActorStats(null, null, 0)
+        assertThat(r0.limit).isEqualTo(1)
+        assertThat(r0.items).hasSize(1)
+
+        val rNeg = service.getActorStats(null, null, -5)
+        assertThat(rNeg.limit).isEqualTo(1)
+
+        val rHigh = service.getActorStats(null, null, 999)
+        assertThat(rHigh.limit).isEqualTo(50)
+        // 실제 row 가 3개라 3개만.
+        assertThat(rHigh.items).hasSize(3)
+
+        val r2 = service.getActorStats(null, null, 2)
+        assertThat(r2.limit).isEqualTo(2)
+        assertThat(r2.items).hasSize(2)
+    }
+
+    @Test
+    fun `getActorStats 범위 밖 row 는 repository 가 제외하므로 응답에 포함되지 않는다`() {
+        // 명시 from/to 를 좁게 전달.
+        val from = LocalDateTime.now().minusDays(2)
+        val to = LocalDateTime.now()
+        every { moderationAuditLogRepository.findByCreatedAtBetween(from, to) } returns emptyList()
+
+        val response = service.getActorStats(from, to, null)
+
+        assertThat(response.from).isEqualTo(from)
+        assertThat(response.to).isEqualTo(to)
+        assertThat(response.items).isEmpty()
+    }
+
+    private fun createAuditLog(
+        id: Long,
+        actor: User,
+        action: ModerationAuditAction,
+        createdAt: LocalDateTime,
+    ): ModerationAuditLog = ModerationAuditLog(actor = actor, action = action).apply {
+        ReflectionTestUtils.setField(this, "id", id)
+        ReflectionTestUtils.setField(this, "createdAt", createdAt)
     }
 }

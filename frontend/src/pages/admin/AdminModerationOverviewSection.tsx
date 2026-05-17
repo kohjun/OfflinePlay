@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   banChannelForModeration,
   dismissReport,
+  getModerationActorStats,
   getModerationQueue,
   getModerationStats,
   getModerationThresholds,
@@ -16,6 +17,7 @@ import { Badge } from '../../components/Badge'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import type {
+  AdminModerationActorStats,
   AdminModerationPriority,
   AdminModerationQueueItem,
   AdminModerationStats,
@@ -102,6 +104,11 @@ export function AdminModerationOverviewSection() {
   })
   const [thresholdSaving, setThresholdSaving] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
+  // PR93 — 운영자 활동 요약 (기본 30일 / Top 10). overview 의 보조 카드라 초기 로드 실패는
+  // overview 전체를 막지 않고 자체 fallback("불러올 수 없어요") 으로 다룬다.
+  const [actorStats, setActorStats] = useState<AdminModerationActorStats | null>(null)
+  const [actorStatsLoading, setActorStatsLoading] = useState(true)
+  const [actorStatsError, setActorStatsError] = useState(false)
 
   useEffect(() => {
     if (user?.role !== 'ADMIN') return
@@ -127,6 +134,16 @@ export function AdminModerationOverviewSection() {
       })
       .finally(() => setInitialLoading(false))
   }, [showToast, user?.role])
+
+  useEffect(() => {
+    if (user?.role !== 'ADMIN') return
+    setActorStatsLoading(true)
+    setActorStatsError(false)
+    getModerationActorStats()
+      .then((res) => setActorStats(res))
+      .catch(() => setActorStatsError(true))
+      .finally(() => setActorStatsLoading(false))
+  }, [user?.role])
 
   async function refreshQueue() {
     try {
@@ -412,6 +429,45 @@ export function AdminModerationOverviewSection() {
           </div>
         </section>
       ) : null}
+
+      <section className="section">
+        <div className="section-heading">
+          <h2>운영자 활동</h2>
+          <span className="muted">최근 30일 · Top 10</span>
+        </div>
+        {actorStatsLoading ? (
+          <p className="muted">불러오는 중…</p>
+        ) : actorStatsError ? (
+          <p className="muted">운영자 활동 데이터를 불러오지 못했어요.</p>
+        ) : !actorStats || actorStats.items.length === 0 ? (
+          <p className="muted">지난 30일 동안 운영자 활동이 없어요.</p>
+        ) : (
+          <ul className="stack ct-admin-actor-stats">
+            {actorStats.items.map((row) => (
+              <article className="card admin-card" key={row.actorId}>
+                <div>
+                  <div className="badge-row">
+                    {row.actorSystem ? <Badge tone="neutral">System</Badge> : null}
+                    <strong>{row.actorNickname}</strong>
+                    <span className="muted">#{row.actorId}</span>
+                  </div>
+                  <div className="meta-row" style={{ flexWrap: 'wrap', gap: '6px 12px' }}>
+                    <span>총 {row.totalActionCount}건</span>
+                    {row.hideCount > 0 ? <span>숨김 {row.hideCount}</span> : null}
+                    {row.unhideCount > 0 ? <span>숨김 해제 {row.unhideCount}</span> : null}
+                    {row.channelBanCount > 0 ? <span>채널 제재 {row.channelBanCount}</span> : null}
+                    {row.channelUnbanCount > 0 ? <span>제재 해제 {row.channelUnbanCount}</span> : null}
+                    {row.appealDecisionCount > 0 ? <span>이의 처리 {row.appealDecisionCount}</span> : null}
+                    {row.reportDecisionCount > 0 ? <span>신고 처리 {row.reportDecisionCount}</span> : null}
+                    {row.thresholdUpdateCount > 0 ? <span>임계치 변경 {row.thresholdUpdateCount}</span> : null}
+                    {row.archiveCount > 0 ? <span>아카이브 {row.archiveCount}</span> : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="section">
         <div className="section-heading">

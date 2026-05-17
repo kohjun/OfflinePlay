@@ -3,6 +3,7 @@ package com.contenido.domain.admin.controller
 import com.contenido.domain.admin.dto.AdminBanChannelRequest
 import com.contenido.domain.admin.dto.AdminChannelBanResponse
 import com.contenido.domain.admin.dto.AdminHideTargetRequest
+import com.contenido.domain.admin.dto.AdminModerationActorStatsResponse
 import com.contenido.domain.admin.dto.AdminModerationGranularity
 import com.contenido.domain.admin.dto.AdminModerationPriority
 import com.contenido.domain.admin.dto.AdminModerationQueueItemResponse
@@ -52,6 +53,18 @@ class AdminModerationController(
         @RequestParam(required = false) granularity: AdminModerationGranularity?,
     ): ApiResponse<AdminModerationStatsResponse> =
         ApiResponse.ok(adminModerationService.getStats(from, to, granularity))
+
+    /**
+     * PR93 — 운영자 활동 요약. moderation_audit_logs 를 actor 단위로 group.
+     * 기본 30일 / Top 10. limit 은 1..50 으로 clamp.
+     */
+    @GetMapping("/moderation/actor-stats")
+    fun getModerationActorStats(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) from: LocalDateTime?,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) to: LocalDateTime?,
+        @RequestParam(required = false) limit: Int?,
+    ): ApiResponse<AdminModerationActorStatsResponse> =
+        ApiResponse.ok(adminModerationService.getActorStats(from, to, limit))
 
     // ── 통합 moderation queue — PR55 ─────────────────────────────────────────
 

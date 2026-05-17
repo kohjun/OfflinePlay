@@ -138,6 +138,13 @@ class AdminModerationService(
     ): AdminModerationStatsResponse =
         statsService.getStats(from, to, granularity)
 
+    fun getActorStats(
+        from: LocalDateTime?,
+        to: LocalDateTime?,
+        limit: Int?,
+    ): com.contenido.domain.admin.dto.AdminModerationActorStatsResponse =
+        statsService.getActorStats(from, to, limit)
+
     // ── private hide/unhide helpers ──────────────────────────────────────────
 
     /**

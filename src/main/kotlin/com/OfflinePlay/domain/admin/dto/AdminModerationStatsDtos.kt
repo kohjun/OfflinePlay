@@ -52,3 +52,42 @@ data class AdminModerationStatsResponse(
     val totals: AdminModerationStatsPoint,
     val riskyChannels: List<AdminRiskyChannelResponse>,
 )
+
+/**
+ * PR93 — 운영자(actor) 활동 요약. moderation_audit_logs 를 actor 단위로 집계해
+ * "지난 30일간 누가 얼마나 hide/ban/appeal/report 를 처리했는지" 를 한 표로 본다.
+ *
+ * 분류는 [com.contenido.domain.admin.entity.ModerationAuditAction] enum 기준:
+ *  - hideCount             : TARGET_HIDDEN
+ *  - unhideCount           : TARGET_UNHIDDEN
+ *  - channelBanCount       : CHANNEL_BANNED
+ *  - channelUnbanCount     : CHANNEL_UNBANNED
+ *  - appealDecisionCount   : APPEAL_APPROVED + APPEAL_REJECTED
+ *  - reportDecisionCount   : REPORT_RESOLVED + REPORT_DISMISSED
+ *  - thresholdUpdateCount  : THRESHOLD_UPDATED
+ *  - archiveCount          : AUDIT_LOGS_ARCHIVED
+ *
+ * actorSystem 은 system actor (V9 seed, [SystemActorService]) 여부 — scheduled archive 자동
+ * 실행분이 사람 운영분과 섞여 보이지 않도록 UI 가 별도 뱃지로 표시한다.
+ */
+data class AdminModerationActorStatItem(
+    val actorId: Long,
+    val actorNickname: String,
+    val actorSystem: Boolean,
+    val totalActionCount: Long,
+    val hideCount: Long,
+    val unhideCount: Long,
+    val channelBanCount: Long,
+    val channelUnbanCount: Long,
+    val appealDecisionCount: Long,
+    val reportDecisionCount: Long,
+    val thresholdUpdateCount: Long,
+    val archiveCount: Long,
+)
+
+data class AdminModerationActorStatsResponse(
+    val from: LocalDateTime,
+    val to: LocalDateTime,
+    val limit: Int,
+    val items: List<AdminModerationActorStatItem>,
+)
