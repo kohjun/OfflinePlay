@@ -460,7 +460,7 @@ POST /api/v1/reports                     ← reporter
 - `REPORT_DISMISSED`, `APPEAL_APPROVED`, `APPEAL_REJECTED`
 - `THRESHOLD_UPDATED`
 - `AUDIT_LOGS_ARCHIVED` (PR65 — archive job 자체의 기록)
-- `TICKET_FORCED_REFUNDED` (PR106 — ADMIN 강제 전액 환불. `targetType=null`, `afterValue` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 동봉, `reason` 은 운영 사유)
+- `TICKET_FORCED_REFUNDED` (PR106 — ADMIN 강제 전액 환불. `targetType=null`, `afterValue` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 동봉, `reason` 은 운영 사유. PR109 부터 `AdminModerationStatsService.getActorStats` 응답의 `forcedRefundCount` 로도 집계되어 운영자 활동 카드에 별도 표시)
 
 조회 / 검색: `AdminAuditController` + `ModerationAuditLogSpecs`. CSV export 1000 행 한도 (`ModerationAuditLogService.EXPORT_LIMIT`).
 
@@ -590,5 +590,7 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR105 — `updatedAt` 정책 문서화 (§6.4 응답 표 + §6.6 표시 행) + §10 Known Exclusions 보강
 - PR106 — ADMIN 강제 전액 환불 도구 (USED / 시작 후 PAID, 부분 환불은 미지원) + `TICKET_FORCED_REFUNDED` audit
 - PR107 — 강제 환불 흐름 문서화 ([payment-refund-policy.md §13](payment-refund-policy.md) + 본 문서 §5.2.1) + §3 / §4.4 / §8.1 / §10 Known Exclusions 갱신
+- PR108 — Release notes (`docs/release-notes-local-bundle.md`) PR104~PR107 사이클로 refresh
+- PR109 — Admin actor stats 응답에 `forcedRefundCount` 필드 추가 + 운영자 활동 카드 breakdown 1줄 (PR93 stats 위에 audit 데이터 그대로 활용, 신규 endpoint/마이그레이션 없음)
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.

@@ -66,9 +66,14 @@ data class AdminModerationStatsResponse(
  *  - reportDecisionCount   : REPORT_RESOLVED + REPORT_DISMISSED
  *  - thresholdUpdateCount  : THRESHOLD_UPDATED
  *  - archiveCount          : AUDIT_LOGS_ARCHIVED
+ *  - forcedRefundCount     : TICKET_FORCED_REFUNDED (PR109)
  *
  * actorSystem 은 system actor (V9 seed, [SystemActorService]) 여부 — scheduled archive 자동
  * 실행분이 사람 운영분과 섞여 보이지 않도록 UI 가 별도 뱃지로 표시한다.
+ *
+ * `totalActionCount` 는 위 모든 분류의 합이 아니라 audit row 개수 — 분류에 포함되지 않은 액션도
+ * 들어가 있을 수 있다. 분류 외 행위가 새로 추가되면 합과 분류 카운트가 어긋날 수 있으므로 본 DTO
+ * 갱신 시 함께 점검한다.
  */
 data class AdminModerationActorStatItem(
     val actorId: Long,
@@ -83,6 +88,8 @@ data class AdminModerationActorStatItem(
     val reportDecisionCount: Long,
     val thresholdUpdateCount: Long,
     val archiveCount: Long,
+    /** PR109 — [ModerationAuditAction.TICKET_FORCED_REFUNDED] 처리 건수. */
+    val forcedRefundCount: Long,
 )
 
 data class AdminModerationActorStatsResponse(

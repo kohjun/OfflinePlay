@@ -628,5 +628,5 @@ buyer 에게 `REFUND_COMPLETED` 알림 1건 발송 (기존 `markRefundedInternal
 
 - **부분 환불** — Ticket 모델에 `refundedAmount` 컬럼 없음. PG 의 `cancelAmount` 도 항상 `attempt.amount` 전액. **여전히 미구현.**
 - **TicketStatus PARTIALLY_REFUNDED enum** — 도입 안 함. REFUNDED 만 사용.
-- **운영 활동 dashboard 에서의 forced refund 통계** — `AdminModerationStatsService.getActorStats` (PR93) 는 `ModerationAuditAction` 기준으로 집계하므로 `TICKET_FORCED_REFUNDED` 도 자연스럽게 actor stats 의 `archiveCount` 옆 항목으로 추가하려면 후속 PR 에서 actor stats DTO 에 새 카운트 필드를 추가해야 한다. 본 PR 은 audit row 만 남기고 stats UI 는 건드리지 않는다.
+- ~~**운영 활동 dashboard 에서의 forced refund 통계**~~ — **PR109 에서 추가됨.** `AdminModerationActorStatItem.forcedRefundCount` 필드가 응답에 포함되고 운영자 활동 카드 breakdown 에 별도 행으로 노출된다.
 - **부분 환불 결정 정책** — `Event.currentParticipants` cascade 를 부분 환불에서 어떻게 다룰지(감소 / 유지 / 운영자 선택) 는 별도 PR 의 정책 결정 필요.

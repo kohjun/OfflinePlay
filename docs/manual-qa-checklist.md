@@ -541,6 +541,22 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: ADMIN 이 일반 환불 경로로 막혀 있던 케이스를 명시적 사유 기록과 함께 한 곳에서 처리할 수 있다. 환불 cascade, buyer 알림, audit 기록이 모두 동일 트랜잭션에서 일관되게 적용된다.
 
+### 23. 운영자 활동 강제 환불 카운트 (PR109)
+**목적**: PR106 의 강제 환불 audit 가 PR93 의 운영자 활동 요약(`/admin?tab=overview`) 의 actor 카드에 별도 카운트로 표시되는지 확인. 신규 endpoint / 마이그레이션 없이 표시만 추가.
+
+**사전 조건**: ADMIN 계정 1명 + 같은 ADMIN 으로 최근 30일 내 `TICKET_FORCED_REFUNDED` audit row 가 1건 이상 누적된 상태 (PR106 의 `/admin?tab=payments` 에서 USED 티켓 강제 환불 1회 이상 실행).
+
+- [ ] 🖱 `/admin?tab=overview` 진입 → "운영자 활동" 카드 row 의 breakdown 에 "강제 환불 N" 표시 (N >= 1)
+- [ ] 🖱 강제 환불을 한 번도 실행하지 않은 ADMIN row 에서는 "강제 환불" 항목이 노출되지 않음 (`row.forcedRefundCount === 0` 일 때 미표시)
+- [ ] 🖱 같은 ADMIN 이 추가로 1건 더 강제 환불 처리 → overview 재로드 시 카운트가 +1 (예: 1 → 2)
+- [ ] 🖱 강제 환불 처리는 `totalActionCount` 에도 포함됨 — breakdown 합계가 total 과 일치 (또는 total 이 그 이상)
+- [ ] 🖱 다른 액션(hide / ban / report decision / archive 등) 의 카운트는 강제 환불을 추가해도 영향 받지 않음
+- [ ] 📋 `GET /api/v1/admin/moderation/actor-stats` 응답 JSON 의 각 `items[].forcedRefundCount` 가 number 타입으로 존재 (row 없어도 0)
+- [ ] 📋 `moderation_audit_logs` 에 `TICKET_FORCED_REFUNDED` row 가 N건 있을 때 응답의 `forcedRefundCount` 도 N
+- [ ] 📋 신규 endpoint / 마이그레이션 없음 — DTO 한 필드 + service 한 줄 + frontend 한 줄만 변경
+
+**기대 결과**: 운영자가 한 화면에서 본인이 처리한 강제 환불 건수를 다른 운영 액션과 함께 한눈에 확인할 수 있다. audit 데이터를 그대로 활용해 추가 fetch 부담이 없다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

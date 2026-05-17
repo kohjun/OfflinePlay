@@ -102,6 +102,8 @@ export interface AdminModerationActorStatItem {
   reportDecisionCount: number
   thresholdUpdateCount: number
   archiveCount: number
+  /** PR109 — TICKET_FORCED_REFUNDED audit action 처리 건수. */
+  forcedRefundCount: number
 }
 
 export interface AdminModerationActorStats {
