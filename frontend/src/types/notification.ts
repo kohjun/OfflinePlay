@@ -33,10 +33,14 @@ export type NotificationType =
 /**
  * PR95 — 사용자별 NotificationType 수신 선호. backend 응답은 모든 type 을 반환하며 row 가 없는
  * type 은 enabled=true 로 채워진 상태.
+ *
+ * PR104 — `updatedAt` 은 backend row.updatedAt 의 lightweight signal. row 가 없는 type
+ * (사용자가 한 번도 설정한 적 없음 = 기본값) 은 null. 본 필드는 변경 이력을 대체하지 않는다.
  */
 export interface NotificationPreference {
   type: NotificationType
   enabled: boolean
+  updatedAt?: string | null
 }
 
 /** PR95 — 부분 갱신 요청. request 에 없는 type 은 backend 가 기존 값을 유지한다. */

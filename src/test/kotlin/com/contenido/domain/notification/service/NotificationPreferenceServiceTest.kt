@@ -65,11 +65,7 @@ class NotificationPreferenceServiceTest {
 
     @Test
     fun `getMyPreferences 일부 row 가 false 면 해당 type 만 false`() {
-        val savedFalse = UserNotificationPreference(
-            user = user,
-            notificationType = NotificationType.NEW_COMMENT,
-            enabled = false,
-        )
+        val savedFalse = preferenceFixture(NotificationType.NEW_COMMENT, enabled = false)
         every { preferenceRepository.findByUserId(USER_ID) } returns listOf(savedFalse)
 
         val response = service.getMyPreferences(USER_ID)
@@ -83,11 +79,7 @@ class NotificationPreferenceServiceTest {
     @Test
     fun `updateMyPreferences 신규 type 은 insert 되고 기존 type 은 update 된다`() {
         // 기존 NEW_COMMENT=true 만 있음.
-        val existing = UserNotificationPreference(
-            user = user,
-            notificationType = NotificationType.NEW_COMMENT,
-            enabled = true,
-        )
+        val existing = preferenceFixture(NotificationType.NEW_COMMENT, enabled = true)
         every { preferenceRepository.findByUser(user) } returns listOf(existing)
         every { preferenceRepository.findByUserId(USER_ID) } returns listOf(existing)
         val saveSlot = slot<UserNotificationPreference>()
@@ -112,11 +104,7 @@ class NotificationPreferenceServiceTest {
 
     @Test
     fun `updateMyPreferences request 에 없는 type 은 건드리지 않는다`() {
-        val keptTrue = UserNotificationPreference(
-            user = user,
-            notificationType = NotificationType.NEW_COMMENT,
-            enabled = true,
-        )
+        val keptTrue = preferenceFixture(NotificationType.NEW_COMMENT, enabled = true)
         every { preferenceRepository.findByUser(user) } returns listOf(keptTrue)
         every { preferenceRepository.findByUserId(USER_ID) } returns listOf(keptTrue)
 
@@ -163,11 +151,7 @@ class NotificationPreferenceServiceTest {
 
     @Test
     fun `isEnabled row 가 false 면 false`() {
-        val row = UserNotificationPreference(
-            user = user,
-            notificationType = NotificationType.NEW_COMMENT,
-            enabled = false,
-        )
+        val row = preferenceFixture(NotificationType.NEW_COMMENT, enabled = false)
         every {
             preferenceRepository.findByUserIdAndNotificationType(USER_ID, NotificationType.NEW_COMMENT)
         } returns row
@@ -182,5 +166,89 @@ class NotificationPreferenceServiceTest {
         } throws RuntimeException("db down")
 
         assertThat(service.isEnabled(USER_ID, NotificationType.NEW_COMMENT)).isTrue()
+    }
+
+    // ── PR104 — updatedAt 표시 ───────────────────────────────────────────────
+
+    @Test
+    fun `getMyPreferences row 없는 type 은 updatedAt null`() {
+        every { preferenceRepository.findByUserId(USER_ID) } returns emptyList()
+
+        val response = service.getMyPreferences(USER_ID)
+
+        assertThat(response.all { it.updatedAt == null }).isTrue()
+    }
+
+    @Test
+    fun `getMyPreferences row 있는 type 은 row updatedAt 그대로 반환`() {
+        val savedAt = LocalDateTime.of(2026, 5, 1, 12, 0)
+        val row = preferenceFixture(NotificationType.NEW_COMMENT, enabled = false, updatedAt = savedAt)
+        every { preferenceRepository.findByUserId(USER_ID) } returns listOf(row)
+
+        val response = service.getMyPreferences(USER_ID)
+
+        val newComment = response.first { it.type == NotificationType.NEW_COMMENT }
+        assertThat(newComment.updatedAt).isEqualTo(savedAt)
+        val others = response.filter { it.type != NotificationType.NEW_COMMENT }
+        assertThat(others.all { it.updatedAt == null }).isTrue()
+    }
+
+    @Test
+    fun `updateMyPreferences 후 변경된 type 은 updatedAt 이 갱신된다`() {
+        val oldAt = LocalDateTime.now().minusDays(7)
+        val existing = preferenceFixture(NotificationType.NEW_COMMENT, enabled = true, updatedAt = oldAt)
+        every { preferenceRepository.findByUser(user) } returns listOf(existing)
+        every { preferenceRepository.findByUserId(USER_ID) } returns listOf(existing)
+
+        val request = UpdateNotificationPreferencesRequest(
+            listOf(UpdateNotificationPreferenceItem(NotificationType.NEW_COMMENT, false))
+        )
+
+        val before = LocalDateTime.now()
+        val response = service.updateMyPreferences(USER_ID, request)
+        val after = LocalDateTime.now()
+
+        val newComment = response.first { it.type == NotificationType.NEW_COMMENT }
+        // entity.update() 가 LocalDateTime.now() 를 직접 set 하므로 호출 전후 사이 값이어야 한다.
+        assertThat(newComment.updatedAt).isNotNull
+        assertThat(newComment.updatedAt!!).isAfterOrEqualTo(before).isBeforeOrEqualTo(after)
+        // 변경 결과로 enabled 도 false 로 바뀌어야 한다 (회귀 가드).
+        assertThat(newComment.enabled).isFalse()
+    }
+
+    @Test
+    fun `updateMyPreferences request 에 없는 type 은 기존 updatedAt 유지`() {
+        val keptAt = LocalDateTime.of(2026, 4, 1, 9, 30)
+        val keptRow = preferenceFixture(NotificationType.NEW_COMMENT, enabled = true, updatedAt = keptAt)
+        every { preferenceRepository.findByUser(user) } returns listOf(keptRow)
+        every { preferenceRepository.findByUserId(USER_ID) } returns listOf(keptRow)
+        every { preferenceRepository.save(any()) } answers { firstArg() }
+
+        // 다른 type 만 갱신 — keptRow 는 건드리지 않는다.
+        val request = UpdateNotificationPreferencesRequest(
+            listOf(UpdateNotificationPreferenceItem(NotificationType.NEW_LIKE, false))
+        )
+
+        val response = service.updateMyPreferences(USER_ID, request)
+
+        val keptResp = response.first { it.type == NotificationType.NEW_COMMENT }
+        assertThat(keptResp.updatedAt).isEqualTo(keptAt)
+        assertThat(keptResp.enabled).isTrue()
+    }
+
+    /**
+     * 본 엔티티는 `lateinit var updatedAt`. 운영에서는 JPA 의 `@CreatedDate / @LastModifiedDate`
+     * 리스너가 자동 채워 주지만 unit test 에서는 ReflectionTestUtils 로 직접 박는다.
+     */
+    private fun preferenceFixture(
+        type: NotificationType,
+        enabled: Boolean,
+        updatedAt: LocalDateTime = LocalDateTime.now().minusDays(1),
+    ): UserNotificationPreference {
+        val now = LocalDateTime.now()
+        return UserNotificationPreference(user = user, notificationType = type, enabled = enabled).apply {
+            ReflectionTestUtils.setField(this, "createdAt", now)
+            ReflectionTestUtils.setField(this, "updatedAt", updatedAt)
+        }
     }
 }

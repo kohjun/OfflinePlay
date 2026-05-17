@@ -474,6 +474,27 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 사용자가 알림 목록에서 한 번의 클릭으로 특정 유형 알림을 끌 수 있고, 실수했을 때 5초 안에 되돌릴 수 있다. 알림 설정 패널과 상태가 항상 일치한다.
 
+### 20c. 알림 설정 "마지막 저장 시각" (PR104)
+**목적**: 알림 설정 패널의 각 NotificationType 행 라벨 아래에 "마지막 저장 시각" 이 표시되고, 개별 토글 / 묶음 토글 / quick mute / undo 후 즉시 갱신되는지 확인. `UserNotificationPreference.updatedAt` 한 컬럼만 사용 (별도 history 테이블 없음).
+
+**사전 조건**: 일반 사용자 계정 1명, 알림 설정 패널을 열 수 있는 상태.
+
+- [ ] 🖱 패널을 처음 열면 row 가 없는 type 들은 라벨 아래에 "기본값" 표시
+- [ ] 🖱 한 type 을 OFF 로 개별 토글 → "기본값" → "마지막 저장: 방금 전" 으로 즉시 갱신, 다른 type 은 그대로 "기본값"
+- [ ] 🖱 다시 같은 type 을 ON 으로 토글 → "마지막 저장: 방금 전" 으로 갱신 (시간만 다시 카운트)
+- [ ] 🖱 묶음 토글 (예: "참가 관련 끄기") → 해당 카테고리 6 type 모두 "마지막 저장: 방금 전" 으로 동시 갱신, 다른 카테고리 type 은 그대로
+- [ ] 🖱 "전체 끄기" → 모든 type 이 "마지막 저장: 방금 전" (15개 모두 동시 갱신)
+- [ ] 🖱 알림 카드에서 "이 유형 끄기" → 해당 type 의 패널 row 가 "방금 전" 으로 갱신 (패널이 열려 있을 때)
+- [ ] 🖱 undo banner "되돌리기" → 같은 type 이 다시 "방금 전" 으로 갱신
+- [ ] 🖱 새로고침 후 패널 재오픈 → 최근에 토글한 type 은 분/시간 단위 상대 시간 표시 (예: "5분 전")
+- [ ] 🖱 7일 이상 지난 토글의 row 는 상대 시간이 아니라 로컬 날짜 (예: "2026. 5. 1.") 로 표시
+- [ ] 📋 `GET /api/v1/notifications/preferences` 응답의 row 없는 type 은 `updatedAt: null`, row 있는 type 은 ISO LocalDateTime
+- [ ] 📋 PATCH 후 응답에서 변경된 type 만 `updatedAt` 이 최신, 다른 type 의 `updatedAt` 은 그대로 유지 (partial update 회귀 가드)
+- [ ] 📋 backend `user_notification_preferences` 테이블의 `updated_at` 컬럼이 변경된 row 만 갱신됨 (다른 row 의 timestamp 는 그대로)
+- [ ] 📋 새 history / audit 테이블이 만들어지지 않음 (V11 등 신규 마이그레이션 없음)
+
+**기대 결과**: 사용자가 알림 설정을 언제 마지막으로 만졌는지 가벼운 시각 단서를 얻는다. preference history / audit 가 도입된 것처럼 보이지 않게 "마지막 저장" 한 문구만 노출한다.
+
 ### 21. 알림 메타데이터 일관성 (PR97)
 **목적**: NotificationType 별 라벨/tone/라우팅이 NotificationsPage 알림 카드와 알림 설정 패널에서 일치하고, 모든 enum 값에 정의가 있는지 확인.
 

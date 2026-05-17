@@ -32,15 +32,18 @@ class NotificationPreferenceService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     /**
-     * 모든 [NotificationType] 에 대한 응답을 반환. row 가 없는 type 은 enabled=true.
+     * 모든 [NotificationType] 에 대한 응답을 반환. row 가 없는 type 은 enabled=true / updatedAt=null.
+     * row 가 있는 type 은 row.enabled + row.updatedAt (PR104).
      */
     fun getMyPreferences(userId: Long): List<NotificationPreferenceResponse> {
         userRepository.findById(userId).orElseThrow { UserNotFoundException() }
         val saved = preferenceRepository.findByUserId(userId).associateBy { it.notificationType }
         return NotificationType.values().map { type ->
+            val row = saved[type]
             NotificationPreferenceResponse(
                 type = type,
-                enabled = saved[type]?.enabled ?: true,
+                enabled = row?.enabled ?: true,
+                updatedAt = row?.updatedAt,
             )
         }
     }

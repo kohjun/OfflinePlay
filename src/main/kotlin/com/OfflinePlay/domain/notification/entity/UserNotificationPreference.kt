@@ -58,5 +58,9 @@ class UserNotificationPreference(
 
     fun update(enabled: Boolean) {
         this.enabled = enabled
+        // PR104 — @LastModifiedDate 는 @PreUpdate flush 시점에 fire 하므로 같은 트랜잭션
+        // 안에서 다시 읽을 때 갱신된 updatedAt 이 보이도록 명시 갱신. 이후 @PreUpdate 가
+        // 추가로 한 번 더 set 해도 결과 timestamp 는 거의 동일한 now() 이라 문제 없음.
+        this.updatedAt = LocalDateTime.now()
     }
 }

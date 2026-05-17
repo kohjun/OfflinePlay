@@ -35,6 +35,26 @@ const STATUS_LABEL: Record<StreamStatus, string> = {
 
 const PAGE_SIZE = 20
 
+/**
+ * PR104 — preference 의 마지막 저장 시각을 사용자 친화적으로. 새 라이브러리 없이 minute/hour/day
+ * 단위만 표현하고, 7일 이상은 로컬 날짜로 fallback. updatedAt 이 없거나 잘못된 값이면 빈 문자열 →
+ * 호출처가 "기본값" 대체 텍스트를 띄운다.
+ */
+function formatRelativeTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const diff = Math.max(0, Date.now() - t)
+  const m = Math.floor(diff / 60_000)
+  if (m < 1) return '방금 전'
+  if (m < 60) return `${m}분 전`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}시간 전`
+  const d = Math.floor(h / 24)
+  if (d < 7) return `${d}일 전`
+  return new Date(iso).toLocaleDateString()
+}
+
 interface NotificationsPageProps {
   onNavigate: (path: string) => void
 }
@@ -481,10 +501,16 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
                   const id = `notif-pref-${pref.type}`
                   const label = getNotificationLabel(pref.type)
                   const saving = savingTypes.has(pref.type)
+                  const relative = formatRelativeTime(pref.updatedAt)
                   return (
                     <li key={pref.type} className="notification-preferences__item">
                       <label htmlFor={id} className="notification-preferences__label">
-                        <span>{label}</span>
+                        <span className="notification-preferences__label-main">
+                          <span>{label}</span>
+                          <span className="muted notification-preferences__updated">
+                            {relative ? `마지막 저장: ${relative}` : '기본값'}
+                          </span>
+                        </span>
                         <input
                           id={id}
                           type="checkbox"
