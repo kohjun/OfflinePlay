@@ -2,7 +2,25 @@
 
 릴리스 전 핵심 동선이 깨지지 않았는지 손으로 한 번 훑는 용도. 자동화 테스트는 서비스/통합 레벨에서 168 케이스가 있지만, 실제 SSE/세션/모바일 UI 가 함께 도는 흐름은 손으로 확인해야 합니다.
 
-소요 시간: 약 20-25분 (한 사람).
+소요 시간: 약 25-35분 (한 사람) — 결제·환불 시나리오까지 포함.
+
+## 본 문서 사용법
+
+각 섹션은 다음 형식을 따릅니다:
+
+- **목적** — 무엇을 확인하려는가 (한 줄)
+- **사전 조건** — 계정, 데이터, 환경 변수 같은 시작 상태
+- **체크리스트** — 클릭하거나 확인할 항목들
+- **기대 결과** — (필요 시) 통과 판정 기준
+
+각 체크박스에는 두 종류가 섞여 있습니다:
+
+- 🖱 **브라우저 수동 테스트 필요** — 실제로 클릭/입력해야 확인되는 항목. 결제 / 환불 / SSE / 알림 / 라이브 효과는 거의 전부 이쪽.
+- 📋 **정적 확인 가능** — 코드 / DB / devtools 패널 / 응답 페이로드만으로 통과 여부가 판정되는 항목. 환경 변수, accessibility 트리, multipart 응답 멱등성 등.
+
+라벨이 명시되지 않은 항목은 기본 🖱 로 봅니다. 시간이 부족할 때는 🖱 만 먼저 돌리고 📋 는 다음 사이클로 미뤄도 됩니다.
+
+플랫폼 전체 흐름 / 도메인 구조 / 결제·환불 정책 / moderation·audit 흐름은 [docs/architecture.md](architecture.md) 참고. 본 체크리스트는 그 위에 얹는 "행동 검증" 단계입니다.
 
 ## 사전 준비
 
@@ -338,31 +356,53 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] CANCELED 티켓 진입 → VOID 스탬프 + "취소됨" 뱃지 + 환불 요청 버튼 미노출
 - [ ] 알림에서 진입했을 때도 같은 화면 (별도 hidden/404 분기 X)
 
-### 17a. 알림 묶음 refetch 코얼레싱 (PR92)
-**목적**: 승인 → 티켓 발급처럼 같은 동작이 짧은 시간에 두 알림으로 도착해도 화면 refetch 가 한 번으로 묶이는지 확인.
-
-**사전 조건**: EventDetailPage / MyPage / TicketDetailPage / CreatorDashboardPage 에 진입 가능한 계정. devtools Network 탭으로 동일 API 의 동시 호출 수를 셀 수 있어야 함.
-
-- [ ] EventDetailPage 에서 같은 이벤트에 대해 다른 시크릿창이 신청 후 owner 가 즉시 승인 → SSE 로 두 알림이 거의 동시에 도착. devtools Network 에 `/events/{id}` GET 이 한 번만 발생 (PR89 이전엔 두 번)
-- [ ] MyPage 진입 중 같은 시간대에 PARTICIPATION_APPROVED + TICKET_ISSUED 가 도착 → `getMyParticipations` 호출이 한 번만 발생
-- [ ] CreatorDashboardPage 에서 PARTICIPATION_REQUESTED + PARTICIPATION_APPROVED 가 묶음으로 도착 → `getCreatorStudio` 호출이 한 번만 발생
-- [ ] TicketDetailPage 에서 동일 ticketId 의 TICKET_CHECKED_IN 알림이 빠르게 두 번 (devtools 등으로 강제) → `getTicket` 호출이 한 번만 발생
-- [ ] 펜딩 refresh 가 있는 상태에서 페이지를 이탈 → 타이머 cleanup 으로 unmount 후 추가 fetch 발생 안 함 (devtools Network 패널 확인)
-- [ ] 알림 UI(뱃지/카운트/리스트) 동작은 변경 없음 — 카드 수 / unread 카운트 / 뱃지 색이 PR91 시점과 동일
-
 ### 17. EventDetail 남은 자리 라이브 강조 (PR91)
 **목적**: 정원/잔여 자리 변화가 SSE refetch 로 들어왔을 때, 사용자가 변화한 사실을 즉시 알아챌 수 있게 한다.
 
 **사전 조건**: 유료/무료 이벤트 1건 + 같은 이벤트에 대해 신청·승인·환불 등 currentParticipants 가 변할 수 있는 다른 사용자 1명 (시크릿창).
 
-- [ ] EventDetailPage 진입 직후 — 잔여 숫자에 highlight pulse 가 **켜지지 않음** (첫 로드는 트리거 X)
-- [ ] 다른 시크릿창에서 같은 이벤트에 신청·승인을 진행해 `currentParticipants` 가 증가 → 본인 화면 잔여 숫자가 약 1.5초간 살짝 부풀며 색이 진해졌다가 원래대로 돌아옴
-- [ ] 같은 시간대에 progress bar 주변에 옅은 box-shadow halo 가 1.5초 페이드인/아웃
-- [ ] 같은 값으로 refetch 된 경우(다른 알림이 와도 currentParticipants 동일) highlight 가 **트리거되지 않음**
-- [ ] 이벤트가 CLOSED 상태일 때 잔여 자리 row 자체가 노출되지 않음 (PR91 변경과 무관, 회귀 확인)
-- [ ] 정원 가득 차서 잔여가 0 이 됐을 때 SOLD OUT 스탬프 + hero overlay 그대로 표시 (PR91 변경과 무관, 회귀 확인)
-- [ ] OS 접근성 설정 "동작 줄이기 / Reduce Motion" ON → 잔여 숫자 pulse + 라이브 dot 점멸이 모두 비활성화 (정적 확인: devtools rendering 패널 "prefers-reduced-motion: reduce" emulation 으로 검증)
-- [ ] Screen reader 가 잔여 숫자 영역을 polite 로 읽음 (devtools accessibility 트리에서 `aria-live="polite"` + 라벨 확인)
+- [ ] 🖱 EventDetailPage 진입 직후 — 잔여 숫자에 highlight pulse 가 **켜지지 않음** (첫 로드는 트리거 X)
+- [ ] 🖱 다른 시크릿창에서 같은 이벤트에 신청·승인을 진행해 `currentParticipants` 가 증가 → 본인 화면 잔여 숫자가 약 1.5초간 살짝 부풀며 색이 진해졌다가 원래대로 돌아옴
+- [ ] 🖱 같은 시간대에 progress bar 주변에 옅은 box-shadow halo 가 1.5초 페이드인/아웃
+- [ ] 🖱 같은 값으로 refetch 된 경우(다른 알림이 와도 currentParticipants 동일) highlight 가 **트리거되지 않음**
+- [ ] 🖱 이벤트가 CLOSED 상태일 때 잔여 자리 row 자체가 노출되지 않음 (PR91 변경과 무관, 회귀 확인)
+- [ ] 🖱 정원 가득 차서 잔여가 0 이 됐을 때 SOLD OUT 스탬프 + hero overlay 그대로 표시 (PR91 변경과 무관, 회귀 확인)
+- [ ] 📋 OS 접근성 설정 "동작 줄이기 / Reduce Motion" ON → 잔여 숫자 pulse + 라이브 dot 점멸이 모두 비활성화 (devtools rendering 패널 "prefers-reduced-motion: reduce" emulation 으로 검증)
+- [ ] 📋 Screen reader 가 잔여 숫자 영역을 polite 로 읽음 (devtools accessibility 트리에서 `aria-live="polite"` + 라벨 확인)
+
+**기대 결과**: 잔여 자리는 SSE 가 새 값을 가져온 순간만 시각적으로 깜빡이고, 같은 값 refetch / 첫 로드 / 모션 감소 환경에서는 조용하다.
+
+### 18. 알림 묶음 refetch 코얼레싱 (PR92)
+**목적**: 승인 → 티켓 발급처럼 같은 동작이 짧은 시간에 두 알림으로 도착해도 화면 refetch 가 한 번으로 묶이는지 확인.
+
+**사전 조건**: EventDetailPage / MyPage / TicketDetailPage / CreatorDashboardPage 에 진입 가능한 계정. devtools Network 탭으로 동일 API 의 동시 호출 수를 셀 수 있어야 함.
+
+- [ ] 🖱 EventDetailPage 에서 같은 이벤트에 대해 다른 시크릿창이 신청 후 owner 가 즉시 승인 → SSE 로 두 알림이 거의 동시에 도착. devtools Network 에 `/events/{id}` GET 이 한 번만 발생
+- [ ] 🖱 MyPage 진입 중 같은 시간대에 PARTICIPATION_APPROVED + TICKET_ISSUED 가 도착 → `getMyParticipations` 호출이 한 번만 발생
+- [ ] 🖱 CreatorDashboardPage 에서 PARTICIPATION_REQUESTED + PARTICIPATION_APPROVED 가 묶음으로 도착 → `getCreatorStudio` 호출이 한 번만 발생
+- [ ] 🖱 TicketDetailPage 에서 동일 ticketId 의 TICKET_CHECKED_IN 알림이 빠르게 두 번 (devtools 등으로 강제) → `getTicket` 호출이 한 번만 발생
+- [ ] 🖱 펜딩 refresh 가 있는 상태에서 페이지를 이탈 → 타이머 cleanup 으로 unmount 후 추가 fetch 발생 안 함 (devtools Network 패널 확인)
+- [ ] 📋 알림 UI(뱃지/카운트/리스트) 동작은 변경 없음 — 카드 수 / unread 카운트 / 뱃지 색이 PR91 시점과 동일
+
+**기대 결과**: 같은 시간 창(기본 300ms) 에 들어온 묶음 알림은 한 번의 refetch 로 합쳐지고, 이탈 시 펜딩 타이머가 깨끗하게 정리된다.
+
+### 19. 운영자 활동 요약 (PR93)
+**목적**: Admin 운영 콘솔의 overview 탭에 추가된 "운영자 활동" 카드가 audit log 를 actor 단위로 정확히 집계하는지 확인.
+
+**사전 조건**: ADMIN 계정 1명 + 같은 ADMIN 으로 최근 30일 내 hide / unhide / 채널 ban / appeal 처리 / 신고 처리 / 임계치 변경 액션을 최소 1건씩 실행한 상태. V9 가 적용된 환경이면 system actor 의 archive 실행분이 있을 수 있다.
+
+- [ ] 🖱 `/admin?tab=overview` 진입 → "운영자 활동" 카드가 "위험 채널" 과 "운영 큐" 사이에 보임
+- [ ] 🖱 위 사전 조건의 ADMIN 한 명만 데이터를 만들었다면 카드 row 1건만 표시 — 닉네임 + `#actorId` + total + 액션별 breakdown
+- [ ] 🖱 breakdown 은 카운트가 0 인 액션은 표시되지 않음 (compact UI)
+- [ ] 🖱 actorSystem true 인 row 는 닉네임 옆에 "System" 뱃지 표시 (스케줄러 자동 archive 실행 흔적)
+- [ ] 🖱 audit row 가 0 건이면 "지난 30일 동안 운영자 활동이 없어요." copy 표시
+- [ ] 🖱 backend 가 502 / 401 등으로 실패하면 "운영자 활동 데이터를 불러오지 못했어요." copy + overview 의 다른 카드(지표/위험 채널/임계치/큐) 는 정상 노출 — overview 전체가 막히지 않음
+- [ ] 📋 `GET /api/v1/admin/moderation/actor-stats?limit=999` → 응답의 `limit` 필드가 50 으로 clamp 된 값
+- [ ] 📋 limit=0 또는 음수 → 응답 limit=1
+- [ ] 📋 default 호출 (`from`/`to` 미지정) → 응답 `from` 이 `to - 30 days` 와 같다
+- [ ] 📋 audit log 0건 환경 → 응답 `items` 배열 비어 있음 (200 OK)
+
+**기대 결과**: ADMIN 이 overview 한 화면에서 "지난 30일 동안 누가 얼마나 운영했는지" 를 한 번에 본다. system actor 자동 실행분이 사람 운영분과 섞이지 않고 분리되어 표시된다.
 
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
@@ -373,4 +413,6 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 ## 통과 기준
 
-위 1-10 모두 ✅ 면 릴리스 가능. 한 줄이라도 빨간색이면 그 항목의 이슈를 먼저 처리합니다.
+핵심 동선 (1~11) 은 매 릴리스마다 전부 ✅. 결제/환불 흐름이 바뀐 릴리스에서는 13~16 도 전부 ✅. 운영 콘솔이 바뀐 릴리스에서는 12 + 19 도 전부 ✅. EventDetail / 알림 / 라이브 효과가 바뀐 릴리스에서는 17~18 추가. 한 줄이라도 빨간색이면 그 항목의 이슈를 먼저 처리합니다.
+
+📋 항목만 회귀로 정적 확인하고 🖱 만 다음 사이클로 미루는 것은 허용. 반대로 🖱 만 돌리고 📋 를 영구 미루는 것은 금지 (감시되지 않는 누락 위험).
