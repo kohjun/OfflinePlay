@@ -24,91 +24,25 @@ import {
 } from '../api/reviews'
 import { createReport } from '../api/reports'
 import { RemainingProgress } from '../components/RemainingProgress'
-import { ReviewForm } from '../components/ReviewForm'
 import { notificationStore } from '../stores/notificationStore'
-import { Badge } from '../components/Badge'
-import { CommentForm } from '../components/CommentForm'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import type {
-  ContentType,
   Event,
   EventApplicant,
   EventComment,
-  EventParticipationStatus,
-  EventStatus,
   MyParticipation,
 } from '../types'
-
-const STATUS_LABEL: Record<EventStatus, string> = {
-  UPCOMING: '곧 시작',
-  ONGOING: '진행 중',
-  CLOSED: '종료',
-}
-
-const CONTENT_TYPE_LABEL: Record<ContentType, string> = {
-  ORIGINAL: 'Original',
-  CLASSIC: 'Classic',
-  SPECIAL: 'Special',
-}
-
-const PARTICIPATION_LABEL: Record<EventParticipationStatus, string> = {
-  PENDING: '승인 대기 중',
-  APPROVED: '참가 확정',
-  REJECTED: '신청 거절됨',
-  CANCELED: '신청 취소',
-}
-
-const PARTICIPATION_TONE: Record<EventParticipationStatus, 'primary' | 'success' | 'danger' | 'neutral'> = {
-  PENDING: 'primary',
-  APPROVED: 'success',
-  REJECTED: 'danger',
-  CANCELED: 'neutral',
-}
-
-const stroke = {
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.6,
-  strokeLinecap: 'round' as const,
-  strokeLinejoin: 'round' as const,
-}
-
-function statusTone(status: EventStatus) {
-  if (status === 'ONGOING') return 'success'
-  if (status === 'UPCOMING') return 'primary'
-  return 'neutral'
-}
-
-function formatFee(fee: number) {
-  return fee === 0 ? '무료' : `${fee.toLocaleString()}원`
-}
-
-function formatDateTime(value: string) {
-  const d = new Date(value)
-  const yyyy = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${yyyy}.${month}.${day} ${hh}:${mm}`
-}
-
-function formatRange(startAt: string, endAt: string) {
-  const start = new Date(startAt)
-  const end = new Date(endAt)
-  const sameDay =
-    start.getFullYear() === end.getFullYear() &&
-    start.getMonth() === end.getMonth() &&
-    start.getDate() === end.getDate()
-  if (sameDay) {
-    const hh = String(end.getHours()).padStart(2, '0')
-    const mm = String(end.getMinutes()).padStart(2, '0')
-    return `${formatDateTime(startAt)} ~ ${hh}:${mm}`
-  }
-  return `${formatDateTime(startAt)} ~ ${formatDateTime(endAt)}`
-}
+import { EventCommentsSection } from './event-detail/EventCommentsSection'
+import {
+  EventDetailActionPanel,
+  type EventDetailCtaConfig,
+} from './event-detail/EventDetailActionPanel'
+import { EventDetailHeroSection } from './event-detail/EventDetailHeroSection'
+import { EventOwnerPanel } from './event-detail/EventOwnerPanel'
+import { EventReviewsSection } from './event-detail/EventReviewsSection'
+import { formatFee, formatRange, stroke } from './event-detail/eventDetailFormatters'
 
 interface MetaTileProps {
   label: string
@@ -602,114 +536,44 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
 
   // 유료 이벤트는 prepare+confirm 흐름, 무료는 기존 신청 흐름.
   // CTA 라벨도 분기되며 onClick 은 아래 render 영역에서 isPaid 기준으로 선택한다.
-  const cta = (() => {
+  const cta: EventDetailCtaConfig = (() => {
     if (status === 'PENDING') {
-      return { label: '승인 대기 중', tone: 'secondary' as const, disabled: true }
+      return { label: '승인 대기 중', tone: 'secondary', disabled: true }
     }
     if (status === 'APPROVED') {
-      return { label: '참가 확정', tone: 'secondary' as const, disabled: true }
+      return { label: '참가 확정', tone: 'secondary', disabled: true }
     }
     if (status === 'REJECTED') {
-      return { label: '신청 거절됨', tone: 'secondary' as const, disabled: true }
+      return { label: '신청 거절됨', tone: 'secondary', disabled: true }
     }
     // none, CANCELED → 신청/결제 가능 (CLOSED/FULL 검사 후)
-    if (isClosed) return { label: '종료된 이벤트', tone: 'primary' as const, disabled: true }
-    if (isFull) return { label: '정원 마감', tone: 'primary' as const, disabled: true }
+    if (isClosed) return { label: '종료된 이벤트', tone: 'primary', disabled: true }
+    if (isFull) return { label: '정원 마감', tone: 'primary', disabled: true }
     if (isPaid) {
       return {
         label: `${event.participationFee.toLocaleString()}원 결제하고 참가하기`,
-        tone: 'primary' as const,
+        tone: 'primary',
         disabled: false,
       }
     }
     return {
       label: status === 'CANCELED' ? '다시 신청하기' : '참가 신청하기',
-      tone: 'primary' as const,
+      tone: 'primary',
       disabled: false,
     }
   })()
 
-  const pendingApplicants = applicants.filter((a) => a.status === 'PENDING').length
-
   return (
     <main className="page ct-detail-page ct-event-detail">
-      <button
-        type="button"
-        className="ct-back-btn"
-        onClick={() => onNavigate(`/channels/${event.channelId}`)}
-        aria-label="뒤로"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true" {...stroke}>
-          <path d="m15 5-7 7 7 7" />
-        </svg>
-      </button>
-
-      <section className={`ct-event-hero${isFull && !isClosed ? ' is-soldout' : ''}`}>
-        {event.mainImageUrl ? (
-          <img src={event.mainImageUrl} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />
-        ) : (
-          <div className="ct-event-hero-placeholder" aria-hidden="true">
-            {event.title.slice(0, 1).toUpperCase()}
-          </div>
-        )}
-        {isFull && !isClosed ? (
-          <span className="ct-event-soldout" aria-label="정원 마감">SOLD OUT</span>
-        ) : null}
-      </section>
-
-      <header className="ct-event-head">
-        <div className="badge-row">
-          <Badge tone={statusTone(event.status)}>{STATUS_LABEL[event.status]}</Badge>
-          {event.contentType ? <Badge tone="primary">{CONTENT_TYPE_LABEL[event.contentType]}</Badge> : null}
-          <Badge tone="neutral">{event.channelName}</Badge>
-          {/* PR47: hero 에 별점 칩 — 후기 1건 이상일 때만. 0건은 아래 후기 섹션 summary 에 위임. */}
-          {event.averageRating != null && (event.reviewCount ?? 0) > 0 ? (
-            <span className="ct-rating-chip" aria-label={`평균 별점 ${event.averageRating.toFixed(1)}, 후기 ${event.reviewCount}건`}>
-              <span aria-hidden="true">★</span>
-              <strong>{event.averageRating.toFixed(1)}</strong>
-              <span className="muted">({event.reviewCount})</span>
-            </span>
-          ) : null}
-        </div>
-        <h1 className="ct-event-title">{event.title}</h1>
-        <p className="ct-event-summary">{event.description}</p>
-        {status && status !== 'CANCELED' ? (
-          <div className="ct-my-participation" role="status">
-            <Badge tone={PARTICIPATION_TONE[status]}>{PARTICIPATION_LABEL[status]}</Badge>
-            {status === 'REJECTED' && participation?.rejectReason ? (
-              <span className="muted">사유: {participation.rejectReason}</span>
-            ) : null}
-            {status === 'PENDING' ? (
-              <button
-                type="button"
-                className="text-button"
-                onClick={handleCancel}
-                disabled={submittingJoin}
-              >
-                {submittingJoin ? '취소 중...' : '신청 취소'}
-              </button>
-            ) : null}
-            {status === 'APPROVED' &&
-            new Date(event.startAt).getTime() > Date.now() &&
-            participation?.ticketStatus !== 'USED' &&
-            participation?.ticketStatus !== 'REFUNDED' &&
-            participation?.ticketStatus !== 'CANCELED' ? (
-              event.participationFee > 0 ? (
-                <span className="muted">취소·환불은 티켓 페이지에서 진행해주세요</span>
-              ) : (
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={handleCancel}
-                  disabled={submittingJoin}
-                >
-                  {submittingJoin ? '취소 중...' : '참가 취소'}
-                </button>
-              )
-            ) : null}
-          </div>
-        ) : null}
-      </header>
+      <EventDetailHeroSection
+        event={event}
+        participation={participation}
+        isFull={isFull}
+        isClosed={isClosed}
+        submittingJoin={submittingJoin}
+        onBack={() => onNavigate(`/channels/${event.channelId}`)}
+        onCancel={handleCancel}
+      />
 
       <section className="ct-event-meta-grid" aria-label="이벤트 기본 정보">
         <MetaTile
@@ -791,331 +655,52 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         </article>
       </section>
 
-      <section className="ct-event-section ct-reviews-section">
-        <div className="section-heading">
-          <h2 className="ct-event-section-title">후기</h2>
-          {reviewSummary.reviewCount > 0 ? (
-            <span className="ct-reviews-summary" aria-label={`평균 별점 ${reviewSummary.averageRating?.toFixed(1)}점, 후기 ${reviewSummary.reviewCount}건`}>
-              <span className="ct-reviews-summary__star" aria-hidden="true">★</span>
-              <strong>{reviewSummary.averageRating?.toFixed(1) ?? '—'}</strong>
-              <span className="muted">({reviewSummary.reviewCount})</span>
-            </span>
-          ) : (
-            <span className="muted">아직 후기가 없어요</span>
-          )}
-        </div>
-
-        {/* 본인이 USED 티켓 보유 (= ticketStatus === 'USED') 이고 아직 후기 미작성이면 작성 CTA. */}
-        {participation?.ticketStatus === 'USED' && !myReview && !showReviewForm ? (
-          <button
-            type="button"
-            className="button button-primary"
-            onClick={() => setShowReviewForm(true)}
-          >
-            후기 남기기
-          </button>
-        ) : null}
-
-        {/* 본인 후기가 이미 있으면 카드 + 수정/삭제 버튼. showReviewForm 인 경우 폼 우선. */}
-        {myReview && !showReviewForm ? (
-          <article className="card ct-review-card ct-review-card--mine">
-            <div className="card-body">
-              <div className="ct-review-card__head">
-                <div className="ct-review-card__author">
-                  <span className="ct-review-card__stars" aria-hidden="true">
-                    {'★'.repeat(myReview.rating)}
-                    <span className="ct-review-card__stars-empty">{'★'.repeat(5 - myReview.rating)}</span>
-                  </span>
-                  <span className="muted">내 후기</span>
-                </div>
-                <div className="ct-review-card__actions">
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => setShowReviewForm(true)}
-                  >
-                    수정
-                  </button>
-                  <button
-                    type="button"
-                    className="text-button text-button--danger"
-                    onClick={handleReviewDelete}
-                  >
-                    삭제
-                  </button>
-                </div>
-              </div>
-              <p className="ct-review-card__content">{myReview.content}</p>
-            </div>
-          </article>
-        ) : null}
-
-        {showReviewForm ? (
-          <ReviewForm
-            initialRating={myReview?.rating ?? 0}
-            initialContent={myReview?.content ?? ''}
-            submitting={submittingReview}
-            onSubmit={handleReviewSubmit}
-            onCancel={() => setShowReviewForm(false)}
-          />
-        ) : null}
-
-        {/* 다른 사람들의 후기 — 본인 후기는 위에서 별도 노출하므로 목록에서 제외. */}
-        {reviews.length > 0 ? (
-          <ul className="ct-review-list">
-            {reviews
-              .filter((r) => r.id !== myReview?.id)
-              .map((r) => (
-                <li key={r.id} className="card ct-review-card">
-                  <div className="card-body">
-                    <div className="ct-review-card__head">
-                      <div className="ct-review-card__author">
-                        <span className="ct-review-card__stars" aria-hidden="true">
-                          {'★'.repeat(r.rating)}
-                          <span className="ct-review-card__stars-empty">{'★'.repeat(5 - r.rating)}</span>
-                        </span>
-                        <span className="muted">{r.authorNickname}</span>
-                      </div>
-                      <div className="ct-review-card__actions">
-                        <span className="ct-review-card__date muted">
-                          {new Date(r.createdAt).toLocaleDateString()}
-                        </span>
-                        {/* PR48: 본인 글이 아닐 때만 신고 버튼 노출. user 가 없으면(비로그인) 숨김. */}
-                        {user && user.userId !== r.authorId ? (
-                          <button
-                            type="button"
-                            className="text-button text-button--danger"
-                            onClick={() => handleReportReview(r)}
-                            aria-label="이 후기 신고"
-                          >
-                            신고
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <p className="ct-review-card__content">{r.content}</p>
-                  </div>
-                </li>
-              ))}
-          </ul>
-        ) : null}
-      </section>
+      <EventReviewsSection
+        reviewSummary={reviewSummary}
+        reviews={reviews}
+        myReview={myReview}
+        showReviewForm={showReviewForm}
+        submittingReview={submittingReview}
+        participation={participation}
+        user={user}
+        onShowForm={() => setShowReviewForm(true)}
+        onHideForm={() => setShowReviewForm(false)}
+        onSubmit={handleReviewSubmit}
+        onDelete={handleReviewDelete}
+        onReportReview={handleReportReview}
+      />
 
       {isOwner ? (
-        <section className="ct-event-section ct-event-owner-actions">
-          <button
-            type="button"
-            className="button button-secondary is-block"
-            onClick={() => onNavigate(`/events/${eventId}/edit`)}
-          >
-            이벤트 수정
-          </button>
-        </section>
-      ) : null}
-
-      {isOwner ? (
-        <section id="applicants" className="ct-event-section ct-applicants-section">
-          <div className="section-heading">
-            <h2 className="ct-event-section-title">
-              신청자 관리 {applicants.length > 0 ? `(${applicants.length})` : ''}
-            </h2>
-            {pendingApplicants > 0 ? (
-              <span className="badge badge-primary">대기 {pendingApplicants}</span>
-            ) : null}
-          </div>
-          {applicants.length === 0 ? (
-            <div className="ct-applicants-empty">
-              <span aria-hidden="true">📭</span>
-              <strong>아직 신청자가 없어요</strong>
-              <span className="muted">참가 신청이 들어오면 여기에서 승인/거절할 수 있어요.</span>
-            </div>
-          ) : (
-            <ul className="ct-applicants-list">
-              {applicants.map((a) => {
-                const isReviewing = reviewingId === a.id
-                return (
-                  <li key={a.id} className="ct-applicant-card">
-                    <div className="ct-applicant-head">
-                      <div className="ct-applicant-avatar" aria-hidden="true">
-                        {a.nickname.slice(0, 1).toUpperCase()}
-                      </div>
-                      <div className="ct-applicant-meta">
-                        <strong>{a.nickname}</strong>
-                        <span className="muted">{formatDateTime(a.joinedAt)} 신청</span>
-                      </div>
-                      <Badge tone={PARTICIPATION_TONE[a.status]}>{PARTICIPATION_LABEL[a.status]}</Badge>
-                    </div>
-                    {a.rejectReason ? (
-                      <p className="ct-applicant-reason">거절 사유: {a.rejectReason}</p>
-                    ) : null}
-                    {a.status === 'PENDING' ? (
-                      <div className="ct-applicant-actions">
-                        <button
-                          type="button"
-                          className="button button-secondary"
-                          onClick={() => handleReject(a.id)}
-                          disabled={isReviewing}
-                          aria-busy={isReviewing}
-                        >
-                          거절
-                        </button>
-                        <button
-                          type="button"
-                          className="button button-primary"
-                          onClick={() => handleApprove(a.id)}
-                          disabled={isReviewing}
-                          aria-busy={isReviewing}
-                        >
-                          {isReviewing ? <span className="button-spinner" aria-hidden="true" /> : null}
-                          승인
-                        </button>
-                      </div>
-                    ) : null}
-                    {a.status === 'APPROVED' && a.ticketId ? (
-                      <div className="ct-applicant-actions ct-applicant-actions-single">
-                        <button
-                          type="button"
-                          className="button button-secondary"
-                          onClick={() => onNavigate(`/tickets/${a.ticketId}`)}
-                        >
-                          티켓 확인
-                        </button>
-                      </div>
-                    ) : null}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      {isOwner && checkInSummary ? (
-        <section id="check-ins" className="ct-event-section ct-checkin-section">
-          <div className="section-heading">
-            <h2 className="ct-event-section-title">체크인 현황</h2>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => onNavigate('/check-in')}
-            >
-              코드 체크인 →
-            </button>
-          </div>
-
-          <div className="ct-checkin-summary">
-            <div className="ct-checkin-tile">
-              <span>발급</span>
-              <strong>{checkInSummary.issuedCount}</strong>
-            </div>
-            <div className="ct-checkin-tile ct-checkin-tile-success">
-              <span>체크인</span>
-              <strong>{checkInSummary.checkedInCount}</strong>
-            </div>
-            <div className="ct-checkin-tile">
-              <span>미입장</span>
-              <strong>{checkInSummary.notCheckedInCount}</strong>
-            </div>
-          </div>
-
-          {checkInSummary.tickets.length === 0 ? (
-            <p className="muted ct-checkin-empty">아직 발급된 티켓이 없어요.</p>
-          ) : (
-            <ul className="ct-checkin-list">
-              {checkInSummary.tickets.map((t) => (
-                <li key={t.ticketId} className="ct-checkin-item">
-                  <div className="ct-checkin-item-meta">
-                    <strong>{t.buyerNickname}</strong>
-                    <span className="muted">티켓 #{t.ticketId}</span>
-                  </div>
-                  <Badge
-                    tone={
-                      t.status === 'USED'
-                        ? 'success'
-                        : t.status === 'PAID'
-                          ? 'primary'
-                          : t.status === 'CANCELED' || t.status === 'REFUNDED'
-                            ? 'danger'
-                            : 'neutral'
-                    }
-                  >
-                    {t.status === 'USED'
-                      ? '체크인'
-                      : t.status === 'PAID'
-                        ? '미입장'
-                        : t.status === 'CANCELED'
-                          ? '취소'
-                          : t.status === 'REFUNDED'
-                            ? '환불'
-                            : t.status}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
-      <section className="ct-event-section">
-        <div className="section-heading">
-          <h2 className="ct-event-section-title">이벤트 토크</h2>
-          <span className="muted">{comments.length}</span>
-        </div>
-        <CommentForm
-          value={commentDraft}
-          onChange={setCommentDraft}
-          onSubmit={handleSubmitComment}
-          submitting={submittingComment}
-          placeholder="참가자들과 이야기 나눠보세요"
+        <EventOwnerPanel
+          eventId={eventId}
+          applicants={applicants}
+          reviewingId={reviewingId}
+          checkInSummary={checkInSummary}
+          onNavigate={onNavigate}
+          onApprove={handleApprove}
+          onReject={handleReject}
         />
-        <div className="stack">
-          {comments.length === 0 ? (
-            <p className="muted ct-event-empty-talk">아직 첫 메시지를 기다리고 있어요.</p>
-          ) : (
-            comments.map((comment) => (
-              <article key={comment.id} className="card">
-                <div className="card-body">
-                  <div className="card-heading-row">
-                    <strong>{comment.authorNickname}</strong>
-                    <span className="muted">{new Date(comment.createdAt).toLocaleString()}</span>
-                  </div>
-                  <p>{comment.content}</p>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
+      ) : null}
+
+      <EventCommentsSection
+        comments={comments}
+        commentDraft={commentDraft}
+        submittingComment={submittingComment}
+        onDraftChange={setCommentDraft}
+        onSubmit={handleSubmitComment}
+      />
 
       {!isOwner && user?.role !== 'ADMIN' ? (
-        <div className="ct-event-sticky-cta">
-          <div className="ct-event-sticky-meta">
-            <span className="ct-event-sticky-fee">{formatFee(event.participationFee)}</span>
-            <span className="ct-event-sticky-cap">
-              {event.currentParticipants}/{event.maxParticipants}명 신청
-            </span>
-          </div>
-          {status === 'APPROVED' && participation?.ticketId ? (
-            <button
-              type="button"
-              className="button button-primary is-block ct-event-cta"
-              onClick={() => onNavigate(`/tickets/${participation.ticketId}`)}
-            >
-              티켓 보기
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={`button button-${cta.tone} is-block ct-event-cta`}
-              disabled={cta.disabled || submittingJoin}
-              aria-busy={submittingJoin}
-              onClick={isPaid ? handlePaidApply : handleApply}
-            >
-              {submittingJoin ? <span className="button-spinner" aria-hidden="true" /> : null}
-              {submittingJoin ? '처리 중...' : cta.label}
-            </button>
-          )}
-        </div>
+        <EventDetailActionPanel
+          event={event}
+          participation={participation}
+          cta={cta}
+          isPaid={isPaid}
+          submittingJoin={submittingJoin}
+          onNavigate={onNavigate}
+          onApply={handleApply}
+          onPaidApply={handlePaidApply}
+        />
       ) : null}
     </main>
   )
