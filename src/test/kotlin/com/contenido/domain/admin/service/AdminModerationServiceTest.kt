@@ -66,6 +66,36 @@ class AdminModerationServiceTest {
 
     @BeforeEach
     fun setUp() {
+        // PR87 — AdminModerationService 가 facade 로 바뀌면서 channel ban / queue / stats 책임이
+        // 별도 service 로 분리됐다. 기존 단위 테스트는 실제 sub-service 를 동일 mock 들로 wiring 해
+        // public 동작이 그대로 유지되는지 검증한다.
+        val channelBanService = AdminChannelBanService(
+            channelRepository = channelRepository,
+            eventRepository = eventRepository,
+            postRepository = postRepository,
+            reviewRepository = reviewRepository,
+            notificationService = notificationService,
+            moderationAuditLogService = moderationAuditLogService,
+        )
+        val queueService = AdminModerationQueueService(
+            reviewRepository = reviewRepository,
+            commentRepository = commentRepository,
+            postRepository = postRepository,
+            eventRepository = eventRepository,
+            channelRepository = channelRepository,
+            reportRepository = reportRepository,
+            reportAppealRepository = reportAppealRepository,
+            moderationThresholdService = moderationThresholdService,
+        )
+        val statsService = AdminModerationStatsService(
+            reviewRepository = reviewRepository,
+            commentRepository = commentRepository,
+            postRepository = postRepository,
+            eventRepository = eventRepository,
+            channelRepository = channelRepository,
+            reportRepository = reportRepository,
+            reportAppealRepository = reportAppealRepository,
+        )
         service = AdminModerationService(
             reviewRepository = reviewRepository,
             commentRepository = commentRepository,
@@ -74,9 +104,10 @@ class AdminModerationServiceTest {
             channelRepository = channelRepository,
             reportRepository = reportRepository,
             reportAppealRepository = reportAppealRepository,
-            notificationService = notificationService,
-            moderationThresholdService = moderationThresholdService,
             moderationAuditLogService = moderationAuditLogService,
+            channelBanService = channelBanService,
+            queueService = queueService,
+            statsService = statsService,
         )
         // PR60 — computePriority 가 DB 임계치를 조회하므로 PR51 default 로 stub.
         every { moderationThresholdService.thresholdFor(ReportTargetType.REVIEW) } returns 3
