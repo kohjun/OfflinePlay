@@ -453,6 +453,10 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
       } else if (n.type === 'TICKET_ISSUED' || n.type === 'TICKET_CHECKED_IN') {
         // 티켓 발급/체크인 → 본인 티켓 + owner 체크인 보드 + 이벤트 본문(체크인 카운트 등).
         scheduleRefresh({ event: true, my: true, checkIn: isOwner })
+      } else if (n.type === 'REFUND_COMPLETED') {
+        // PR83 — 환불 완료 → 본인 participation 이 CANCELED 로 바뀌고 정원도 -1. event 본문도
+        // 즉시 갱신해 CTA 가 "참가 신청하기" / "다시 신청하기" 로 복귀하도록.
+        scheduleRefresh({ event: true, my: true, checkIn: isOwner })
       }
     })
   }, [eventId, isOwner, participation?.ticketId, scheduleRefresh])

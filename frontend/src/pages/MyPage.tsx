@@ -316,6 +316,8 @@ export function MyPage({ onNavigate }: MyPageProps) {
       'PARTICIPATION_REJECTED',
       'TICKET_ISSUED',
       'TICKET_CHECKED_IN',
+      // PR83 — 환불 완료 시 결제 탭의 영수증/상태 뱃지가 즉시 REFUNDED 로 갱신되도록.
+      'REFUND_COMPLETED',
     ])
     return notificationStore.onIncoming((n) => {
       if (relevant.has(n.type)) {

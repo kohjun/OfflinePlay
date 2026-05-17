@@ -309,6 +309,35 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] REJECTED 사용자도 재신청 가능 (reapply 시 rejectReason 초기화)
 - [ ] 정원이 다 찼다면 reapply 시 EventFullException (정상)
 
+### 16. 환불 알림 & 결제 라우트 가드 (PR81 / PR82 / PR83)
+
+**환불 완료 알림 (PR81)**
+- [ ] 유료 결제 후 환불 요청 성공 → buyer 의 알림 센터에 "환불이 완료되었어요" 1건 추가
+- [ ] 알림 뱃지 라벨 "환불 완료" (warning tone)
+- [ ] 알림 클릭 → `/tickets/{id}` 진입 (REFUNDED 티켓 화면)
+- [ ] 이미 REFUNDED 인 ticket 에 (devtools 등) 환불 재호출 → 추가 알림 발생 안 함 (idempotent 멱등 분기는 markRefundedInternal 미진입)
+- [ ] NotificationService 가 일시 실패해도 환불은 정상 처리됨 (runCatching best-effort)
+- [ ] EventDetailPage 가 동일 ticketId 의 REFUND_COMPLETED 알림을 받으면 본문 + 본인 상태 refetch (CTA 가 즉시 "다시 신청하기" 로 갱신)
+- [ ] MyPage 결제 탭이 REFUND_COMPLETED 알림을 받으면 영수증 카드 status 가 즉시 "환불됨" 으로 갱신
+
+**결제 라우트 가드 (PR82)**
+사전 조건: `/events/{id}/payment` 직접 URL 진입.
+- [ ] 이미 PAID 티켓 보유 → "이미 결제된 티켓이 있어요" + "티켓 보기" / "이벤트 상세로" 두 CTA
+- [ ] 이미 USED 티켓 보유 → 같은 화면이되 카피가 "이미 사용한 티켓이에요"
+- [ ] participation PENDING → "승인 대기 중인 신청이에요" + "이벤트 상세로"
+- [ ] participation REJECTED → "승인이 거절된 신청이에요" + "이벤트 상세로"
+- [ ] 본인이 채널 owner → "본인이 운영하는 이벤트예요"
+- [ ] 이벤트 CLOSED → "종료된 이벤트예요"
+- [ ] 이벤트 시작 시각 지남 → "이미 시작된 이벤트예요"
+- [ ] 무료 이벤트 → "무료 이벤트예요" (결제 페이지 자체 부적합)
+- [ ] participation 없음 / CANCELED / 티켓 REFUNDED → 결제 폼 정상 렌더 (PR78/79 재결제 허용)
+- [ ] getMyParticipation 실패 시에도 폼이 그대로 노출되어야 함 (가드 없는 fallback)
+
+**TicketDetail copy (PR83)**
+- [ ] REFUNDED 티켓 진입 → REFUNDED 스탬프 + "환불됨" 뱃지 + 환불 요청 버튼 미노출
+- [ ] CANCELED 티켓 진입 → VOID 스탬프 + "취소됨" 뱃지 + 환불 요청 버튼 미노출
+- [ ] 알림에서 진입했을 때도 같은 화면 (별도 hidden/404 분기 X)
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결
