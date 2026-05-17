@@ -43,6 +43,7 @@ class ModerationAuditLogArchiveService(
     private val moderationAuditLogArchiveRepository: ModerationAuditLogArchiveRepository,
     private val moderationAuditLogService: ModerationAuditLogService,
     private val userRepository: UserRepository,
+    private val systemActorService: SystemActorService,
 ) {
 
     companion object {
@@ -107,12 +108,12 @@ class ModerationAuditLogArchiveService(
         val admin = userRepository.findById(adminUserId).orElseThrow { UserNotFoundException() }
         val (archivedCount, remaining) = doArchiveBatch(cutoffAt, admin)
 
-        // active 에 archive 액션 audit 기록. 본 row 의 createdAt 은 now() 이므로 cutoffAt 이후 →
-        // 같은 batch 에 포함되지 않음 (이미 doArchiveBatch 안에서 deleteAll 완료).
+        // active 에 archive 액션 audit 기록. PR69 부터 mode=MANUAL 동봉.
         moderationAuditLogService.record(
             actorId = adminUserId,
             action = ModerationAuditAction.AUDIT_LOGS_ARCHIVED,
             afterValue = mapOf(
+                "mode" to "MANUAL",
                 "archivedCount" to archivedCount,
                 "cutoffAt" to cutoffAt.toString(),
                 "remainingCandidateCount" to remaining,
@@ -127,20 +128,38 @@ class ModerationAuditLogArchiveService(
     }
 
     /**
-     * PR68 — scheduler 진입점. 수동 [executeArchive] 와 동일한 archive batch 로직을 공유하지만:
-     *  - confirmText / stale 검사 없음 (자동 실행이라 round-trip 이 없음).
-     *  - audit 기록 없음 — system actor 모델이 없어 active 테이블에 AUDIT_LOGS_ARCHIVED 를 남기지
-     *    않는다. 운영 추적성은 application log (slf4j) 가 책임진다.
-     *  - retentionDays 는 항상 [ModerationAuditLogRetentionService.DEFAULT_RETENTION_DAYS].
+     * PR68 신설, PR69 에서 system actor 도입 후 audit 기록 추가.
      *
-     * [actorId] 는 archive table 의 `archived_by` 자리로 사용 (scheduler 를 토글한 마지막 ADMIN).
+     * 수동 [executeArchive] 와 동일한 batch 로직을 공유하지만:
+     *  - confirmText / stale 검사 없음 (자동 실행이라 round-trip 이 없음).
+     *  - actor 는 항상 [SystemActorService] 의 system actor — `archived_by` 와 audit actor 둘 다.
+     *  - audit 기록 추가 (PR69): mode=SCHEDULED, reason="Scheduled audit log archive",
+     *    afterValue 에 archivedCount / cutoffAt / remaining + (있다면) scheduler 를 마지막
+     *    토글한 ADMIN id 를 `scheduledBy` 로 같이 박는다 — 운영 추적성 보강.
+     *  - retentionDays 는 항상 [ModerationAuditLogRetentionService.DEFAULT_RETENTION_DAYS].
      */
     @Transactional
-    fun executeScheduledArchive(actorId: Long): AuditLogArchiveResultResponse {
-        val admin = userRepository.findById(actorId).orElseThrow { UserNotFoundException() }
+    fun executeScheduledArchive(
+        scheduledByAdminId: Long? = null,
+    ): AuditLogArchiveResultResponse {
+        val systemActor = systemActorService.getSystemActor()
         val cutoffAt = LocalDateTime.now()
             .minusDays(ModerationAuditLogRetentionService.DEFAULT_RETENTION_DAYS)
-        val (archivedCount, remaining) = doArchiveBatch(cutoffAt, admin)
+        val (archivedCount, remaining) = doArchiveBatch(cutoffAt, systemActor)
+
+        moderationAuditLogService.record(
+            actorId = systemActor.id,
+            action = ModerationAuditAction.AUDIT_LOGS_ARCHIVED,
+            afterValue = buildMap<String, Any?> {
+                put("mode", "SCHEDULED")
+                put("archivedCount", archivedCount)
+                put("cutoffAt", cutoffAt.toString())
+                put("remainingCandidateCount", remaining)
+                if (scheduledByAdminId != null) put("scheduledBy", scheduledByAdminId)
+            },
+            reason = "Scheduled audit log archive",
+        )
+
         return AuditLogArchiveResultResponse(
             archivedCount = archivedCount,
             cutoffAt = cutoffAt,

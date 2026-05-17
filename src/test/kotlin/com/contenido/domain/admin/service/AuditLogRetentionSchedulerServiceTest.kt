@@ -121,17 +121,23 @@ class AuditLogRetentionSchedulerServiceTest {
     }
 
     @Test
-    fun `runIfEnabled - enabled 이지만 updatedBy 없으면 archive 호출하지 않음`() {
+    fun `runIfEnabled - PR69 updatedBy 없어도 system actor 가 archive 실행 (scheduledByAdminId=null)`() {
         val row = buildSetting(enabled = true, cron = "0 30 3 * * *", updatedBy = null)
         every { repository.findById(1L) } returns Optional.of(row)
+        every { moderationAuditLogArchiveService.executeScheduledArchive(null) } returns
+            AuditLogArchiveResultResponse(
+                archivedCount = 0L,
+                cutoffAt = LocalDateTime.now().minusDays(365),
+                remainingCandidateCount = 0L,
+            )
 
         service.runIfEnabled()
 
-        verify(exactly = 0) { moderationAuditLogArchiveService.executeScheduledArchive(any()) }
+        verify(exactly = 1) { moderationAuditLogArchiveService.executeScheduledArchive(null) }
     }
 
     @Test
-    fun `runIfEnabled - enabled + updatedBy 가 있으면 executeScheduledArchive 호출`() {
+    fun `runIfEnabled - enabled + updatedBy 가 있으면 scheduledByAdminId 로 admin id 전달`() {
         val admin = createUser(7L)
         val row = buildSetting(enabled = true, cron = "0 30 3 * * *", updatedBy = admin)
         every { repository.findById(1L) } returns Optional.of(row)

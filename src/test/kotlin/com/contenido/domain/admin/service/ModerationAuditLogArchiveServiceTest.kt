@@ -52,11 +52,13 @@ class ModerationAuditLogArchiveServiceTest {
     @MockK lateinit var moderationAuditLogArchiveRepository: ModerationAuditLogArchiveRepository
     @MockK(relaxed = true) lateinit var moderationAuditLogService: ModerationAuditLogService
     @MockK lateinit var userRepository: UserRepository
+    @MockK lateinit var systemActorService: SystemActorService
 
     private lateinit var service: ModerationAuditLogArchiveService
 
     private val FIXED_NOW: LocalDateTime = LocalDateTime.of(2026, 5, 17, 12, 0)
     private val ADMIN_ID: Long = 99L
+    private val SYSTEM_ACTOR_ID: Long = 1L
 
     @BeforeEach
     fun setUp() {
@@ -65,6 +67,7 @@ class ModerationAuditLogArchiveServiceTest {
             moderationAuditLogArchiveRepository,
             moderationAuditLogService,
             userRepository,
+            systemActorService,
         )
     }
 
@@ -187,6 +190,7 @@ class ModerationAuditLogArchiveServiceTest {
                 targetId = null,
                 beforeValue = null,
                 afterValue = mapOf(
+                    "mode" to "MANUAL",
                     "archivedCount" to 2L,
                     "cutoffAt" to cutoffAt.toString(),
                     "remainingCandidateCount" to 0L,
@@ -218,7 +222,7 @@ class ModerationAuditLogArchiveServiceTest {
         assertThat(result.remainingCandidateCount).isEqualTo(0L)
         verify(exactly = 0) { moderationAuditLogArchiveRepository.save(any()) }
         verify(exactly = 0) { moderationAuditLogRepository.deleteAll(any<Iterable<ModerationAuditLog>>()) }
-        // archive 행이 0건이어도 운영 추적성을 위해 audit 자체는 기록.
+        // archive 행이 0건이어도 운영 추적성을 위해 audit 자체는 기록 (mode=MANUAL).
         verify(exactly = 1) {
             moderationAuditLogService.record(
                 actorId = ADMIN_ID,
@@ -226,7 +230,7 @@ class ModerationAuditLogArchiveServiceTest {
                 targetType = null,
                 targetId = null,
                 beforeValue = null,
-                afterValue = any(),
+                afterValue = match<Map<String, Any?>> { it["mode"] == "MANUAL" },
                 reason = null,
             )
         }
@@ -462,4 +466,76 @@ class ModerationAuditLogArchiveServiceTest {
     private val unusedMapper: ObjectMapper = ObjectMapper()
     @Suppress("unused")
     private fun unusedMockkRef() = mockk<Any>()
+
+    // ── PR69: scheduled archive uses system actor + records audit ─────────────
+
+    @Test
+    fun `executeScheduledArchive - system actor 가 archive 의 archived_by + audit actor 양쪽 사용`() {
+        val systemActor = createUser(SYSTEM_ACTOR_ID, "System")
+        every { systemActorService.getSystemActor() } returns systemActor
+        every {
+            moderationAuditLogRepository.findByCreatedAtBeforeOrderByCreatedAtAsc(any(), any())
+        } returns emptyList()
+        every { moderationAuditLogRepository.countByCreatedAtBefore(any()) } returns 0L
+
+        service.executeScheduledArchive(scheduledByAdminId = null)
+
+        verify(exactly = 1) { systemActorService.getSystemActor() }
+        verify(exactly = 1) {
+            moderationAuditLogService.record(
+                actorId = SYSTEM_ACTOR_ID,
+                action = ModerationAuditAction.AUDIT_LOGS_ARCHIVED,
+                targetType = null,
+                targetId = null,
+                beforeValue = null,
+                afterValue = match<Map<String, Any?>> { it["mode"] == "SCHEDULED" },
+                reason = "Scheduled audit log archive",
+            )
+        }
+    }
+
+    @Test
+    fun `executeScheduledArchive - scheduledByAdminId 가 있으면 afterValue 에 동봉`() {
+        val systemActor = createUser(SYSTEM_ACTOR_ID, "System")
+        every { systemActorService.getSystemActor() } returns systemActor
+        every {
+            moderationAuditLogRepository.findByCreatedAtBeforeOrderByCreatedAtAsc(any(), any())
+        } returns emptyList()
+        every { moderationAuditLogRepository.countByCreatedAtBefore(any()) } returns 0L
+
+        service.executeScheduledArchive(scheduledByAdminId = 7L)
+
+        verify(exactly = 1) {
+            moderationAuditLogService.record(
+                actorId = SYSTEM_ACTOR_ID,
+                action = ModerationAuditAction.AUDIT_LOGS_ARCHIVED,
+                targetType = null,
+                targetId = null,
+                beforeValue = null,
+                afterValue = match<Map<String, Any?>> {
+                    it["mode"] == "SCHEDULED" && it["scheduledBy"] == 7L
+                },
+                reason = "Scheduled audit log archive",
+            )
+        }
+    }
+
+    @Test
+    fun `executeScheduledArchive - row 옮길 때 archive entity 의 archivedBy 는 system actor`() {
+        val systemActor = createUser(SYSTEM_ACTOR_ID, "System")
+        every { systemActorService.getSystemActor() } returns systemActor
+        val batch = listOf(buildLog(id = 1L, createdAt = FIXED_NOW.minusDays(400)))
+        every {
+            moderationAuditLogRepository.findByCreatedAtBeforeOrderByCreatedAtAsc(any(), any())
+        } returns batch
+        every { moderationAuditLogRepository.countByCreatedAtBefore(any()) } returns 0L
+        every { moderationAuditLogRepository.deleteAll(any<Iterable<ModerationAuditLog>>()) } returns Unit
+        val saved = slot<ModerationAuditLogArchive>()
+        every { moderationAuditLogArchiveRepository.save(capture(saved)) } answers { saved.captured }
+
+        service.executeScheduledArchive()
+
+        assertThat(saved.captured.archivedBy.id).isEqualTo(SYSTEM_ACTOR_ID)
+        assertThat(saved.captured.originalId).isEqualTo(1L)
+    }
 }

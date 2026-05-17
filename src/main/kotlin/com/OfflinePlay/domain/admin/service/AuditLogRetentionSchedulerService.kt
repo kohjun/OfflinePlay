@@ -66,11 +66,15 @@ class AuditLogRetentionSchedulerService(
     }
 
     /**
-     * PR68 — @Scheduled bean 의 tick 진입점. enabled=true 이고 updatedBy 가 설정돼 있을 때만
-     * archive 실행. 모든 예외를 swallow 해 다음 tick 영향이 없도록 한다.
+     * PR68 신설, PR69 에서 system actor 도입 후 "no actor skip" 정책 제거.
      *
-     * test profile 에서는 [AuditLogRetentionSchedulerBean] 이 등록되지 않아 본 메서드도 자동 호출
-     * 되지 않는다 — 단위 테스트는 이 메서드를 직접 호출해 동작 검증.
+     * enabled=true 이면 archive 실행. archive 자체의 actor 는 system actor 가 책임지고
+     * (`SystemActorService`), `settings.updatedBy` 는 audit 의 부가 컨텍스트 (scheduledBy) 로
+     * 그대로 전달된다 — null 이어도 archive 는 동작.
+     *
+     * 모든 예외를 swallow 해 다음 tick 영향이 없도록 한다. test profile 에서는
+     * [AuditLogRetentionSchedulerBean] 이 등록되지 않아 본 메서드도 자동 호출되지 않는다 —
+     * 단위 테스트는 이 메서드를 직접 호출.
      */
     @Transactional
     fun runIfEnabled() {
@@ -82,19 +86,13 @@ class AuditLogRetentionSchedulerService(
             log.debug("audit-log-retention scheduler: disabled, skipping tick")
             return
         }
-        val actor = settings.updatedBy
-        if (actor == null) {
-            log.warn(
-                "audit-log-retention scheduler: enabled=true but no updatedBy configured — " +
-                    "an ADMIN must toggle the scheduler to record an actor for archive ownership.",
-            )
-            return
-        }
         runCatching {
-            val result = moderationAuditLogArchiveService.executeScheduledArchive(actor.id)
+            val scheduledByAdminId = settings.updatedBy?.id
+            val result = moderationAuditLogArchiveService.executeScheduledArchive(scheduledByAdminId)
             log.info(
-                "audit-log-retention scheduler: archived={} cutoffAt={} remaining={}",
+                "audit-log-retention scheduler: archived={} cutoffAt={} remaining={} scheduledBy={}",
                 result.archivedCount, result.cutoffAt, result.remainingCandidateCount,
+                scheduledByAdminId,
             )
         }.onFailure { ex ->
             log.error("audit-log-retention scheduler: archive failed", ex)
