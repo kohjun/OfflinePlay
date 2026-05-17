@@ -24,6 +24,8 @@ enum class NotificationType {
     CHANNEL_BANNED,
     /** PR59 — ADMIN 이 채널 제재를 해제 — channel.owner 에게 발송. */
     CHANNEL_UNBANNED,
+    /** PR81 — 환불 성공 최초 1회 — ticket.buyer 에게 발송. targetType="tickets", targetId=ticket.id. */
+    REFUND_COMPLETED,
 }
 
 @Entity

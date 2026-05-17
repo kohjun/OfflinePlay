@@ -34,6 +34,7 @@ const TYPE_LABEL: Record<string, string> = {
   PARTICIPATION_CANCELED: '참가 취소',
   TICKET_ISSUED: '티켓 발급',
   TICKET_CHECKED_IN: '체크인 완료',
+  REFUND_COMPLETED: '환불 완료',
 }
 
 type NotificationTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral'
@@ -51,6 +52,7 @@ const TYPE_TONE: Record<string, NotificationTone> = {
   PARTICIPATION_CANCELED: 'neutral',
   TICKET_ISSUED: 'success',
   TICKET_CHECKED_IN: 'neutral',
+  REFUND_COMPLETED: 'warning',
 }
 
 const PAGE_SIZE = 20

@@ -43,8 +43,10 @@ import com.contenido.global.exception.TicketAlreadyRefundedException
 import com.contenido.global.exception.TicketAlreadyUsedException
 import com.contenido.global.exception.TicketNotFoundException
 import com.contenido.global.exception.UnauthorizedException
+import io.mockk.Runs
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import io.mockk.just
 import io.mockk.junit5.MockKExtension
 import io.mockk.slot
 import io.mockk.verify
@@ -67,6 +69,7 @@ class PaymentServiceTest {
     @MockK lateinit var ticketService: TicketService
     @MockK lateinit var paymentGateway: PaymentGateway
     @MockK lateinit var eventParticipationRepository: EventParticipationRepository
+    @MockK lateinit var notificationService: com.contenido.domain.notification.service.NotificationService
 
     private lateinit var service: PaymentService
 
@@ -80,7 +83,10 @@ class PaymentServiceTest {
             ticketService,
             paymentGateway,
             eventParticipationRepository,
+            notificationService,
         )
+        // PR81 — refund cascade 가 buyer 에게 REFUND_COMPLETED 알림을 보낸다. 기본 stub.
+        every { notificationService.notify(any(), any(), any(), any(), any(), any()) } just Runs
     }
 
     // ── preparePayment ───────────────────────────────────────────────────────────
@@ -921,6 +927,97 @@ class PaymentServiceTest {
         assertThat(event.currentParticipants).isEqualTo(4)
         verify(exactly = 0) { paymentGateway.refund(any()) }
         verify(exactly = 0) { eventParticipationRepository.findByEventAndParticipant(any(), any()) }
+    }
+
+    @Test
+    fun `refundPaymentByTicket 성공 시 buyer 에게 REFUND_COMPLETED 알림 1회 발송 (PR81)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 3)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr81a", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = listOf(2L),
+                type = com.contenido.domain.notification.entity.NotificationType.REFUND_COMPLETED,
+                title = "환불이 완료되었어요",
+                message = any(),
+                targetType = "tickets",
+                targetId = 999L,
+            )
+        }
+    }
+
+    @Test
+    fun `refundPaymentByTicket REFUNDED 멱등 재호출은 알림 발송 안 함 (PR81)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr81b", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now())
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+
+        verify(exactly = 0) { notificationService.notify(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `refundPaymentByTicket 알림 실패가 환불을 막지 않음 (PR81 best-effort)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr81c", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+        every {
+            notificationService.notify(any(), any(), any(), any(), any(), any())
+        } throws RuntimeException("SSE outage")
+
+        // 환불 자체는 성공해야 한다.
+        val response = service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
     }
 
     @Test

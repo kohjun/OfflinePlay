@@ -6,6 +6,8 @@ import com.contenido.domain.event.entity.EventStatus
 import com.contenido.domain.event.entity.ParticipationStatus
 import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
+import com.contenido.domain.notification.entity.NotificationType
+import com.contenido.domain.notification.service.NotificationService
 import com.contenido.domain.payment.dto.PaymentConfirmRequest
 import com.contenido.domain.payment.dto.PaymentConfirmResponse
 import com.contenido.domain.payment.dto.PaymentPrepareResponse
@@ -84,6 +86,7 @@ class PaymentService(
     private val ticketService: TicketService,
     private val paymentGateway: PaymentGateway,
     private val eventParticipationRepository: EventParticipationRepository,
+    private val notificationService: NotificationService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -328,6 +331,7 @@ class PaymentService(
      *  - Event.currentParticipants -- (단, participation 이 이미 terminal 이면 skip — 정원이
      *    그 시점에 이미 한 번 빠졌다고 보고 이중 감소 방지)
      *  - EventParticipation 이 있으면 CANCELED 로 전환 (이미 CANCELED 면 no-op)
+     *  - PR81: buyer 에게 REFUND_COMPLETED 알림 (best-effort, 알림 실패가 환불을 막지 않음)
      *
      * 한 attempt 에 한 번만 호출되도록 호출처가 `refundedAt == null` 가드.
      * PR78 — 정원 가드: ACTIVE(PENDING/APPROVED) 였던 경우에만 decreaseParticipant. terminal
@@ -348,6 +352,20 @@ class PaymentService(
         }
         if (participation != null && participation.status != ParticipationStatus.CANCELED) {
             participation.cancel()
+        }
+        // PR81 — buyer 에게 환불 완료 알림. REFUNDED 멱등 분기는 markRefundedInternal 을 타지
+        // 않으므로 중복 알림이 발생하지 않는다. 알림 실패는 환불 트랜잭션을 막지 않는다.
+        runCatching {
+            notificationService.notify(
+                receiverIds = listOf(attempt.buyer.id),
+                type = NotificationType.REFUND_COMPLETED,
+                title = "환불이 완료되었어요",
+                message = "${attempt.event.title} 환불이 처리되었습니다.",
+                targetType = "tickets",
+                targetId = ticket.id,
+            )
+        }.onFailure { e ->
+            log.warn("[refund] buyer notify failed: {}", e.message)
         }
     }
 
