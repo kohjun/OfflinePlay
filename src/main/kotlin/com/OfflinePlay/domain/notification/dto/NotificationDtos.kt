@@ -1,6 +1,8 @@
 package com.contenido.domain.notification.dto
 
 import com.contenido.domain.notification.entity.NotificationType
+import jakarta.validation.Valid
+import jakarta.validation.constraints.NotNull
 import java.time.LocalDateTime
 
 data class NotificationResponse(
@@ -12,4 +14,24 @@ data class NotificationResponse(
     val targetId: Long,
     val isRead: Boolean,
     val createdAt: LocalDateTime,
+)
+
+/**
+ * PR95 — NotificationType 1건의 사용자 수신 선호.
+ *
+ * `enabled` true 면 알림 발송 흐름이 row 저장 + SSE 전송. false 면 발송 단계에서 skip.
+ * row 가 DB 에 없는 type 은 응답 시 enabled=true 로 채워진다 (서비스 fallback).
+ */
+data class NotificationPreferenceResponse(
+    val type: NotificationType,
+    val enabled: Boolean,
+)
+
+data class UpdateNotificationPreferenceItem(
+    @field:NotNull val type: NotificationType?,
+    @field:NotNull val enabled: Boolean?,
+)
+
+data class UpdateNotificationPreferencesRequest(
+    @field:Valid val preferences: List<UpdateNotificationPreferenceItem> = emptyList(),
 )

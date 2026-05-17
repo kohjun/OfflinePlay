@@ -19,10 +19,14 @@ class NotificationService(
     private val notificationRepository: NotificationRepository,
     private val userRepository: UserRepository,
     private val sseEmitterService: SseEmitterService,
+    private val notificationPreferenceService: NotificationPreferenceService,
 ) {
 
     /**
      * 알림 생성 + SSE 즉시 전송. @Async로 별도 스레드에서 실행되어 호출자 트랜잭션과 독립적으로 처리된다.
+     *
+     * PR95 — receiver 의 [NotificationPreferenceService.isEnabled] 가 false 인 경우 row 저장 +
+     * SSE 발송 모두 skip. preference 조회 자체가 실패하면 fail-open(true) 으로 기존 흐름 유지.
      */
     @Async
     @Transactional
@@ -36,7 +40,10 @@ class NotificationService(
     ) {
         if (receiverIds.isEmpty()) return
 
-        val receivers = userRepository.findAllById(receiverIds)
+        val allowedIds = receiverIds.filter { notificationPreferenceService.isEnabled(it, type) }
+        if (allowedIds.isEmpty()) return
+
+        val receivers = userRepository.findAllById(allowedIds)
 
         val notifications = notificationRepository.saveAll(
             receivers.map { receiver ->

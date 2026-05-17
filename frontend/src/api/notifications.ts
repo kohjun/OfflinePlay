@@ -1,5 +1,10 @@
 import { apiClient, tokenStorage } from './client'
-import type { Notification, PageResponse } from '../types'
+import type {
+  Notification,
+  NotificationPreference,
+  PageResponse,
+  UpdateNotificationPreferencesRequest,
+} from '../types'
 
 const SSE_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
@@ -107,4 +112,20 @@ export function markNotificationRead(id: number) {
 
 export function markAllNotificationsRead() {
   return apiClient.patch<Notification[]>('/notifications/read-all')
+}
+
+/**
+ * PR95 — 사용자별 NotificationType 수신 선호 조회. 응답은 backend 가 모든 type 을 채워서 반환한다
+ * (row 가 없는 type 은 enabled=true).
+ */
+export function getNotificationPreferences() {
+  return apiClient.get<NotificationPreference[]>('/notifications/preferences')
+}
+
+/**
+ * PR95 — 알림 수신 선호 부분 갱신. request 에 없는 type 은 backend 가 기존 값을 유지한다.
+ * 응답은 갱신 후의 전체 preference 목록.
+ */
+export function updateNotificationPreferences(request: UpdateNotificationPreferencesRequest) {
+  return apiClient.patch<NotificationPreference[]>('/notifications/preferences', request)
 }
