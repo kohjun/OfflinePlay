@@ -16,6 +16,11 @@ import {
   type StreamStatus,
 } from '../stores/notificationStore'
 import type { NotificationPreference, NotificationType, UserRole } from '../types'
+import {
+  getNotificationLabel,
+  getNotificationTone,
+  pathForNotification,
+} from '../utils/notificationMeta'
 
 const STATUS_LABEL: Record<StreamStatus, string> = {
   connecting: '연결 중',
@@ -23,39 +28,8 @@ const STATUS_LABEL: Record<StreamStatus, string> = {
   disconnected: '실시간 연결 끊김',
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  NEW_EVENT: '새 이벤트',
-  NEW_POST: '새 글',
-  NEW_COMMENT: '새 댓글',
-  NEW_LIKE: '좋아요',
-  APPLICATION_APPROVED: '기획자 승인',
-  APPLICATION_REJECTED: '기획자 거절',
-  PARTICIPATION_REQUESTED: '참가 신청',
-  PARTICIPATION_APPROVED: '신청 승인',
-  PARTICIPATION_REJECTED: '신청 거절',
-  PARTICIPATION_CANCELED: '참가 취소',
-  TICKET_ISSUED: '티켓 발급',
-  TICKET_CHECKED_IN: '체크인 완료',
-  REFUND_COMPLETED: '환불 완료',
-}
-
-type NotificationTone = 'primary' | 'success' | 'warning' | 'danger' | 'neutral'
-
-const TYPE_TONE: Record<string, NotificationTone> = {
-  NEW_EVENT: 'primary',
-  NEW_POST: 'neutral',
-  NEW_COMMENT: 'neutral',
-  NEW_LIKE: 'neutral',
-  APPLICATION_APPROVED: 'success',
-  APPLICATION_REJECTED: 'danger',
-  PARTICIPATION_REQUESTED: 'primary',
-  PARTICIPATION_APPROVED: 'success',
-  PARTICIPATION_REJECTED: 'danger',
-  PARTICIPATION_CANCELED: 'neutral',
-  TICKET_ISSUED: 'success',
-  TICKET_CHECKED_IN: 'neutral',
-  REFUND_COMPLETED: 'warning',
-}
+// PR97 — NotificationType 별 라벨/tone/path 는 utils/notificationMeta.ts 로 통합.
+// 본 페이지와 알림 설정 패널이 동일 정의를 공유한다.
 
 const PAGE_SIZE = 20
 
@@ -63,45 +37,9 @@ interface NotificationsPageProps {
   onNavigate: (path: string) => void
 }
 
-/**
- * 알림 targetType + type -> 이동 경로 변환. 모르는 타입은 null 을 반환해 카드 클릭이
- * 읽음 처리만 하게 한다.
- *
- * creator-applications 는 보는 사람의 역할에 따라 의미가 다르다:
- *  - ADMIN 은 관리자 콘솔에서 신청을 검수한다 → /admin
- *  - 그 외(PARTICIPANT/CREATOR) 는 자기 신청 결과를 MY 에서 확인 → /my
- *
- * NEW_POST 는 targetType="channels" 인데 채널 상세의 공지 탭으로 직행해야 하므로
- * `?tab=posts` 쿼리를 붙인다.
- *
- * PR59 — CHANNEL_BANNED 는 채널이 hidden 처리된 직후라 owner 가 채널 상세로 진입해도 404 가
- * 난다. owner (CREATOR/ADMIN) 는 Creator Studio 의 "숨김 처리된 콘텐츠" 섹션으로, 그 외에는
- * MyPage 의 "내 이의 제기" 진입점으로 유도. CHANNEL_UNBANNED 는 다시 활성화된 상태라 일반
- * 채널 상세로 진입.
- */
-function pathForTarget(
-  targetType: string,
-  targetId: number,
-  type: string,
-  viewerRole?: UserRole,
-): string | null {
-  switch (targetType) {
-    case 'events':
-      return `/events/${targetId}`
-    case 'channels':
-      if (type === 'NEW_POST') return `/channels/${targetId}?tab=posts`
-      if (type === 'CHANNEL_BANNED') {
-        return viewerRole === 'CREATOR' || viewerRole === 'ADMIN' ? '/creator' : '/my'
-      }
-      return `/channels/${targetId}`
-    case 'tickets':
-      return `/tickets/${targetId}`
-    case 'creator-applications':
-      return viewerRole === 'ADMIN' ? '/admin' : '/my'
-    default:
-      return null
-  }
-}
+// PR97 — pathForTarget 는 utils/notificationMeta.pathForNotification 으로 이동.
+// 기존 라우팅 규칙은 그대로 유지 (events / channels(NEW_POST/CHANNEL_BANNED 분기) / tickets /
+// creator-applications) — 변경 없는 mechanical extraction.
 
 export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
   const { showToast } = useToast()
@@ -237,7 +175,7 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
 
   function handleClick(id: number, targetType: string, targetId: number, type: string, wasRead: boolean) {
     handleRead(id, wasRead)
-    const next = pathForTarget(targetType, targetId, type, user?.role)
+    const next = pathForNotification(targetType, targetId, type, user?.role)
     if (next) onNavigate(next)
   }
 
@@ -329,7 +267,7 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
             <ul className="notification-preferences__list">
               {preferences.map((pref) => {
                 const id = `notif-pref-${pref.type}`
-                const label = TYPE_LABEL[pref.type] ?? pref.type
+                const label = getNotificationLabel(pref.type)
                 const saving = savingTypes.has(pref.type)
                 return (
                   <li key={pref.type} className="notification-preferences__item">
@@ -373,9 +311,9 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
         <>
           <section className="stack">
             {items.map((item) => {
-              const typeLabel = TYPE_LABEL[item.type] ?? item.type
-              const typeTone = TYPE_TONE[item.type] ?? 'neutral'
-              const navigable = pathForTarget(item.targetType, item.targetId, item.type, user?.role) !== null
+              const typeLabel = getNotificationLabel(item.type)
+              const typeTone = getNotificationTone(item.type)
+              const navigable = pathForNotification(item.targetType, item.targetId, item.type, user?.role) !== null
               return (
                 <button
                   key={item.id}

@@ -425,6 +425,19 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 사용자가 알림 종류별로 ON/OFF 를 즉시 토글할 수 있고, OFF 한 알림은 발송 단계에서 차단된다. 실패 시에는 UI 가 이전 상태로 안전하게 복귀한다.
 
+### 21. 알림 메타데이터 일관성 (PR97)
+**목적**: NotificationType 별 라벨/tone/라우팅이 NotificationsPage 알림 카드와 알림 설정 패널에서 일치하고, 모든 enum 값에 정의가 있는지 확인.
+
+**사전 조건**: NotificationsPage 진입 가능한 일반 사용자 계정.
+
+- [ ] 📋 `frontend/src/utils/notificationMeta.ts` 의 `META` 가 `NotificationType` 모든 값(NEW_EVENT/NEW_POST/NEW_COMMENT/NEW_LIKE/APPLICATION_APPROVED/APPLICATION_REJECTED/PARTICIPATION_REQUESTED/PARTICIPATION_APPROVED/PARTICIPATION_REJECTED/PARTICIPATION_CANCELED/TICKET_ISSUED/TICKET_CHECKED_IN/CHANNEL_BANNED/CHANNEL_UNBANNED/REFUND_COMPLETED) 에 대해 label/tone 을 정의
+- [ ] 🖱 NotificationsPage 알림 카드의 type 뱃지 라벨과 같은 페이지 "알림 설정" 패널의 라벨이 완전히 동일 (예: REFUND_COMPLETED → 두 곳 모두 "환불 완료")
+- [ ] 🖱 모르는 type 응답이 도착해도(devtools 로 backend 응답 강제) "알림" 라벨 + neutral tone 으로 안전하게 표시 (페이지가 깨지지 않음)
+- [ ] 🖱 알림 카드 클릭 시 라우팅이 PR97 이전과 동일 — events → /events/{id}, channels(NEW_POST) → /channels/{id}?tab=posts, channels(CHANNEL_BANNED) → CREATOR/ADMIN 은 /creator / 그 외는 /my, channels 기타 → /channels/{id}, tickets → /tickets/{id}, creator-applications → ADMIN 은 /admin / 그 외는 /my
+- [ ] 🖱 알 수 없는 targetType 알림 카드는 클릭해도 라우팅되지 않고 읽음 처리만 (기존 fallback 동작 유지)
+
+**기대 결과**: 라벨/tone/path 가 단일 모듈(`notificationMeta.ts`) 에서 정의되어 두 화면이 정의를 공유한다. 새 NotificationType 추가 시 한 곳만 수정하면 두 곳 모두 반영된다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결
