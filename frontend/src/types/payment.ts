@@ -59,3 +59,18 @@ export interface RefundTicketResponse {
   refundedAt: string
   providerPaymentKey: string | null
 }
+
+/**
+ * PR106 — Mirrors backend AdminForcedRefundResponse.
+ * 일반 환불 응답에 운영 사유(`refundReason`)가 추가된 형태. 부분 환불은 미지원 (`amount` 는 전액).
+ */
+export interface AdminForcedRefundResponse {
+  ticketId: number
+  ticketStatus: TicketStatus
+  paymentAttemptId: number
+  provider: PaymentProvider
+  amount: number
+  refundedAt: string
+  providerPaymentKey: string | null
+  refundReason: string
+}

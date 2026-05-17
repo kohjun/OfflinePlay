@@ -1020,6 +1020,191 @@ class PaymentServiceTest {
         assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
     }
 
+    // ── PR106 — forceRefundByAdmin (ADMIN 강제 환불) ─────────────────────────────
+
+    @Test
+    fun `forceRefundByAdmin USED 티켓도 전액 환불 + 정원 -- + REFUND_COMPLETED 알림`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 5,
+            startAt = LocalDateTime.now().minusHours(2), // 시작 후
+            endAt = LocalDateTime.now().minusMinutes(30),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.USED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-force", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.APPROVED)
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS,
+            providerPaymentKey = "toss_paid_key",
+            canceledAt = "2026-05-18T12:00:00+09:00",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(participation)
+        every {
+            notificationService.notify(any(), any(), any(), any(), any(), any())
+        } just Runs
+
+        val response = service.forceRefundByAdmin(adminUserId = 99L, ticketId = 999L, reason = "행사 취소 보상")
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(attempt.refundedAt).isNotNull
+        assertThat(attempt.refundReason).isEqualTo("행사 취소 보상")
+        // USED 티켓도 환불 가능 — deadline 검사 우회.
+        assertThat(event.currentParticipants).isEqualTo(4)
+        assertThat(participation.status).isEqualTo(ParticipationStatus.CANCELED)
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = listOf(2L),
+                type = com.contenido.domain.notification.entity.NotificationType.REFUND_COMPLETED,
+                title = any(),
+                message = any(),
+                targetType = "tickets",
+                targetId = 999L,
+            )
+        }
+    }
+
+    @Test
+    fun `forceRefundByAdmin PAID 티켓도 환불 가능 + 시작 후 이벤트도 통과`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 7,
+            startAt = LocalDateTime.now().minusHours(1),
+            endAt = LocalDateTime.now().plusHours(1),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PAID)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-force-paid", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.NONE, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+        every { notificationService.notify(any(), any(), any(), any(), any(), any()) } just Runs
+
+        val response = service.forceRefundByAdmin(99L, 999L, "운영 강제 환불")
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(event.currentParticipants).isEqualTo(6)
+    }
+
+    @Test
+    fun `forceRefundByAdmin REFUNDED 티켓은 멱등 응답이 아니라 TicketAlreadyRefundedException 으로 차단`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.REFUNDED)
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+
+        assertThrows<TicketAlreadyRefundedException> {
+            service.forceRefundByAdmin(99L, 999L, "재시도")
+        }
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
+    @Test
+    fun `forceRefundByAdmin CANCELED 티켓은 PaymentNotRefundableException`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.CANCELED)
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+
+        assertThrows<PaymentNotRefundableException> {
+            service.forceRefundByAdmin(99L, 999L, "운영 사유")
+        }
+    }
+
+    @Test
+    fun `forceRefundByAdmin 결제 attempt 없으면 PaymentNotRefundableException`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PAID)
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.empty()
+
+        assertThrows<PaymentNotRefundableException> {
+            service.forceRefundByAdmin(99L, 999L, "운영 사유")
+        }
+    }
+
+    @Test
+    fun `forceRefundByAdmin ADMIN 이 아니면 UnauthorizedException`() {
+        val notAdmin = createUser(id = 2L, role = UserRole.PARTICIPANT)
+        every { userRepository.findById(2L) } returns Optional.of(notAdmin)
+
+        assertThrows<UnauthorizedException> {
+            service.forceRefundByAdmin(2L, 999L, "사유")
+        }
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `forceRefundByAdmin gateway Failure 시 RefundFailedException + ticket 상태 보존`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.USED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-force-fail", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Failure(
+            provider = PaymentProvider.NONE, code = "GATEWAY_ERROR", message = "PG 거절",
+        )
+
+        assertThrows<RefundFailedException> {
+            service.forceRefundByAdmin(99L, 999L, "운영 사유")
+        }
+        // 실패 시 상태 그대로.
+        assertThat(ticket.status).isEqualTo(TicketStatus.USED)
+        assertThat(attempt.refundedAt).isNull()
+    }
+
     @Test
     fun `refundPaymentByTicket 이벤트 이미 시작됐으면 RefundDeadlinePassedException (gateway 호출 X)`() {
         // PR43 가드: PAID 티켓이라도 event.startAt 이 현재보다 과거면 환불 불가.

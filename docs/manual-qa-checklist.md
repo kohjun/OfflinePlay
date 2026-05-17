@@ -508,6 +508,39 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 라벨/tone/path 가 단일 모듈(`notificationMeta.ts`) 에서 정의되어 두 화면이 정의를 공유한다. 새 NotificationType 추가 시 한 곳만 수정하면 두 곳 모두 반영된다.
 
+### 22. ADMIN 강제 환불 운영 도구 (PR106)
+**목적**: USED 티켓 / 시작 후 PAID 티켓 등 일반 환불 경로로 처리할 수 없는 케이스를 ADMIN 이 전액 환불 처리할 수 있는지 + audit 기록 + buyer 알림이 모두 동작하는지 확인.
+
+**사전 조건**: ADMIN 계정 1명. 환불 대상 티켓 (PAID 또는 USED, 결제 attempt PAID 상태) 1건 이상.
+
+- [ ] 🖱 `/admin?tab=payments` 진입 → "운영 결제 도구" 섹션이 노출되고 ticketId 입력 + 사유 textarea + "강제 환불 실행" 버튼이 보임
+- [ ] 🖱 ticketId 가 비어 있거나 0 이하 / 사유가 비어 있음 → "강제 환불 실행" 버튼 disabled
+- [ ] 🖱 사유 500자 초과 시 input 자체가 자르거나 (`maxLength=500`) 글자 수 카운터에 도달
+- [ ] 🖱 유효한 입력 후 버튼 클릭 → "티켓 #{id} 을 강제 환불합니다…" confirm dialog
+- [ ] 🖱 confirm 취소 → 아무 요청도 발생하지 않음
+- [ ] 🖱 confirm 확인 → backend POST 호출 후 "강제 환불 처리 완료" success toast + "마지막 처리 결과" 카드에 ticketStatus=REFUNDED, 금액, PG, 처리 시각, 사유 노출
+- [ ] 🖱 USED 티켓 ID 입력 → 강제 환불 성공 (일반 경로의 `TicketAlreadyUsedException` 없이 통과)
+- [ ] 🖱 시작 후 (`event.startAt < now`) PAID 티켓 → 강제 환불 성공 (일반 경로의 `RefundDeadlinePassedException` 없이 통과)
+- [ ] 🖱 이미 REFUNDED 인 티켓 → "환불할 수 없는 상태에요" danger toast (409, 멱등 응답 아니라 명시적 차단 — 실수 방지)
+- [ ] 🖱 CANCELED 티켓 → "환불할 수 없는 상태에요" danger toast (409)
+- [ ] 🖱 결제 attempt 가 없거나 status≠PAID → 409 danger toast
+- [ ] 🖱 ticketId 가 존재하지 않음 → "티켓을 찾을 수 없어요" danger toast (404)
+- [ ] 🖱 ADMIN 이 아닌 계정으로 endpoint 직접 호출 (devtools) → 403 + "권한이 없어요"
+- [ ] 🖱 강제 환불 성공 후 buyer 의 알림 센터에 `REFUND_COMPLETED` 알림 1건 추가 (메시지는 일반 환불과 동일 — 운영 사유 미포함, 내부 정보 보호)
+- [ ] 🖱 같은 시간대에 buyer 가 `/tickets/{id}` 진입 시 ticket 이 REFUNDED 로 표시 + 환불 요청 버튼 미노출
+- [ ] 🖱 EventDetailPage 가 buyer 의 화면에서 자동 refetch → CTA 가 "다시 신청하기" / "참가 신청하기" 로 복귀
+- [ ] 🖱 buyer 의 MyPage 결제 탭 영수증 카드 status 가 "환불됨" 으로 갱신
+- [ ] 📋 `moderation_audit_logs` 에 `action=TICKET_FORCED_REFUNDED` row 1건 INSERT, `actor_id=관리자 ID`, `reason=입력한 사유`, `after_value` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 포함
+- [ ] 📋 `target_type` 컬럼은 NULL (ReportTargetType 에 TICKET 이 없음)
+- [ ] 📋 `tickets` 테이블의 해당 행 `status` PAID/USED → REFUNDED, `payment_attempts.refunded_at` / `refund_reason` 갱신
+- [ ] 📋 `events.current_participants` 가 -1 (participation 이 active 였던 경우; PR78 가드 그대로)
+- [ ] 📋 `event_participations` 의 해당 row 가 APPROVED → CANCELED
+- [ ] 📋 일반 사용자 환불 (`POST /tickets/{id}/refund`) 의 deadline / USED 가드는 그대로 동작 — buyer 가 같은 USED 티켓을 일반 경로로 환불 시도 시 `TicketAlreadyUsedException` 409 (회귀 가드)
+- [ ] 📋 PG gateway 가 Failure 응답을 보낸 경우 (devtools 로 mock) → 502 "PG 처리에 실패했어요" + ticket 상태는 보존 (PAID/USED 그대로, audit 기록 없음)
+- [ ] 📋 새 마이그레이션 없음 (V10 까지만 존재). `ModerationAuditAction.TICKET_FORCED_REFUNDED` enum 추가만 코드 변경.
+
+**기대 결과**: ADMIN 이 일반 환불 경로로 막혀 있던 케이스를 명시적 사유 기록과 함께 한 곳에서 처리할 수 있다. 환불 cascade, buyer 알림, audit 기록이 모두 동일 트랜잭션에서 일관되게 적용된다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

@@ -96,3 +96,30 @@ data class RefundTicketResponse(
     val refundedAt: String,
     val providerPaymentKey: String?,
 )
+
+/**
+ * PR106 — ADMIN 강제 환불 (`POST /api/v1/admin/tickets/{ticketId}/forced-refund`) 요청 body.
+ *
+ *  - [reason] : 운영 사유. 필수. 1~500자. audit log 에 그대로 기록된다.
+ */
+data class AdminForcedRefundRequest(
+    @field:jakarta.validation.constraints.NotBlank
+    @field:jakarta.validation.constraints.Size(min = 1, max = 500)
+    val reason: String,
+)
+
+/**
+ * PR106 — ADMIN 강제 환불 응답. 일반 환불 응답과 유사하지만 forced reason 을 명시 echo 한다
+ * (감사 추적용). cascade 결과(ticket REFUNDED, participation CANCELED, currentParticipants--)는
+ * 일반 환불과 동일하다.
+ */
+data class AdminForcedRefundResponse(
+    val ticketId: Long,
+    val ticketStatus: com.contenido.domain.ticket.entity.TicketStatus,
+    val paymentAttemptId: Long,
+    val provider: PaymentProvider,
+    val amount: Long,
+    val refundedAt: String,
+    val providerPaymentKey: String?,
+    val refundReason: String,
+)

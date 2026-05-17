@@ -46,6 +46,14 @@ enum class ModerationAuditAction {
      * 남기는 액션. afterValue 에 archived count / cutoffAt / 잔여 후보 수 JSON 동봉.
      */
     AUDIT_LOGS_ARCHIVED,
+
+    /**
+     * PR106 — ADMIN 이 일반 환불 경로(`refundPaymentByTicket`)로 처리 불가능한 티켓
+     * (USED / 시작 후 PAID 등)을 강제 환불한 액션. targetType=null — ReportTargetType 에 TICKET
+     * 이 없으므로 afterValue JSON 에 ticketId/paymentAttemptId 를 동봉한다. reason 은 운영
+     * 사유(필수, 500자) 가 그대로 들어간다.
+     */
+    TICKET_FORCED_REFUNDED,
 }
 
 @Entity

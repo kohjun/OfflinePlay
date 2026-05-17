@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  AdminForcedRefundResponse,
   PaymentConfirmRequest,
   PaymentConfirmResponse,
   PaymentPrepareResponse,
@@ -66,4 +67,26 @@ export function confirmPayment(
  */
 export function refundTicket(ticketId: number, request: RefundTicketRequest = {}) {
   return apiClient.post<RefundTicketResponse>(`/tickets/${ticketId}/refund`, request)
+}
+
+/**
+ * POST /api/v1/admin/tickets/{ticketId}/forced-refund
+ *
+ * PR106 — ADMIN 전용 강제 환불 도구. 일반 [refundTicket] 와 달리:
+ *  - USED 티켓도 전액 환불 가능 (체크인 후 노쇼 보상, 행사 취소 보상 등)
+ *  - 이벤트 시작 시각 이후도 가능 (deadline 가드 우회)
+ *  - 사유(reason) 필수, 최대 500자. audit log 에 그대로 기록된다.
+ *
+ * 거부 케이스 (백엔드 throw):
+ *  - actor 가 ADMIN 아님: 403 UnauthorizedException
+ *  - ticket REFUNDED: 409 TicketAlreadyRefundedException (멱등 응답 아님 — 실수 방지)
+ *  - ticket CANCELED: 409 PaymentNotRefundableException
+ *  - PaymentAttempt 부재 / 상태 부적합: 409 PaymentNotRefundableException
+ *  - PG gateway 거절: 502 RefundFailedException
+ */
+export function forceRefundTicket(ticketId: number, reason: string) {
+  return apiClient.post<AdminForcedRefundResponse>(
+    `/admin/tickets/${ticketId}/forced-refund`,
+    { reason },
+  )
 }

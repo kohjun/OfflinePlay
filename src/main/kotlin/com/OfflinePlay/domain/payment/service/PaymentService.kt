@@ -325,6 +325,80 @@ class PaymentService(
     }
 
     /**
+     * PR106 — ADMIN 전용 강제 환불.
+     *
+     * 일반 [refundPaymentByTicket] 와 다른 점:
+     *  - **deadline 검사 없음** — 이벤트 시작 후 / USED 티켓도 환불 허용 (노쇼 보상, 행사 취소 등
+     *    운영 케이스 대응)
+     *  - **권한 = ADMIN 만** — buyer / channel owner 는 본 흐름으로 호출 불가 (UnauthorizedException)
+     *  - 부분 환불 아님 — 전액(`attempt.amount`)만 환불
+     *
+     * 공통:
+     *  - PG `paymentGateway.refund` 호출 (Toss 또는 Mock)
+     *  - 성공 시 [markRefundedInternal] 재사용 → ticket REFUNDED, participation CANCELED,
+     *    `event.currentParticipants` 감소 (active 였던 경우), buyer 에게 REFUND_COMPLETED 알림
+     *
+     * 거부 조건:
+     *  - actor 가 ADMIN 아님 → [UnauthorizedException]
+     *  - ticket 미존재 → [TicketNotFoundException]
+     *  - ticket.status == REFUNDED → [TicketAlreadyRefundedException] (실수 방지, 멱등 응답 X)
+     *  - ticket.status == CANCELED → [PaymentNotRefundableException]
+     *  - paymentAttempt 미존재 / status != PAID → [PaymentNotRefundableException]
+     *  - providerPaymentKey 비어 있음 → [PaymentNotRefundableException]
+     *  - paymentAttempt.refundedAt != null → [TicketAlreadyRefundedException]
+     *  - PG gateway 실패 → [RefundFailedException]
+     *
+     * audit log 기록은 호출자(AdminPaymentService)가 별도 책임. 본 메서드는 환불 cascade 만 담당.
+     */
+    @Transactional
+    fun forceRefundByAdmin(
+        adminUserId: Long,
+        ticketId: Long,
+        reason: String,
+    ): RefundTicketResponse {
+        val actor = userRepository.findById(adminUserId).orElseThrow { UserNotFoundException() }
+        if (actor.role != UserRole.ADMIN) throw UnauthorizedException()
+
+        val ticket = ticketRepository.findById(ticketId).orElseThrow { TicketNotFoundException() }
+        when (ticket.status) {
+            TicketStatus.REFUNDED -> throw TicketAlreadyRefundedException()
+            TicketStatus.CANCELED -> throw PaymentNotRefundableException("취소된 티켓은 환불 대상이 아닙니다.")
+            TicketStatus.PAID, TicketStatus.USED -> { /* 진행 — deadline 검사 생략 */ }
+        }
+
+        val attempt = paymentAttemptRepository.findByTicket(ticket)
+            .orElseThrow { PaymentNotRefundableException("연결된 결제 시도를 찾을 수 없습니다.") }
+        if (attempt.status != PaymentStatus.PAID) {
+            throw PaymentNotRefundableException("PAID 상태인 결제만 환불 가능합니다.")
+        }
+        if (attempt.refundedAt != null) throw TicketAlreadyRefundedException()
+        val providerKey = attempt.providerPaymentKey?.takeIf { it.isNotBlank() }
+            ?: throw PaymentNotRefundableException("PG 결제 키가 없어 환불할 수 없습니다.")
+
+        val trimmedReason = reason.trim()
+        val result = paymentGateway.refund(
+            PaymentGatewayRefundRequest(
+                providerPaymentKey = providerKey,
+                amount = attempt.amount,
+                reason = trimmedReason,
+            )
+        )
+        return when (result) {
+            is PaymentGatewayRefundResult.Success -> {
+                markRefundedInternal(attempt, ticket, trimmedReason)
+                attempt.toRefundResponse(ticket)
+            }
+            is PaymentGatewayRefundResult.Failure -> {
+                log.warn(
+                    "[forceRefundByAdmin] gateway rejected ticketId={} code={} msg={}",
+                    ticket.id, result.code, result.message,
+                )
+                throw RefundFailedException(result.code, result.message)
+            }
+        }
+    }
+
+    /**
      * 환불 후 상태 정리:
      *  - PaymentAttempt.refundedAt + refundReason 기록 (status 는 PAID 유지)
      *  - Ticket.status PAID → REFUNDED

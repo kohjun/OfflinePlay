@@ -7,10 +7,11 @@ import type { Channel, CreatorApplication } from '../types'
 import { AdminAppealsSection } from './admin/AdminAppealsSection'
 import { AdminAuditLogsSection } from './admin/AdminAuditLogsSection'
 import { AdminModerationOverviewSection } from './admin/AdminModerationOverviewSection'
+import { AdminPaymentToolsSection } from './admin/AdminPaymentToolsSection'
 import { AdminReportsSection } from './admin/AdminReportsSection'
 import { AdminRetentionSection } from './admin/AdminRetentionSection'
 
-type AdminTab = 'overview' | 'reports' | 'appeals' | 'audit' | 'retention'
+type AdminTab = 'overview' | 'reports' | 'appeals' | 'audit' | 'retention' | 'payments'
 
 const TAB_LABELS: Record<AdminTab, string> = {
   overview: '운영 현황',
@@ -18,9 +19,10 @@ const TAB_LABELS: Record<AdminTab, string> = {
   appeals: '이의 제기',
   audit: '감사 로그',
   retention: '보존 정책',
+  payments: '결제 도구',
 }
 
-const ALL_TABS: AdminTab[] = ['overview', 'reports', 'appeals', 'audit', 'retention']
+const ALL_TABS: AdminTab[] = ['overview', 'reports', 'appeals', 'audit', 'retention', 'payments']
 
 function readTabFromUrl(): AdminTab {
   const param = new URLSearchParams(window.location.search).get('tab')
@@ -170,6 +172,12 @@ export function AdminPage() {
       {mountedTabs.has('retention') ? (
         <div id="admin-panel-retention" role="tabpanel" aria-labelledby="admin-tab-retention" style={{ display: activeTab === 'retention' ? undefined : 'none' }}>
           <AdminRetentionSection />
+        </div>
+      ) : null}
+
+      {mountedTabs.has('payments') ? (
+        <div id="admin-panel-payments" role="tabpanel" aria-labelledby="admin-tab-payments" style={{ display: activeTab === 'payments' ? undefined : 'none' }}>
+          <AdminPaymentToolsSection />
         </div>
       ) : null}
 
