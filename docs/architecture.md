@@ -339,6 +339,26 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 PATCH payload 는 해당 bundle 의 type 들만 `{ type, enabled: nextEnabled }` 로 포함한다. backend 의 partial-update 정책(§6.4) 덕에 다른 카테고리 type 은 영향 없이 유지된다.
 
+#### 6.6.2 카드 Quick Mute + Undo (PR101)
+
+알림 카드 자체에서 해당 NotificationType 을 한 클릭으로 끌 수 있는 보조 액션. 설정 패널을 거치지 않고도 "이 종류 알림이 너무 많이 와요" 상황을 즉시 해결할 수 있게 한다.
+
+| 항목 | 동작 정책 |
+|---|---|
+| 카드 액션 | 알림 카드 우측 상단에 "이 유형 끄기" 작은 버튼. 카드 내부 클릭은 기존 라우팅 동작 그대로 유지 — 버튼은 `<button.notification-item>` 의 형제(`<div.notification-row>` wrapper) 로 배치해 버튼 중첩 회피. |
+| 클릭 결과 | 해당 알림의 `type` 한 건만 `PATCH /preferences` 로 `enabled=false`. |
+| state 동기화 | `preferences` 가 한 번이라도 로드된 적 있으면 optimistic 갱신 + 응답으로 동기화 — 패널이 열려 있다면 체크박스가 즉시 unchecked. `preferences === null` 이면 state 를 건드리지 않는다 (다음에 패널을 열면 backend 에서 fresh fetch — §6.4 의 row 없음 = true 정책 위에서 안전). |
+| 이미 꺼진 type | preferences 가 로드돼 있고 해당 type 이 `enabled=false` 면 버튼 대신 "꺼짐" 회색 배지 표시. 액션 없음. |
+| undo banner | mute 성공 시 화면 상단에 banner 5초 노출. "{라벨} 알림을 껐어요. 실수였다면 5초 안에 되돌릴 수 있어요." + "되돌리기" 버튼. |
+| undo 동작 | 같은 type 을 `PATCH /preferences` 로 `enabled=true`. 성공 시 success toast, 실패 시 snapshot rollback + danger toast. |
+| 연속 mute | 새 quick mute 가 발생하면 기존 timer 를 `clearTimeout` 하고 새 type 으로 banner 교체 + 5초 재시작. 가장 마지막 mute 만 되돌릴 수 있다. |
+| 5초 만료 | banner 가 자동으로 사라진다. 이후에는 설정 패널(§6.6) 에서 다시 켤 수 있다. |
+| unmount cleanup | 페이지 이탈 시 `useEffect` cleanup 으로 펜딩 setTimeout 정리. |
+| 가드 | `quickMuting: Set<NotificationType>` 가 quick mute/undo 진행 중 type 을 추적 — 같은 type 의 연속 클릭 / mute-와-undo race 방지. `savingTypes` (개별 토글) 와는 별도 set 으로 분리. |
+| accessibility | mute 버튼 `aria-label="{라벨} 알림 끄기"` + `aria-busy` + disabled, "꺼짐" 배지 `aria-label="{라벨} 알림 꺼짐"`, undo banner `role="status"` + `aria-live="polite"`, undo 버튼도 PATCH 진행 중 `aria-busy` + disabled. |
+
+본 액션은 **사용자 preference 만 변경**한다. notification row 의 read 상태 / DB 행 삭제 / 라우팅(`pathForNotification`) 동작은 건드리지 않는다 — 이미 도착한 알림은 그대로 남고, 이후 같은 type 으로 발송되는 알림이 §6.5 의 발송 단계 필터에서 차단된다.
+
 ### 6.7 notificationMeta.ts — 메타데이터 single source (PR97)
 
 `frontend/src/utils/notificationMeta.ts` 가 NotificationType 의 label / tone / 설명 / 라우팅 규칙을 단일 정의한다. NotificationsPage 알림 카드와 §6.6 의 알림 설정 패널이 같은 정의를 공유 — 새 enum 이 추가되면 이 파일 하나만 수정하면 두 화면에 반영된다.
@@ -523,5 +543,7 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR98 — 알림 preference 흐름 문서화 (본 문서 §6.4~6.7 + §10 Known Exclusions 갱신)
 - PR99 — 알림 preference 카테고리 묶음 토글 (5 bundle + "전체 알림")
 - PR100 — bundle 분류표 / 동작 정책 문서화 (§6.6 + §6.6.1) + 묶음 토글 Known Exclusion 제거
+- PR101 — 알림 카드 quick mute + 5초 undo banner
+- PR102 — quick mute 흐름 문서화 (§6.6.2) + PR 히스토리 갱신
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
