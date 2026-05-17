@@ -137,7 +137,19 @@ export function PaymentFailPage({ onNavigate }: PaymentFailPageProps) {
   const params = new URLSearchParams(window.location.search)
   const code = params.get('code') ?? 'PAY_FAILED'
   const message = params.get('message') ?? '결제가 완료되지 않았어요.'
+  const eventIdParam = Number(params.get('eventId') ?? '')
+  const eventId = Number.isFinite(eventIdParam) && eventIdParam > 0 ? eventIdParam : null
   const copy = FAIL_COPY[code]
+
+  function handleRetry() {
+    if (eventId != null) {
+      onNavigate(`/events/${eventId}/payment`)
+    } else if (typeof window !== 'undefined' && window.history.length > 1) {
+      window.history.back()
+    } else {
+      onNavigate('/')
+    }
+  }
 
   return (
     <main className="page empty-state ct-pay-fail">
@@ -148,7 +160,7 @@ export function PaymentFailPage({ onNavigate }: PaymentFailPageProps) {
       <button
         type="button"
         className="button button-primary is-block"
-        onClick={() => window.history.back()}
+        onClick={handleRetry}
       >
         다시 결제하기
       </button>

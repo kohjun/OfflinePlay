@@ -135,8 +135,8 @@ export function PaymentPage({ eventId, onNavigate }: PaymentPageProps) {
           amount: prep.amount,
           orderId: prep.idempotencyKey,
           orderName: prep.orderName,
-          successUrl: `${window.location.origin}/payments/success?paymentAttemptId=${prep.paymentAttemptId}`,
-          failUrl: `${window.location.origin}/payments/fail?paymentAttemptId=${prep.paymentAttemptId}`,
+          successUrl: `${window.location.origin}/payments/success?paymentAttemptId=${prep.paymentAttemptId}&eventId=${eventId}`,
+          failUrl: `${window.location.origin}/payments/fail?paymentAttemptId=${prep.paymentAttemptId}&eventId=${eventId}`,
         })
         return
       }

@@ -367,8 +367,9 @@ export function MyPage({ onNavigate }: MyPageProps) {
   // 통계 카드용 — 백엔드가 노출하는 값만 채우고 나머지는 dash 로 둔다.
   const approvedCount = items.filter((it) => it.status === 'APPROVED').length
 
-  // PR44 결제 탭: 티켓이 발급된 항목만 추리고, 사용자가 고른 상태로 한 번 더 필터.
-  const orderItems = items.filter((it) => it.ticketId != null)
+  // PR44 결제 탭: 실제 결제(paymentAttemptId)가 묶인 항목만 추리고, 사용자가 고른 상태로 한 번 더 필터.
+  // 무료 티켓은 "신청" 탭에서 확인 — 결제 탭은 영수증/결제수단을 보여주는 곳이라 결제 없는 무료 티켓이 섞이면 헷갈린다.
+  const orderItems = items.filter((it) => it.paymentAttemptId != null)
   const visibleOrderItems = orderItems.filter((it) => {
     if (orderFilter === 'ALL') return true
     return it.ticketStatus === orderFilter

@@ -688,14 +688,18 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
             {status === 'APPROVED' &&
             new Date(event.startAt).getTime() > Date.now() &&
             participation?.ticketStatus !== 'USED' ? (
-              <button
-                type="button"
-                className="text-button"
-                onClick={handleCancel}
-                disabled={submittingJoin}
-              >
-                {submittingJoin ? '취소 중...' : '참가 취소'}
-              </button>
+              event.participationFee > 0 ? (
+                <span className="muted">취소·환불은 티켓 페이지에서 진행해주세요</span>
+              ) : (
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={handleCancel}
+                  disabled={submittingJoin}
+                >
+                  {submittingJoin ? '취소 중...' : '참가 취소'}
+                </button>
+              )
             ) : null}
           </div>
         ) : null}
