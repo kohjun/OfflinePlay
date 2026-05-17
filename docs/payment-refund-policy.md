@@ -481,7 +481,7 @@ interface PaymentGateway {
 ### 11.7 PR43+ 의도적 제외
 
 - **부분 환불** — 현재는 전액만 (`cancelAmount = attempt.amount`). 부분 환불 도입 시 Ticket 모델/UI/PG body 모두 확장 필요.
-- **USED 후 강제 환불** — 노쇼/행사 취소 보상 등 운영 케이스. 별도 ADMIN 전용 endpoint 와 추적 컬럼 필요.
+- ~~**USED 후 강제 환불**~~ — **PR106 에서 ADMIN 전용 강제 전액 환불 도구 도입.** §13 참고. (단, 여전히 부분 환불은 미지원.)
 - **환불 정산 reconciliation batch** — 일별 PG 정산 데이터와 REFUNDED 카운트 일치 검증.
 - **환불 실패 큐** — PG `refund.failed` 처리 + 운영자 알림 + 자동 재시도 정책 (Toss 5xx 한정).
 - **정원 race condition lock** (PR41 잔재) + **PortOne 어댑터** (PR40 잔재) — 별도 PR.
@@ -541,3 +541,92 @@ PR42 hardening 에서 추가된 회귀 테스트 (`PaymentServiceTest`):
 - `GET /actuator/health` 200 (TODO: 별도 PR 에서 actuator 노출)
 - prod 인스턴스 로그에 `[PaymentHardeningCheck] OK` 가 한 번 찍히는지
 - 결제 1건 sandbox 흐름으로 가짜 트래픽 통과 확인 (prepare → confirm → webhook PAID → ticket 발급)
+
+---
+
+## 13. PR106 — ADMIN 강제 전액 환불 (운영 도구)
+
+§11 의 사용자/owner/ADMIN 환불 경로(`refundPaymentByTicket`) 는 PR43 시간 가드와 USED 차단으로 막혀 있어 다음 케이스를 처리할 수 없다:
+- 체크인 완료(USED) 후 노쇼 보상 / 행사 측 사정으로 인한 환불
+- 이벤트 시작 시각이 지난 PAID 티켓에 대한 환불
+
+PR106 은 이를 위해 ADMIN 전용 강제 환불 endpoint 를 별도로 추가한다. **부분 환불은 여전히 미지원** — 본 도구도 전액 환불만 수행한다.
+
+### 13.1 새 API
+
+| 메서드/경로 | 인증 | 책임 |
+|---|---|---|
+| `POST /api/v1/admin/tickets/{ticketId}/forced-refund` | ADMIN 전용 (`@PreAuthorize("hasRole('ADMIN')")`) | USED / 시작 후 PAID 티켓을 전액 환불. 일반 환불 흐름의 deadline / USED 가드를 우회. audit log 1건 기록. |
+
+요청 (`AdminForcedRefundRequest`):
+- `reason: String` — **필수**, 1~500자. `@NotBlank` + `@Size(min=1, max=500)`. audit log 의 `reason` 컬럼에 그대로 기록되고 응답에도 echo.
+
+응답 (`AdminForcedRefundResponse`):
+- `ticketId / ticketStatus / paymentAttemptId / provider / amount / refundedAt / providerPaymentKey / refundReason`
+- 일반 `RefundTicketResponse` 와 거의 동일하지만 `refundReason` 이 추가 — 감사 추적용.
+
+### 13.2 권한 / 거부 조건
+
+| 케이스 | Exception | HTTP |
+|---|---|---|
+| actor 가 ADMIN 아님 | `UnauthorizedException` | 403 |
+| Ticket 미존재 | `TicketNotFoundException` | 404 |
+| Ticket REFUNDED | `TicketAlreadyRefundedException` | 409 — **멱등 응답 아니라 명시적 차단** (실수 방지) |
+| Ticket CANCELED | `PaymentNotRefundableException` | 409 |
+| PaymentAttempt 부재 | `PaymentNotRefundableException` | 409 |
+| PaymentAttempt.status ≠ PAID | `PaymentNotRefundableException` | 409 |
+| `providerPaymentKey` 없음 | `PaymentNotRefundableException` | 409 |
+| `attempt.refundedAt` 이미 세팅 | `TicketAlreadyRefundedException` | 409 |
+| PG gateway 거절 | `RefundFailedException(code, detail)` | 502 — ticket 상태 보존, audit 미기록 |
+
+**deadline 검사 없음**: PAID / USED 두 status 모두 통과. 일반 `refundPaymentByTicket` 의 `RefundDeadlinePassedException` / `TicketAlreadyUsedException` 가드는 본 메서드에 적용되지 않는다 (의도된 우회).
+
+### 13.3 Cascade
+
+성공 시 기존 `markRefundedInternal` 헬퍼를 그대로 재사용한다 — 일반 환불과 동일한 후처리:
+
+1. `Ticket.refund()` → status PAID/USED → **REFUNDED** (Ticket 엔티티의 `refund()` 가 USED 에서도 동작)
+2. `PaymentAttempt.markRefunded(reason)` → `refundedAt` + `refundReason` 세팅. status 는 PAID 유지 (Ticket REFUNDED 가 권위 있는 환불 상태).
+3. `Event.currentParticipants--` — PR78 의 active-only 가드를 그대로 재사용. participation 이 이미 terminal(CANCELED/REJECTED) 이면 감소 skip (이중 감소 방지).
+4. `EventParticipation.cancel()` — APPROVED → CANCELED. 이미 CANCELED 면 no-op.
+5. (best-effort) `NotificationService.notify(REFUND_COMPLETED)` — buyer 1명. §13.5 참고.
+
+### 13.4 Audit log
+
+`AdminPaymentService.forceRefund` 가 PaymentService 호출 직후 같은 트랜잭션에서 `ModerationAuditLogService.record` 호출.
+
+| 컬럼 | 값 |
+|---|---|
+| `action` | `ModerationAuditAction.TICKET_FORCED_REFUNDED` (PR106 신규 enum) |
+| `actor_id` | 강제 환불을 실행한 ADMIN |
+| `target_type` | NULL — `ReportTargetType` 에 TICKET 이 없음 |
+| `target_id` | NULL |
+| `before_value` | NULL |
+| `after_value` | JSON `{ticketId, paymentAttemptId, ticketStatus, amount}` |
+| `reason` | 요청의 `reason` 그대로 (500자 trim 은 service 가 처리) |
+
+`@Transactional` 로 환불 cascade + audit 가 동일 트랜잭션. **audit 기록 실패 시 환불도 rollback** (PR61 hide audit 와 일관된 운영 추적성 우선 정책).
+
+### 13.5 Notification
+
+buyer 에게 `REFUND_COMPLETED` 알림 1건 발송 (기존 `markRefundedInternal` 내부의 `runCatching` 호출 그대로 재사용).
+
+- **운영 사유는 알림 메시지에 포함되지 않는다.** 메시지는 일반 환불과 동일하게 "환불이 완료되었어요" + "{이벤트명} 환불이 처리되었습니다." — 내부 운영 사유 (노쇼, 정책 위반 등) 가 사용자에게 그대로 노출되는 것을 막는다.
+- 알림 발송 실패는 환불 트랜잭션을 막지 않는다 (`runCatching`).
+
+### 13.6 Frontend (Admin Page)
+
+`/admin?tab=payments` 새 탭 + `AdminPaymentToolsSection`:
+- ticketId number input (양수)
+- reason textarea (`maxLength=500`, 글자 수 카운터)
+- 두 필드 채워야 "강제 환불 실행" 버튼 활성
+- 클릭 시 confirm dialog ("USED 티켓도 전액 환불됩니다. 계속할까요?")
+- 결과 카드에 ticketStatus / amount / PG / 처리 시각 / 사유 노출 — form 은 리셋하지 않음
+- 에러 매핑: 409 / 404 / 403 / 502 각각 다른 toast 카피
+
+### 13.7 의도적 제외 (PR106 범위 밖)
+
+- **부분 환불** — Ticket 모델에 `refundedAmount` 컬럼 없음. PG 의 `cancelAmount` 도 항상 `attempt.amount` 전액. **여전히 미구현.**
+- **TicketStatus PARTIALLY_REFUNDED enum** — 도입 안 함. REFUNDED 만 사용.
+- **운영 활동 dashboard 에서의 forced refund 통계** — `AdminModerationStatsService.getActorStats` (PR93) 는 `ModerationAuditAction` 기준으로 집계하므로 `TICKET_FORCED_REFUNDED` 도 자연스럽게 actor stats 의 `archiveCount` 옆 항목으로 추가하려면 후속 PR 에서 actor stats DTO 에 새 카운트 필드를 추가해야 한다. 본 PR 은 audit row 만 남기고 stats UI 는 건드리지 않는다.
+- **부분 환불 결정 정책** — `Event.currentParticipants` cascade 를 부분 환불에서 어떻게 다룰지(감소 / 유지 / 운영자 선택) 는 별도 PR 의 정책 결정 필요.

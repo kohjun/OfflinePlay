@@ -65,6 +65,7 @@ PR87 에서 controller / service 가 책임별로 분리됐다. 외부 endpoint 
 | `AdminAppealController` | `/api/v1/admin/appeals` | 이의 제기 처리 |
 | `AdminModerationController` | `/api/v1/admin/moderation/*` | hide/unhide, queue, stats, threshold, 채널 ban |
 | `AdminAuditController` | `/api/v1/admin/audit-logs/*` | 감사 로그 조회/export, retention dry-run/archive, scheduler |
+| `AdminPaymentController` (PR106) | `/api/v1/admin/tickets/*` | 운영 결제 도구 — 현재는 USED/시작 후 PAID 티켓 강제 전액 환불 (§5.2.1) |
 
 모든 컨트롤러는 클래스 레벨 `@PreAuthorize("hasRole('ADMIN')")`.
 
@@ -84,7 +85,7 @@ PR87 에서 controller / service 가 책임별로 분리됐다. 외부 endpoint 
 
 | 서비스 | 책임 |
 |---|---|
-| `ModerationAuditLogService` | hide/unhide/ban/appeal 등 운영 액션을 1 row 기록. hide 트랜잭션에 동참 — 실패하면 hide 도 rollback. |
+| `ModerationAuditLogService` | hide/unhide/ban/appeal 등 운영 액션을 1 row 기록. hide 트랜잭션에 동참 — 실패하면 hide 도 rollback. PR106 부터 결제 도메인의 `TICKET_FORCED_REFUNDED` 도 같은 테이블에 기록한다 (`targetType=null`, afterValue JSON 에 ticketId/paymentAttemptId 동봉). |
 | `ModerationAuditLogRetentionService` | retention dry-run preview (한도/cutoff/oldest/newest 계산), 만료 row count |
 | `ModerationAuditLogArchiveService` | 만료 row 를 `moderation_audit_log_archive` 로 이동. 한 번에 최대 `ARCHIVE_LIMIT=1000`. preview/execute 사이 stale 가드 (expectedCutoffAt + expectedCandidateCount). 운영 confirmText `ARCHIVE` 안전 가드. archive 자체 액션을 `AUDIT_LOGS_ARCHIVED` 로 1 row 기록. |
 | `AuditLogRetentionSchedulerService` | scheduler 설정(`audit_log_retention_scheduler_settings`, single row id=1) 읽기/쓰기 + tick 진입점 (`runIfEnabled`). cron 사전 검증 + commit 후 runtime reschedule. |
@@ -139,17 +140,18 @@ cascade 순서 = `index.css` 의 `@import` 순서. 변경 시 우선순위 잘 �
 
 호출처는 `from '../types'` 그대로 사용 — barrel 이 모듈 경로를 흡수.
 
-### 4.4 Admin 콘솔 (PR87 frontend)
+### 4.4 Admin 콘솔 (PR87 frontend + PR106)
 
-`pages/AdminPage.tsx` 가 5섹션을 탭으로 조립한다. URL `?tab=...` 쿼리로 deep link + popstate 동기화 + 한 번 mount 한 탭은 보존 (재진입 시 fetch 회피).
+`pages/AdminPage.tsx` 가 6섹션을 탭으로 조립한다. URL `?tab=...` 쿼리로 deep link + popstate 동기화 + 한 번 mount 한 탭은 보존 (재진입 시 fetch 회피).
 
 | 섹션 컴포넌트 | 책임 |
 |---|---|
-| `AdminModerationOverviewSection` | stats + threshold 운영 |
+| `AdminModerationOverviewSection` | stats + threshold 운영 + 운영자 활동 요약 (PR93) |
 | `AdminReportsSection` | 신고 큐 + manual hide/unhide |
 | `AdminAppealsSection` | 이의 제기 큐 |
 | `AdminAuditLogsSection` | audit log 조회/export/archive browse |
 | `AdminRetentionSection` | retention preview / archive 실행 / scheduler 설정 |
+| `AdminPaymentToolsSection` (PR106) | 운영 결제 도구 — ticketId + 사유 입력 → 강제 전액 환불. confirm dialog + 결과 카드. |
 
 ### 4.5 Event Detail Frontend Structure
 
@@ -221,6 +223,30 @@ POST /tickets/{ticketId}/refund   ← buyer / 채널 owner / ADMIN (PR42)
 - PG gateway 실패 → `RefundFailedException` 502
 
 webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRefundedWebhook`). 멱등 가드: `attempt.refundedAt != null` 이면 skip.
+
+#### 5.2.1 ADMIN 강제 전액 환불 (PR106)
+
+USED / 시작 후 PAID 티켓 등 일반 환불 경로의 deadline / status 가드로 막힌 케이스를 위한 ADMIN 전용 진입점.
+
+```
+POST /admin/tickets/{ticketId}/forced-refund   ← ADMIN only
+   ├─ AdminPaymentService.forceRefund (@Transactional)
+   │   ├─ PaymentService.forceRefundByAdmin (PAID/USED 통과, REFUNDED/CANCELED 거부, deadline 무시)
+   │   │   └─ markRefundedInternal 재사용 (5.2 cascade 그대로)
+   │   └─ ModerationAuditLogService.record(TICKET_FORCED_REFUNDED, afterValue={ticketId,..}, reason=...)
+   └─ AdminForcedRefundResponse (refundReason echo)
+```
+
+특징:
+- **권한**: ADMIN 만 (buyer / channel owner 는 본 경로로 호출 불가)
+- **상태 허용**: PAID + USED — 일반 경로의 `TicketAlreadyUsedException` / `RefundDeadlinePassedException` 우회
+- **상태 거부**: REFUNDED → `TicketAlreadyRefundedException` (멱등 응답 아님, 실수 방지) / CANCELED → `PaymentNotRefundableException`
+- **부분 환불 미지원** — `attempt.amount` 전액만. (관련 미구현 항목은 §10 참고)
+- **사유 필수** — `@NotBlank @Size(1..500)`. audit `reason` 컬럼 + 응답 `refundReason` 에 그대로 기록
+- **buyer 알림** — 기존 `REFUND_COMPLETED` 1건. **운영 사유는 알림 메시지에 노출되지 않음** (사용자 친화 카피 유지)
+- **audit + 환불 cascade 가 같은 트랜잭션** — audit 실패 시 환불도 rollback (§8.1 audit 정책 일관)
+
+자세한 정책 / 거부 조건 / 의도적 제외는 [docs/payment-refund-policy.md §13](payment-refund-policy.md).
 
 ### 5.3 유료 APPROVED 참가 취소 (PR75)
 
@@ -434,6 +460,7 @@ POST /api/v1/reports                     ← reporter
 - `REPORT_DISMISSED`, `APPEAL_APPROVED`, `APPEAL_REJECTED`
 - `THRESHOLD_UPDATED`
 - `AUDIT_LOGS_ARCHIVED` (PR65 — archive job 자체의 기록)
+- `TICKET_FORCED_REFUNDED` (PR106 — ADMIN 강제 전액 환불. `targetType=null`, `afterValue` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 동봉, `reason` 은 운영 사유)
 
 조회 / 검색: `AdminAuditController` + `ModerationAuditLogSpecs`. CSV export 1000 행 한도 (`ModerationAuditLogService.EXPORT_LIMIT`).
 
@@ -508,8 +535,7 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 | 항목 | 현 상태 | 이전 PR / 후속 PR |
 |---|---|---|
 | **COMMENT cascade 자동 hide** | 자동 hide 대상은 §7.1 enum 5종. comment cascade(부모 글 hide 시 자식 댓글 자동 hide) 는 운영자 수동 처리. | 향후 PR |
-| **부분 환불** | 전액 환불만. `cancelAmount = attempt.amount`. | 향후 PR (payment-refund-policy §11.7) |
-| **USED 후 강제 환불 (운영 도구)** | USED 티켓 환불 차단. 노쇼 보상 / 행사 취소 등은 별도 ADMIN 도구 필요. | 향후 PR |
+| **부분 환불** | 전액 환불만. `cancelAmount = attempt.amount`. PR106 의 ADMIN 강제 환불도 전액 한정. | 향후 PR (payment-refund-policy §11.7) |
 | **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED 카운트 일치 batch 없음. | 향후 PR |
 | **환불 실패 큐 / 자동 재시도** | `refund.failed` webhook 처리는 단순 skip. | 향후 PR |
 | **PortOne / 다른 PG 어댑터** | `PaymentGateway` interface 는 열려 있으나 구현체는 Toss + Mock 만. | 향후 PR |
@@ -562,5 +588,7 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR103 — Ship-ready release-notes-local-bundle.md 추가 (push 전 self-audit)
 - PR104 — Notification preference `updatedAt` 응답 노출 + 패널 "마지막 저장 / 기본값" 표시 (lightweight signal, history 아님)
 - PR105 — `updatedAt` 정책 문서화 (§6.4 응답 표 + §6.6 표시 행) + §10 Known Exclusions 보강
+- PR106 — ADMIN 강제 전액 환불 도구 (USED / 시작 후 PAID, 부분 환불은 미지원) + `TICKET_FORCED_REFUNDED` audit
+- PR107 — 강제 환불 흐름 문서화 ([payment-refund-policy.md §13](payment-refund-policy.md) + 본 문서 §5.2.1) + §3 / §4.4 / §8.1 / §10 Known Exclusions 갱신
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
