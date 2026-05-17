@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { RemainingProgress } from '../components/RemainingProgress'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
@@ -99,6 +99,22 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
     refreshEvent,
     onNavigate,
   })
+
+  // PR91 — 잔여 자리 라이브 강조: event refetch 결과 currentParticipants 가 바뀌면
+  // 1.5 초 highlight 를 켠다. 첫 로드(이전 값 없음) 에서는 트리거하지 않는다.
+  // prefers-reduced-motion 환경에서는 CSS 가 animation 을 비활성화한다.
+  const [remainingHighlight, setRemainingHighlight] = useState(false)
+  const prevCurrentParticipantsRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!event) return
+    const next = event.currentParticipants
+    const prev = prevCurrentParticipantsRef.current
+    prevCurrentParticipantsRef.current = next
+    if (prev === null || prev === next) return
+    setRemainingHighlight(true)
+    const timer = window.setTimeout(() => setRemainingHighlight(false), 1500)
+    return () => window.clearTimeout(timer)
+  }, [event?.currentParticipants])
 
   if (loading) {
     return (
@@ -227,6 +243,8 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
           <RemainingProgress
             remaining={event.maxParticipants - event.currentParticipants}
             capacity={event.maxParticipants}
+            highlight={remainingHighlight}
+            liveLabel={`남은 자리 ${event.maxParticipants - event.currentParticipants}자리`}
           />
         </section>
       ) : null}

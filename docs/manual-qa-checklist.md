@@ -338,6 +338,20 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] CANCELED 티켓 진입 → VOID 스탬프 + "취소됨" 뱃지 + 환불 요청 버튼 미노출
 - [ ] 알림에서 진입했을 때도 같은 화면 (별도 hidden/404 분기 X)
 
+### 17. EventDetail 남은 자리 라이브 강조 (PR91)
+**목적**: 정원/잔여 자리 변화가 SSE refetch 로 들어왔을 때, 사용자가 변화한 사실을 즉시 알아챌 수 있게 한다.
+
+**사전 조건**: 유료/무료 이벤트 1건 + 같은 이벤트에 대해 신청·승인·환불 등 currentParticipants 가 변할 수 있는 다른 사용자 1명 (시크릿창).
+
+- [ ] EventDetailPage 진입 직후 — 잔여 숫자에 highlight pulse 가 **켜지지 않음** (첫 로드는 트리거 X)
+- [ ] 다른 시크릿창에서 같은 이벤트에 신청·승인을 진행해 `currentParticipants` 가 증가 → 본인 화면 잔여 숫자가 약 1.5초간 살짝 부풀며 색이 진해졌다가 원래대로 돌아옴
+- [ ] 같은 시간대에 progress bar 주변에 옅은 box-shadow halo 가 1.5초 페이드인/아웃
+- [ ] 같은 값으로 refetch 된 경우(다른 알림이 와도 currentParticipants 동일) highlight 가 **트리거되지 않음**
+- [ ] 이벤트가 CLOSED 상태일 때 잔여 자리 row 자체가 노출되지 않음 (PR91 변경과 무관, 회귀 확인)
+- [ ] 정원 가득 차서 잔여가 0 이 됐을 때 SOLD OUT 스탬프 + hero overlay 그대로 표시 (PR91 변경과 무관, 회귀 확인)
+- [ ] OS 접근성 설정 "동작 줄이기 / Reduce Motion" ON → 잔여 숫자 pulse + 라이브 dot 점멸이 모두 비활성화 (정적 확인: devtools rendering 패널 "prefers-reduced-motion: reduce" emulation 으로 검증)
+- [ ] Screen reader 가 잔여 숫자 영역을 polite 로 읽음 (devtools accessibility 트리에서 `aria-live="polite"` + 라벨 확인)
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

@@ -978,6 +978,33 @@ textarea {
   transition: width var(--dur-base) var(--ease-std);
 }
 
+/* PR91 — 잔여 자리 라이브 highlight. 부모가 1.5 초 동안 .is-live-update 를 토글한다.
+   숫자는 한 번 더 살짝 부풀고, 바는 부드럽게 빛난다. */
+.rp.is-live-update .rp__num {
+  animation: rp-num-live 1500ms var(--ease-out);
+}
+.rp.is-live-update .rp__bar {
+  animation: rp-bar-live 1500ms var(--ease-out);
+}
+@keyframes rp-num-live {
+  0%   { transform: scale(1); color: var(--c-primary); }
+  20%  { transform: scale(1.18); color: var(--c-primary-press); }
+  60%  { transform: scale(1); color: var(--c-primary); }
+  100% { transform: scale(1); color: var(--c-primary); }
+}
+@keyframes rp-bar-live {
+  0%   { box-shadow: 0 0 0 0 rgba(250, 82, 82, 0); }
+  30%  { box-shadow: 0 0 0 3px rgba(250, 82, 82, 0.22); }
+  100% { box-shadow: 0 0 0 0 rgba(250, 82, 82, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp__num,
+  .rp.is-live-update .rp__num,
+  .rp.is-live-update .rp__bar {
+    animation: none !important;
+  }
+}
+
 /* ===== BottomCtaDock (thumb zone full-bleed) ===== */
 .cta-dock {
   position: sticky;
