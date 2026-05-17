@@ -508,7 +508,11 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
   async function handleCancel() {
     if (submittingJoin) return
     const isApproved = participation?.status === 'APPROVED'
-    if (isApproved && !window.confirm('참가를 취소할까요? 발급된 티켓도 함께 취소됩니다.')) return
+    const isPaidEvent = (event?.participationFee ?? 0) > 0
+    const confirmMsg = isPaidEvent && isApproved
+      ? '참가를 취소할까요? 발급된 티켓이 취소되며 환불 정책에 따라 처리됩니다.'
+      : '참가를 취소할까요? 발급된 티켓도 함께 취소됩니다.'
+    if (isApproved && !window.confirm(confirmMsg)) return
     setSubmittingJoin(true)
     try {
       const next = await cancelEventApplication(eventId)
@@ -1073,7 +1077,7 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         </div>
       </section>
 
-      {!isOwner ? (
+      {!isOwner && user?.role !== 'ADMIN' ? (
         <div className="ct-event-sticky-cta">
           <div className="ct-event-sticky-meta">
             <span className="ct-event-sticky-fee">{formatFee(event.participationFee)}</span>

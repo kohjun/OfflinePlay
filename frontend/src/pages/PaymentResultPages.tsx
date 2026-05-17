@@ -73,9 +73,17 @@ export function PaymentSuccessPage({ onNavigate }: PaymentSuccessPageProps) {
       <main className="page empty-state">
         <h1>결제 확인에 실패했어요</h1>
         <p className="muted">{errorMessage ?? '잠시 후 다시 시도해주세요.'}</p>
+        <p className="muted">이미 결제된 경우 마이페이지에서 티켓을 확인할 수 있어요.</p>
         <button
           type="button"
           className="button button-primary is-block"
+          onClick={() => onNavigate('/my')}
+        >
+          마이페이지로 이동
+        </button>
+        <button
+          type="button"
+          className="button button-secondary is-block"
           onClick={() => onNavigate('/')}
         >
           홈으로 돌아가기

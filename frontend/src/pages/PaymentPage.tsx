@@ -123,7 +123,7 @@ export function PaymentPage({ eventId, onNavigate }: PaymentPageProps) {
       showToast({ title: '환불정책 동의가 필요해요', tone: 'warning' })
       return
     }
-    if (!window.confirm(`₩${event.participationFee.toLocaleString()} 결제하시겠어요?`)) return
+    if (!window.confirm(`[${event.title}]\n₩${event.participationFee.toLocaleString()} 결제하시겠어요?`)) return
 
     setSubmitting(true)
     try {
