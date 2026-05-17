@@ -325,21 +325,30 @@ class PaymentService(
      * 환불 후 상태 정리:
      *  - PaymentAttempt.refundedAt + refundReason 기록 (status 는 PAID 유지)
      *  - Ticket.status PAID → REFUNDED
-     *  - Event.currentParticipants --
+     *  - Event.currentParticipants -- (단, participation 이 이미 terminal 이면 skip — 정원이
+     *    그 시점에 이미 한 번 빠졌다고 보고 이중 감소 방지)
      *  - EventParticipation 이 있으면 CANCELED 로 전환 (이미 CANCELED 면 no-op)
      *
      * 한 attempt 에 한 번만 호출되도록 호출처가 `refundedAt == null` 가드.
+     * PR78 — 정원 가드: ACTIVE(PENDING/APPROVED) 였던 경우에만 decreaseParticipant. terminal
+     * (CANCELED/REJECTED) 이면 이미 카운트에서 빠진 상태로 간주 (또는 애초에 카운트되지 않음).
+     * participation 자체가 없으면 정상 PAID 흐름으로 들어온 것으로 보고 감소.
      */
     private fun markRefundedInternal(attempt: PaymentAttempt, ticket: Ticket, reason: String) {
         attempt.markRefunded(reason)
         ticket.refund()
-        attempt.event.decreaseParticipant()
-        eventParticipationRepository.findByEventAndParticipant(attempt.event, attempt.buyer)
-            .ifPresent { p ->
-                if (p.status != ParticipationStatus.CANCELED) {
-                    p.cancel()
-                }
-            }
+        val participation = eventParticipationRepository
+            .findByEventAndParticipant(attempt.event, attempt.buyer)
+            .orElse(null)
+        val wasActive = participation == null ||
+            participation.status == ParticipationStatus.PENDING ||
+            participation.status == ParticipationStatus.APPROVED
+        if (wasActive) {
+            attempt.event.decreaseParticipant()
+        }
+        if (participation != null && participation.status != ParticipationStatus.CANCELED) {
+            participation.cancel()
+        }
     }
 
     private fun PaymentAttempt.toRefundResponse(ticket: Ticket): RefundTicketResponse {

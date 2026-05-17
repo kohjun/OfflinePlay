@@ -861,6 +861,69 @@ class PaymentServiceTest {
     }
 
     @Test
+    fun `refundPaymentByTicket participation 이 이미 CANCELED 면 정원 추가 감소 없음 (PR78)`() {
+        // 시나리오: 사용자가 participation 을 직접 취소(무료 흐름) 후, 동일 ticket attempt 가
+        // 어떤 이유로 환불 시도. PR78 의 wasActive 가드가 이중 감소를 막아야 한다.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 4)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr78a", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.CANCELED)
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(participation)
+
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+
+        // ticket 은 REFUNDED, attempt refunded 처리 — 그러나 정원/participation 상태는 유지.
+        assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(attempt.refundedAt).isNotNull
+        assertThat(event.currentParticipants).isEqualTo(4) // 감소 없음
+        assertThat(participation.status).isEqualTo(ParticipationStatus.CANCELED) // 그대로
+    }
+
+    @Test
+    fun `refundPaymentByTicket REFUNDED 재호출은 정원 추가 감소 없음 (PR78 idempotent)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        // 이전 환불로 이미 정원이 한 번 빠진 상태 (5 → 4) 를 가정.
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 4)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr78b", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now())
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+
+        // 멱등 응답 — gateway 미호출, 정원 변화 없음, participation 조회/변경도 없음.
+        assertThat(event.currentParticipants).isEqualTo(4)
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+        verify(exactly = 0) { eventParticipationRepository.findByEventAndParticipant(any(), any()) }
+    }
+
+    @Test
     fun `refundPaymentByTicket 이벤트 이미 시작됐으면 RefundDeadlinePassedException (gateway 호출 X)`() {
         // PR43 가드: PAID 티켓이라도 event.startAt 이 현재보다 과거면 환불 불가.
         // ADMIN 도 동일 — ADMIN 우회는 별도 운영 도구로 처리.
