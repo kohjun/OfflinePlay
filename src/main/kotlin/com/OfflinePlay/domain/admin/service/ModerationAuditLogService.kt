@@ -210,6 +210,7 @@ class ModerationAuditLogService(
         id = id,
         actorId = actor.id,
         actorNickname = actor.nickname,
+        actorSystem = actor.email == SystemActorService.SYSTEM_ACTOR_EMAIL,
         action = action,
         targetType = targetType,
         targetId = targetId,

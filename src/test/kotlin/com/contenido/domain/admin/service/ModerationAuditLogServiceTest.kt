@@ -380,7 +380,7 @@ class ModerationAuditLogServiceTest {
     // ── PR63: get(id) ────────────────────────────────────────────────────────
 
     @Test
-    fun `get - 존재하는 로그 조회 성공`() {
+    fun `get - 존재하는 로그 조회 성공 (일반 ADMIN — actorSystem=false)`() {
         val actor = createUser(99L, nickname = "admin")
         val log = buildLog(actor)
         every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
@@ -391,6 +391,24 @@ class ModerationAuditLogServiceTest {
         assertThat(result.actorId).isEqualTo(99L)
         assertThat(result.actorNickname).isEqualTo("admin")
         assertThat(result.action).isEqualTo(ModerationAuditAction.TARGET_HIDDEN)
+        assertThat(result.actorSystem).isFalse()
+    }
+
+    @Test
+    fun `get - PR71 system actor 가 기록한 audit log 는 actorSystem=true`() {
+        val systemActor = User(
+            SystemActorService.SYSTEM_ACTOR_EMAIL,
+            SystemActorService.SYSTEM_ACTOR_PASSWORD_PLACEHOLDER,
+            SystemActorService.SYSTEM_ACTOR_NICKNAME,
+            SystemActorService.SYSTEM_ACTOR_PHONE,
+        ).apply { ReflectionTestUtils.setField(this, "id", 1L) }
+        val log = buildLog(systemActor)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+
+        val result = service.get(1L)
+
+        assertThat(result.actorSystem).isTrue()
+        assertThat(result.actorNickname).isEqualTo(SystemActorService.SYSTEM_ACTOR_NICKNAME)
     }
 
     @Test

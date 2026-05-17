@@ -9,11 +9,13 @@ import java.time.LocalDateTime
 /**
  * PR61 — audit log 단건 응답. before/after 는 service 가 직렬화한 JSON 문자열 그대로 노출.
  * 운영자가 한 줄로 "누가 / 언제 / 무엇을 / 어떤 대상에" 를 읽을 수 있게 actorNickname 동봉.
+ * PR71 — actorSystem: scheduler 등 자동 작업의 actor 여부 (actor.email == system actor email).
  */
 data class ModerationAuditLogResponse(
     val id: Long,
     val actorId: Long,
     val actorNickname: String,
+    val actorSystem: Boolean = false,
     val action: ModerationAuditAction,
     val targetType: ReportTargetType?,
     val targetId: Long?,

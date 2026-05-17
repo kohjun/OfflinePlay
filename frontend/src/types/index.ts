@@ -478,6 +478,8 @@ export interface ModerationAuditLog {
   id: number
   actorId: number
   actorNickname: string
+  /** PR71 — true iff actor is the system actor (scheduler / automated jobs). */
+  actorSystem?: boolean
   action: ModerationAuditAction
   targetType: ReportTargetType | null
   targetId: number | null

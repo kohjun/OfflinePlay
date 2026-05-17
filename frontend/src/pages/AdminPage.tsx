@@ -165,6 +165,16 @@ function parsePositiveLong(raw: string): number | undefined {
  * audit 의 before/after 는 service 가 JSON 또는 raw string 으로 저장. UI 표시 시 JSON 이면
  * 2-space indent 로 pretty-print 하고, 그 외에는 원문 그대로. 안전하게 try-catch.
  */
+/** PR71 — extract mode=MANUAL|SCHEDULED from audit JSON value. Silent on parse error. */
+function parseAuditMode(raw?: string | null): 'MANUAL' | 'SCHEDULED' | null {
+  if (!raw) return null
+  try {
+    const m = (JSON.parse(raw) as Record<string, unknown>)?.mode
+    if (m === 'MANUAL' || m === 'SCHEDULED') return m
+  } catch { /* not JSON */ }
+  return null
+}
+
 function prettyAuditValue(raw: string | null | undefined): string {
   if (raw == null || raw === '') return ''
   try {
@@ -1450,6 +1460,9 @@ export function AdminPage() {
               const detailError = auditDetailErrors[log.id]
               // 펼친 상태에서는 detail (fresh fetch) 우선, 캐시 미스면 list row 데이터로 fallback.
               const display = detail ?? log
+              // PR71 — system actor 여부 + MANUAL/SCHEDULED mode badge.
+              const isSystemActor = log.actorSystem || log.actorNickname === 'System'
+              const auditMode = parseAuditMode(log.afterValue) ?? parseAuditMode(log.beforeValue)
               return (
                 <article className="card admin-card" key={log.id}>
                   <div>
@@ -1461,8 +1474,18 @@ export function AdminPage() {
                       {log.targetId != null ? (
                         <span className="muted">#{log.targetId}</span>
                       ) : null}
+                      {auditMode ? (
+                        <Badge tone={auditMode === 'SCHEDULED' ? 'neutral' : 'warning'}>
+                          {auditMode === 'SCHEDULED' ? '자동' : '수동'}
+                        </Badge>
+                      ) : null}
                     </div>
-                    <strong>{log.actorNickname} <span className="muted">(#{log.actorId})</span></strong>
+                    <strong>
+                      {isSystemActor ? (
+                        <Badge tone="neutral">System</Badge>
+                      ) : null}{' '}
+                      {log.actorNickname} <span className="muted">(#{log.actorId})</span>
+                    </strong>
                     {log.reason ? <p className="muted">사유: {log.reason}</p> : null}
                     {hasDetail && !expanded ? (
                       <>
@@ -1790,10 +1813,15 @@ export function AdminPage() {
                 <span className="muted">
                   runtime:{' '}
                   <strong>
-                    {schedulerSettings.runtimeScheduled ? '실행 예약됨' : '꺼짐'}
+                    {schedulerSettings.runtimeScheduled ? '예약 실행 중' : '예약 없음'}
                   </strong>
                 </span>
-                <span className="muted">cron: {schedulerSettings.cron}</span>
+                <span className="muted">
+                  cron: <code>{schedulerSettings.cron}</code>
+                  {!schedulerSettings.enabled ? (
+                    <span> — 스케줄러가 꺼져 있어 실행되지 않습니다.</span>
+                  ) : null}
+                </span>
                 {schedulerSettings.lastRescheduledAt ? (
                   <span className="muted">
                     마지막 재등록: {new Date(schedulerSettings.lastRescheduledAt).toLocaleString()}
@@ -1834,7 +1862,7 @@ export function AdminPage() {
                 style={{ marginTop: '10px', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}
               >
                 <label htmlFor="scheduler-cron-input" className="muted">
-                  cron (Spring 6-field)
+                  cron <span className="muted">(Spring 6-field · 기본: 매일 03:30 KST)</span>
                 </label>
                 <input
                   id="scheduler-cron-input"
@@ -1855,10 +1883,13 @@ export function AdminPage() {
                     schedulerCronDraft.trim() === '' ||
                     schedulerCronDraft.trim() === schedulerSettings.cron
                   }
-                  title="cron 저장 (즉시 반영)"
+                  title="저장하면 즉시 반영됩니다"
                 >
                   cron 저장
                 </button>
+                <span className="muted" style={{ fontSize: '0.8em' }}>
+                  저장하면 즉시 반영됩니다.
+                </span>
               </div>
             </div>
           ) : null}
