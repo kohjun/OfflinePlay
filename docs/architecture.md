@@ -304,18 +304,40 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 복수 receiver 발송에서는 일부 receiver 만 필터링되며 나머지에게는 정상 발송된다 (`receiverIds.filter { isEnabled(it, type) }`).
 
-### 6.6 Frontend — NotificationsPage 알림 설정 패널 (PR96)
+### 6.6 Frontend — NotificationsPage 알림 설정 패널 (PR96 + PR99)
 
 `pages/NotificationsPage.tsx` 헤더에 "알림 설정" 토글 버튼이 있고, 클릭 시 collapsible 패널이 열려 NotificationType 별 체크박스를 나열한다.
 
 | 동작 | 동작 정책 |
 |---|---|
 | 패널 열기 | 첫 오픈 시에만 backend 에서 lazy fetch (재오픈은 캐시 재사용) |
-| 토글 | 즉시 `PATCH /preferences` 호출 — request 에는 변경된 type 단건만 포함 |
+| 개별 토글 | 즉시 `PATCH /preferences` 호출 — request 에는 변경된 type 단건만 포함 |
+| 묶음 토글 (PR99) | 패널 상단 "전체 알림 + 5 카테고리" 행. 단일 PATCH 로 해당 bundle type 들을 한 번에 갱신 — §6.6.1 참고 |
 | 응답 처리 | 응답으로 전체 preferences 갱신, "알림 수신 설정을 저장했어요" success toast |
-| 실패 처리 | 해당 type 만 이전 값으로 rollback + danger toast. 전체 패널 상태는 보존 |
-| 중복 클릭 가드 | type 별 `savingTypes: Set<NotificationType>` 으로 진행 중 클릭 무시, `aria-busy="true"` + `disabled` |
-| accessibility | 토글 버튼 `aria-expanded` / `aria-controls`, 섹션 `aria-labelledby`, 체크박스 `htmlFor`/`id` |
+| 실패 처리 | 토글 직전 snapshot 으로 rollback (개별 토글은 해당 type 만, 묶음 토글은 bundle type 전체) + danger toast |
+| 중복 클릭 가드 | `savingTypes: Set<NotificationType>` 가 type 단위 가드. 묶음 토글은 자신의 bundle type 들을 모두 set 에 추가해 같은 시간 동안 그 안의 개별 체크박스와 다른 bundle 버튼이 모두 disabled + `aria-busy` |
+| accessibility | 토글 버튼 `aria-expanded` / `aria-controls`, 섹션 `aria-labelledby`, 체크박스 `htmlFor`/`id`, 묶음 영역 `aria-label="알림 묶음 토글"` |
+
+#### 6.6.1 카테고리 묶음 정의 (PR99)
+
+`utils/notificationMeta.ts` 의 `NOTIFICATION_PREFERENCE_BUNDLES` 가 단일 source. NotificationType 15개를 정확히 분할(partition) — 한 type 이 두 bundle 에 속하지 않고, 모든 type 이 정확히 하나의 bundle 에 속한다.
+
+| bundle id | label | 포함 NotificationType |
+|---|---|---|
+| `participation` | 참가 관련 | `PARTICIPATION_REQUESTED`, `PARTICIPATION_APPROVED`, `PARTICIPATION_REJECTED`, `PARTICIPATION_CANCELED`, `TICKET_ISSUED`, `TICKET_CHECKED_IN` |
+| `payment` | 결제 관련 | `REFUND_COMPLETED` |
+| `content` | 콘텐츠 관련 | `NEW_EVENT`, `NEW_POST`, `NEW_COMMENT`, `NEW_LIKE` |
+| `moderation` | 운영 알림 | `CHANNEL_BANNED` |
+| `system` | 시스템 알림 | `APPLICATION_APPROVED`, `APPLICATION_REJECTED`, `CHANNEL_UNBANNED` |
+
+"전체 알림" 은 별도 bundle id 가 아니라 현재 preferences 의 모든 NotificationType 을 직접 사용 (UI 가 한곳에서 계산). 새 enum 이 추가되면 위 표와 `NOTIFICATION_PREFERENCE_BUNDLES` 를 함께 갱신해 모든 type 이 어딘가의 bundle 에 들어가도록 유지한다.
+
+버튼 라벨 정책 (`every-true` 기반):
+- 해당 bundle 의 모든 type 이 `enabled === true` 면 버튼 라벨은 "{카테고리명} 끄기"
+- 하나라도 `false` 면 "{카테고리명} 켜기"
+- `row 없음 → enabled=true` 의 §6.4 정책을 그대로 활용 (`prefByType.get(t) ?? true`) — 새 사용자도 일관된 라벨을 본다
+
+PATCH payload 는 해당 bundle 의 type 들만 `{ type, enabled: nextEnabled }` 로 포함한다. backend 의 partial-update 정책(§6.4) 덕에 다른 카테고리 type 은 영향 없이 유지된다.
 
 ### 6.7 notificationMeta.ts — 메타데이터 single source (PR97)
 
@@ -460,7 +482,6 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 | **정원 race condition lock** | confirm 시점 재검증만. READY 다수가 동시 confirm 시 초과 가능. | 향후 PR |
 | **Kafka outbox** | 도입 설계만 ([kafka-outbox-plan.md](kafka-outbox-plan.md)). 현재 알림은 직접 SSE push. | 향후 PR |
 | **실시간 잔여 자리 / QR 회전 / 푸시** | EventDetail 의 잔여 자리는 SSE refetch 기반. QR 30초 회전 / 푸시 / 시스템 밝기는 미구현. | 향후 PR |
-| **알림 preference 카테고리 묶음 토글** | NotificationType 별 개별 토글만. "참가 관련 / 결제 관련" 같은 그룹 토글, "전체 끄기" 단일 액션은 없음. | 향후 PR |
 | **Push / Email 채널별 preference** | preference 는 NotificationType 차원만 다룬다. 같은 type 을 SSE 만 받고 push 는 끄는 등 채널별 선택 불가 (현재 채널은 SSE/in-app 1종). | 향후 PR |
 | **Preference 변경 audit / 이력** | preference 변경은 `moderation_audit_logs` 에 기록되지 않으며 별도 이력 테이블도 없음. | 향후 PR |
 
@@ -500,5 +521,7 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR96 — NotificationsPage 알림 설정 UI
 - PR97 — `notificationMeta.ts` 메타데이터 single source
 - PR98 — 알림 preference 흐름 문서화 (본 문서 §6.4~6.7 + §10 Known Exclusions 갱신)
+- PR99 — 알림 preference 카테고리 묶음 토글 (5 bundle + "전체 알림")
+- PR100 — bundle 분류표 / 동작 정책 문서화 (§6.6 + §6.6.1) + 묶음 토글 Known Exclusion 제거
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
