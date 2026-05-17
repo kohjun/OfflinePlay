@@ -40,7 +40,7 @@ Kotlin 패키지명은 `com.contenido.*`. 디스크 경로는 `src/main/kotlin/c
 | `payment` | `PaymentService`, `PaymentAttempt`, `PaymentGateway`, `PaymentWebhookSignatureVerifier` | prepare / confirm / refund / webhook 멱등 / hardening |
 | `report` | `ReportService`, `ReportAppealService`, `Report`, `ReportAppeal` | 사용자 신고 + appeal 큐 |
 | `admin` | (§3 참조) | 운영 콘솔 — 신고/이의/모더레이션/감사 로그/스케줄러 |
-| `notification` | `NotificationService`, `SseEmitterService`, `Notification` | DB 알림 row + SSE push |
+| `notification` | `NotificationService`, `NotificationPreferenceService`, `SseEmitterService`, `Notification`, `UserNotificationPreference` | DB 알림 row + SSE push + 사용자별 NotificationType 수신 preference (§6) |
 | `review`, `post`, `interaction(comment/like)` | 도메인별 서비스 | 후기, 게시글, 댓글, 좋아요 |
 
 전역 인프라:
@@ -48,7 +48,7 @@ Kotlin 패키지명은 `com.contenido.*`. 디스크 경로는 `src/main/kotlin/c
 - `global.exception.*` — 도메인 예외 + `GlobalExceptionHandler`
 - `infrastructure.scheduler.*` — `@EnableScheduling` + `AuditLogRetentionSchedulerRunner` 동적 cron
 
-마이그레이션은 `src/main/resources/db/migration/V1..V9__*.sql` (Flyway).
+마이그레이션은 `src/main/resources/db/migration/V1..V10__*.sql` (Flyway).
 
 ---
 
@@ -176,6 +176,8 @@ PR84 가 JSX 를 섹션 컴포넌트로 쪼갰고, PR89 가 fetch/effect/mutatio
 - `stores/notificationStore.ts` — SSE 수신 dispatch + 미읽음 카운트 + `onIncoming(callback)` subscription.
 - `stores/authStore.ts` — 로그인/토큰 갱신 + role 노출.
 - `hooks/useAuth.ts` / `useToast.ts` / `useNotificationStream.ts` — 단일 진입점.
+- `hooks/useCoalescedRefresh.ts` (PR92) — SSE 묶음 알림을 한 번의 refetch 로 합치는 debounce helper.
+- `utils/notificationMeta.ts` (PR97) — NotificationType 별 label/tone/path 의 single source. §6.7 참고.
 - `api/*.ts` — 도메인별 axios wrapper. 응답 unwrap 은 `apiClient` 에서 일괄.
 
 ---
@@ -248,7 +250,7 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 ### 6.1 발송 경로
 
-`NotificationService.create*` 시리즈가 1 row 저장 + `SseEmitterService.push(receiverId, payload)` 호출. SSE 실패는 best-effort — DB row 는 그대로 유지되므로 다음 조회 시 보인다.
+`NotificationService.notify(receiverIds, type, title, message, targetType, targetId)` 가 단일 진입점. `@Async + @Transactional` 로 호출자 트랜잭션과 독립 실행, 내부에서 (a) receiver 별 preference 필터(§6.4), (b) `notificationRepository.saveAll`, (c) 각 row 에 대해 `SseEmitterService.sendToUser` 순서로 동작. SSE 실패는 best-effort — DB row 는 그대로 유지되므로 다음 조회 시 보인다.
 
 `NotificationType` 현재 enum 값:
 - `NEW_EVENT`, `NEW_POST`, `NEW_COMMENT`, `NEW_LIKE`
@@ -268,7 +270,60 @@ webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRe
 
 ### 6.3 NotificationsPage
 
-알림 카드 클릭 → §5.5 라우팅 + `markRead` 호출. 필터는 type 묶음 (전체/티켓/참가/시스템 등).
+알림 카드 클릭 → §5.5 라우팅 + `markRead` 호출. 카드 라벨/뱃지 tone/라우팅 규칙은 §6.6 의 단일 모듈에서 가져온다.
+
+### 6.4 Preferences — DB · API (PR95)
+
+사용자가 NotificationType 별로 알림 수신을 켜고 끌 수 있게 하는 영속 설정.
+
+**DB**: V10 마이그레이션이 `user_notification_preferences` 테이블 생성. 컬럼: `id PK / user_id FK(users) / notification_type VARCHAR(50) / enabled BOOLEAN DEFAULT TRUE / created_at / updated_at`. `UNIQUE(user_id, notification_type)` + `INDEX(user_id)`.
+
+| 항목 | 정책 |
+|---|---|
+| row 부재 | enabled = true 로 간주 (DB default + 서비스 fallback 양쪽으로 안전망) |
+| 같은 type 중복 row | UNIQUE 가 차단 — 발생 불가 |
+| audit 기록 | 없음 (개인 설정 영역, moderation_audit_logs 와 무관) |
+
+**API** (모두 인증 사용자 전용):
+
+| 메서드/경로 | 책임 |
+|---|---|
+| `GET /api/v1/notifications/preferences` | 모든 `NotificationType` 에 대한 응답 (row 없는 type 은 enabled=true 채워서 반환) |
+| `PATCH /api/v1/notifications/preferences` | 부분 갱신. request 에 없는 type 은 기존 값 유지. 같은 type 중복이 한 요청에 들어오면 **마지막 값** 채택 (단순화). 응답은 갱신 후의 전체 preference 목록. |
+
+요청 페이로드: `{ preferences: [{ type: NotificationType, enabled: boolean }, ...] }`.
+
+### 6.5 발송 시 preference 필터 (PR95)
+
+`NotificationService.notify` 는 receiver 별로 `NotificationPreferenceService.isEnabled(userId, type)` 를 호출해 발송 대상을 거른다. **disabled 인 receiver 는 `notifications` 테이블에 row 자체가 INSERT 되지 않고 SSE 도 발송되지 않는다** — 끈 알림은 발송 단계에서 사라진다.
+
+`isEnabled` 동작:
+1. `preferenceRepository.findByUserIdAndNotificationType(userId, type)` lookup.
+2. row 가 없거나 enabled=true 면 true.
+3. lookup 자체가 예외 (DB 일시 장애 등) → **fail-open**: warn log 한 줄 + true 반환. preference 조회 문제로 알림이 사라지는 회귀를 막는다.
+
+복수 receiver 발송에서는 일부 receiver 만 필터링되며 나머지에게는 정상 발송된다 (`receiverIds.filter { isEnabled(it, type) }`).
+
+### 6.6 Frontend — NotificationsPage 알림 설정 패널 (PR96)
+
+`pages/NotificationsPage.tsx` 헤더에 "알림 설정" 토글 버튼이 있고, 클릭 시 collapsible 패널이 열려 NotificationType 별 체크박스를 나열한다.
+
+| 동작 | 동작 정책 |
+|---|---|
+| 패널 열기 | 첫 오픈 시에만 backend 에서 lazy fetch (재오픈은 캐시 재사용) |
+| 토글 | 즉시 `PATCH /preferences` 호출 — request 에는 변경된 type 단건만 포함 |
+| 응답 처리 | 응답으로 전체 preferences 갱신, "알림 수신 설정을 저장했어요" success toast |
+| 실패 처리 | 해당 type 만 이전 값으로 rollback + danger toast. 전체 패널 상태는 보존 |
+| 중복 클릭 가드 | type 별 `savingTypes: Set<NotificationType>` 으로 진행 중 클릭 무시, `aria-busy="true"` + `disabled` |
+| accessibility | 토글 버튼 `aria-expanded` / `aria-controls`, 섹션 `aria-labelledby`, 체크박스 `htmlFor`/`id` |
+
+### 6.7 notificationMeta.ts — 메타데이터 single source (PR97)
+
+`frontend/src/utils/notificationMeta.ts` 가 NotificationType 의 label / tone / 설명 / 라우팅 규칙을 단일 정의한다. NotificationsPage 알림 카드와 §6.6 의 알림 설정 패널이 같은 정의를 공유 — 새 enum 이 추가되면 이 파일 하나만 수정하면 두 화면에 반영된다.
+
+- `META: Record<NotificationType, { label, tone, description? }>` — 라벨/뱃지 색/설정 패널의 보조 설명
+- `getNotificationMeta/Label/Tone(type: string)` — 알 수 없는 type 은 안전 fallback (`{ label: '알림', tone: 'neutral' }`) 반환
+- `pathForNotification(targetType, targetId, type, viewerRole)` — §5.5 알림 라우팅 규칙 (events / channels / tickets / creator-applications) 의 구현. NotificationsPage 와 `useEventDetailData` 등 후속 진입처가 동일 helper 를 사용한다.
 
 ---
 
@@ -405,8 +460,11 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 | **정원 race condition lock** | confirm 시점 재검증만. READY 다수가 동시 confirm 시 초과 가능. | 향후 PR |
 | **Kafka outbox** | 도입 설계만 ([kafka-outbox-plan.md](kafka-outbox-plan.md)). 현재 알림은 직접 SSE push. | 향후 PR |
 | **실시간 잔여 자리 / QR 회전 / 푸시** | EventDetail 의 잔여 자리는 SSE refetch 기반. QR 30초 회전 / 푸시 / 시스템 밝기는 미구현. | 향후 PR |
+| **알림 preference 카테고리 묶음 토글** | NotificationType 별 개별 토글만. "참가 관련 / 결제 관련" 같은 그룹 토글, "전체 끄기" 단일 액션은 없음. | 향후 PR |
+| **Push / Email 채널별 preference** | preference 는 NotificationType 차원만 다룬다. 같은 type 을 SSE 만 받고 push 는 끄는 등 채널별 선택 불가 (현재 채널은 SSE/in-app 1종). | 향후 PR |
+| **Preference 변경 audit / 이력** | preference 변경은 `moderation_audit_logs` 에 기록되지 않으며 별도 이력 테이블도 없음. | 향후 PR |
 
-운영 검증 미수행 / 백엔드 영향 있는 변경은 [manual-qa-checklist.md](manual-qa-checklist.md) 의 항목 단위로 추적한다.
+운영 검증 미수행 / 백엔드 영향 있는 변경은 [manual-qa-checklist.md](manual-qa-checklist.md) 의 항목 단위로 추적한다. 알림 preference + 메타데이터 흐름의 수동 QA 는 §20 / §21 참고.
 
 ---
 
@@ -434,5 +492,13 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR88 — admin moderation service 테스트 분리
 - PR89 — EventDetailPage hooks 분리
 - PR90 — 본 문서
+- PR91 — EventDetail 잔여 자리 라이브 강조 (highlight + reduced-motion 가드)
+- PR92 — 알림 묶음 refetch coalescing (`useCoalescedRefresh`)
+- PR93 — Admin moderation actor 활동 요약
+- PR94 — 수동 QA 체크리스트 consolidation
+- PR95 — 알림 수신 preference 영속화 + NotificationService 필터
+- PR96 — NotificationsPage 알림 설정 UI
+- PR97 — `notificationMeta.ts` 메타데이터 single source
+- PR98 — 알림 preference 흐름 문서화 (본 문서 §6.4~6.7 + §10 Known Exclusions 갱신)
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
