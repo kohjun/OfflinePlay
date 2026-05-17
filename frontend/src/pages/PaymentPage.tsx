@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { getEventById } from '../api/events'
+import { getEventById, getMyParticipation } from '../api/events'
 import { confirmPayment, preparePayment } from '../api/payments'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { loadTossPayments, tossClientKey } from '../utils/toss'
-import type { Event } from '../types'
+import type { Event, MyParticipation } from '../types'
 
 interface PaymentPageProps {
   eventId: number
@@ -62,6 +62,9 @@ export function PaymentPage({ eventId, onNavigate }: PaymentPageProps) {
   const { user } = useAuth()
   const { showToast } = useToast()
   const [event, setEvent] = useState<Event | null>(null)
+  // PR82 — 결제 페이지 진입 시 현재 참가/티켓 상태를 미리 가져와 backend
+  // validatePrepareable 가드를 친화적으로 우회. null = 아직 신청 안 함.
+  const [participation, setParticipation] = useState<MyParticipation | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,10 +85,15 @@ export function PaymentPage({ eventId, onNavigate }: PaymentPageProps) {
     let alive = true
     setLoading(true)
     setError(null)
-    getEventById(eventId)
-      .then((ev) => {
+    Promise.all([
+      getEventById(eventId),
+      // participation 조회 실패는 치명적이지 않다 — 그냥 가드 없이 결제 폼 보여줌.
+      getMyParticipation(eventId).catch(() => null),
+    ])
+      .then(([ev, part]) => {
         if (!alive) return
         setEvent(ev)
+        setParticipation(part)
       })
       .catch((err: unknown) => {
         if (!alive) return
@@ -188,6 +196,125 @@ export function PaymentPage({ eventId, onNavigate }: PaymentPageProps) {
         <p className="muted">{error ?? '이벤트 정보를 찾을 수 없어요.'}</p>
         <button type="button" className="button button-primary is-block" onClick={() => onNavigate('/')}>
           홈으로
+        </button>
+      </main>
+    )
+  }
+
+  // PR82 — 결제 진입 가드. backend validatePrepareable 가 어차피 막을 케이스를
+  // 토스트 대신 친화적 안내 페이지로 먼저 차단. REFUNDED / CANCELED 티켓은 새 결제
+  // 가능하므로 가드에서 제외.
+  const liveTicketStatus =
+    participation?.ticketStatus === 'PAID' || participation?.ticketStatus === 'USED'
+      ? participation.ticketStatus
+      : null
+  const isClosedEvent = event.status === 'CLOSED'
+  const isStartedEvent = new Date(event.startAt).getTime() <= Date.now()
+  const isFreeEvent = event.participationFee <= 0
+  const isOwner = user?.userId != null && event.channelOwnerId === user.userId
+
+  if (liveTicketStatus && participation?.ticketId != null) {
+    return (
+      <main className="page empty-state">
+        <h1>이미 결제된 티켓이 있어요</h1>
+        <p className="muted">
+          {liveTicketStatus === 'USED' ? '이미 사용한 티켓이에요.' : '이전 결제로 발급된 티켓을 확인해주세요.'}
+        </p>
+        <button
+          type="button"
+          className="button button-primary is-block"
+          onClick={() => onNavigate(`/tickets/${participation.ticketId}`)}
+        >
+          티켓 보기
+        </button>
+        <button
+          type="button"
+          className="button button-secondary is-block"
+          onClick={() => onNavigate(`/events/${eventId}`)}
+        >
+          이벤트 상세로
+        </button>
+      </main>
+    )
+  }
+
+  if (participation?.status === 'PENDING') {
+    return (
+      <main className="page empty-state">
+        <h1>승인 대기 중인 신청이에요</h1>
+        <p className="muted">기획자 승인을 기다리는 중이라 결제를 진행할 수 없어요.</p>
+        <button
+          type="button"
+          className="button button-primary is-block"
+          onClick={() => onNavigate(`/events/${eventId}`)}
+        >
+          이벤트 상세로
+        </button>
+      </main>
+    )
+  }
+
+  if (participation?.status === 'REJECTED') {
+    return (
+      <main className="page empty-state">
+        <h1>승인이 거절된 신청이에요</h1>
+        <p className="muted">기획자가 신청을 거절해 결제를 진행할 수 없어요.</p>
+        <button
+          type="button"
+          className="button button-primary is-block"
+          onClick={() => onNavigate(`/events/${eventId}`)}
+        >
+          이벤트 상세로
+        </button>
+      </main>
+    )
+  }
+
+  if (isOwner) {
+    return (
+      <main className="page empty-state">
+        <h1>본인이 운영하는 이벤트예요</h1>
+        <p className="muted">기획자는 본인 이벤트에 결제로 참가할 수 없어요.</p>
+        <button
+          type="button"
+          className="button button-primary is-block"
+          onClick={() => onNavigate(`/events/${eventId}`)}
+        >
+          이벤트 상세로
+        </button>
+      </main>
+    )
+  }
+
+  if (isClosedEvent || isStartedEvent) {
+    return (
+      <main className="page empty-state">
+        <h1>{isClosedEvent ? '종료된 이벤트예요' : '이미 시작된 이벤트예요'}</h1>
+        <p className="muted">
+          {isClosedEvent ? '이벤트가 종료되어 결제를 진행할 수 없어요.' : '이벤트 시작 시각이 지나 결제를 진행할 수 없어요.'}
+        </p>
+        <button
+          type="button"
+          className="button button-primary is-block"
+          onClick={() => onNavigate(`/events/${eventId}`)}
+        >
+          이벤트 상세로
+        </button>
+      </main>
+    )
+  }
+
+  if (isFreeEvent) {
+    return (
+      <main className="page empty-state">
+        <h1>무료 이벤트예요</h1>
+        <p className="muted">참가비가 없는 이벤트는 결제 없이 이벤트 상세에서 바로 신청할 수 있어요.</p>
+        <button
+          type="button"
+          className="button button-primary is-block"
+          onClick={() => onNavigate(`/events/${eventId}`)}
+        >
+          이벤트 상세로
         </button>
       </main>
     )
