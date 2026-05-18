@@ -2,6 +2,7 @@ package com.contenido.domain.admin.service
 
 import com.contenido.domain.admin.dto.ForcedRefundAuditContextResponse
 import com.contenido.domain.admin.dto.ModerationAuditLogResponse
+import com.contenido.domain.admin.dto.PaymentRefundAuditContextResponse
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.entity.ModerationAuditLog
 import com.contenido.domain.admin.repository.ModerationAuditLogRepository
@@ -68,6 +69,15 @@ class ModerationAuditLogService(
 
         /** RFC 4180 line terminator. */
         private const val CSV_LINE_TERMINATOR = "\r\n"
+
+        /**
+         * PR126 — user refund audit detail enrichment 대상 action 집합. 두 action 모두 같은
+         * payload shape (PR122 의 audit JSON) 을 쓰므로 동일 helper 로 처리.
+         */
+        private val PAYMENT_REFUND_ACTIONS = setOf(
+            ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            ModerationAuditAction.PAYMENT_REFUNDED,
+        )
     }
 
     @Transactional
@@ -121,11 +131,15 @@ class ModerationAuditLogService(
      *
      * PR115 — `TICKET_FORCED_REFUNDED` 인 row 에 한해 `forcedRefundContext` 를 채워 buyer/event/
      * channel 정보를 함께 반환한다. list / CSV / archive 응답은 enrich 하지 않는다.
+     *
+     * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` 인 row 에 한해 `paymentRefundContext`
+     * 도 함께 채워 동일한 buyer/event/channel 정보 + 환불 금액(this call / cumulative / remaining) +
+     * fullRefund 플래그를 반환. 두 컨텍스트는 서로 배타적이라 한 row 가 둘 다 채워지는 일은 없다.
      */
     fun get(id: Long): ModerationAuditLogResponse {
         val log = moderationAuditLogRepository.findById(id)
             .orElseThrow { ModerationAuditLogNotFoundException() }
-        return log.toResponse(enrichForcedRefund = true)
+        return log.toResponse(enrichRefundContexts = true)
     }
 
     /**
@@ -216,7 +230,7 @@ class ModerationAuditLogService(
         }
     }
 
-    private fun ModerationAuditLog.toResponse(enrichForcedRefund: Boolean = false) = ModerationAuditLogResponse(
+    private fun ModerationAuditLog.toResponse(enrichRefundContexts: Boolean = false) = ModerationAuditLogResponse(
         id = id,
         actorId = actor.id,
         actorNickname = actor.nickname,
@@ -228,8 +242,11 @@ class ModerationAuditLogService(
         afterValue = afterValue,
         reason = reason,
         createdAt = createdAt,
-        forcedRefundContext = if (enrichForcedRefund && action == ModerationAuditAction.TICKET_FORCED_REFUNDED)
+        forcedRefundContext = if (enrichRefundContexts && action == ModerationAuditAction.TICKET_FORCED_REFUNDED)
             buildForcedRefundContext(afterValue)
+        else null,
+        paymentRefundContext = if (enrichRefundContexts && action in PAYMENT_REFUND_ACTIONS)
+            buildPaymentRefundContext(afterValue)
         else null,
     )
 
@@ -291,6 +308,88 @@ class ModerationAuditLogService(
             buyerNickname = buyer.nickname,
             buyerEmail = buyer.email,
             eventId = event.id,
+            eventTitle = event.title,
+            channelId = channel.id,
+            channelName = channel.name,
+            contextAvailable = true,
+        )
+    }
+
+    /**
+     * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` row 의 `afterValue` JSON 을
+     * best-effort 파싱 + ticket lookup. [buildForcedRefundContext] 와 정책이 동일:
+     *
+     *  - 본 함수는 절대 throw 하지 않는다.
+     *  - afterValue null / blank / 비 object / 파싱 실패 → contextAvailable=false + 전 필드 null.
+     *  - ticketId JSON 파싱 성공 + ticketRepository lookup 성공 → buyer/event/channel 채움 +
+     *    contextAvailable=true.
+     *  - ticket 이 사라졌거나 JSON 에 ticketId 가 없는 경우 → JSON 파싱 값만 두고
+     *    contextAvailable=false.
+     *  - 세 금액(refundAmount / refundedAmount / remainingRefundableAmount) 과 두 상태
+     *    (ticketStatus / paymentStatus), fullRefund 플래그 — 모두 PR122 audit JSON 그대로 노출.
+     *    enum 변환은 시도하지 않음 (역사적 호환 대비 문자열 그대로).
+     */
+    private fun buildPaymentRefundContext(afterValue: String?): PaymentRefundAuditContextResponse {
+        val empty = PaymentRefundAuditContextResponse(
+            ticketId = null, paymentAttemptId = null, eventId = null,
+            refundAmount = null, refundedAmount = null, remainingRefundableAmount = null,
+            ticketStatus = null, paymentStatus = null, fullRefund = null,
+            buyerId = null, buyerNickname = null, buyerEmail = null,
+            eventTitle = null, channelId = null, channelName = null,
+            contextAvailable = false,
+        )
+        if (afterValue.isNullOrBlank()) return empty
+        val node: JsonNode = try {
+            objectMapper.readTree(afterValue)
+        } catch (e: Exception) {
+            return empty
+        }
+        if (!node.isObject) return empty
+
+        val ticketId = node.get("ticketId")?.takeIf { it.canConvertToLong() }?.asLong()
+        val paymentAttemptId = node.get("paymentAttemptId")?.takeIf { it.canConvertToLong() }?.asLong()
+        val eventIdFromJson = node.get("eventId")?.takeIf { it.canConvertToLong() }?.asLong()
+        val refundAmount = node.get("refundAmount")?.takeIf { it.canConvertToLong() }?.asLong()
+        val refundedAmount = node.get("refundedAmount")?.takeIf { it.canConvertToLong() }?.asLong()
+        val remainingRefundableAmount =
+            node.get("remainingRefundableAmount")?.takeIf { it.canConvertToLong() }?.asLong()
+        val ticketStatusFromJson = node.get("ticketStatus")?.takeIf { it.isTextual }?.asText()
+        val paymentStatusFromJson = node.get("paymentStatus")?.takeIf { it.isTextual }?.asText()
+        val fullRefund = node.get("fullRefund")?.takeIf { it.isBoolean }?.asBoolean()
+
+        val ticket = ticketId?.let { id ->
+            runCatching { ticketRepository.findById(id).orElse(null) }.getOrNull()
+        }
+        if (ticket == null) {
+            return PaymentRefundAuditContextResponse(
+                ticketId = ticketId, paymentAttemptId = paymentAttemptId, eventId = eventIdFromJson,
+                refundAmount = refundAmount, refundedAmount = refundedAmount,
+                remainingRefundableAmount = remainingRefundableAmount,
+                ticketStatus = ticketStatusFromJson, paymentStatus = paymentStatusFromJson,
+                fullRefund = fullRefund,
+                buyerId = null, buyerNickname = null, buyerEmail = null,
+                eventTitle = null, channelId = null, channelName = null,
+                contextAvailable = false,
+            )
+        }
+        val buyer = ticket.buyer
+        val event = ticket.event
+        val channel = event.channel
+        return PaymentRefundAuditContextResponse(
+            ticketId = ticket.id,
+            paymentAttemptId = paymentAttemptId,
+            // event row 의 실제 id 우선 — JSON snapshot 이 mismatch 일 가능성은 낮지만 ticket 기준이 정답.
+            eventId = event.id,
+            refundAmount = refundAmount,
+            refundedAmount = refundedAmount,
+            remainingRefundableAmount = remainingRefundableAmount,
+            // 현재 ticket.status 우선. JSON 은 audit 시점 snapshot 으로 fallback.
+            ticketStatus = ticket.status.name,
+            paymentStatus = paymentStatusFromJson,
+            fullRefund = fullRefund,
+            buyerId = buyer.id,
+            buyerNickname = buyer.nickname,
+            buyerEmail = buyer.email,
             eventTitle = event.title,
             channelId = channel.id,
             channelName = channel.name,

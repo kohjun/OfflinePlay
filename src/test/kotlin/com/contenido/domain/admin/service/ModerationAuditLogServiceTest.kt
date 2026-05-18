@@ -423,6 +423,27 @@ class ModerationAuditLogServiceTest {
             ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.now())
         }
 
+    /**
+     * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 빌더. action 만 다르게
+     * 받고 나머지 shape 은 [buildForcedRefundLog] 와 동일하게 가져간다.
+     */
+    private fun buildPaymentRefundLog(
+        actor: User,
+        action: ModerationAuditAction,
+        afterValue: String?,
+    ): ModerationAuditLog = ModerationAuditLog(
+        actor = actor,
+        action = action,
+        targetType = null,
+        targetId = null,
+        beforeValue = null,
+        afterValue = afterValue,
+        reason = "사용자 환불",
+    ).apply {
+        ReflectionTestUtils.setField(this, "id", 2L)
+        ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.now())
+    }
+
     private fun buildLog(actor: User): ModerationAuditLog =
         ModerationAuditLog(
             actor = actor,
@@ -617,6 +638,191 @@ class ModerationAuditLogServiceTest {
 
         assertThat(page.content).hasSize(1)
         assertThat(page.content[0].forcedRefundContext).isNull()
+        // list 에서는 ticket lookup 도 시도하지 않아야 함 (N+1 방지).
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    // ── PR126 paymentRefundContext enrichment ────────────────────────────────
+
+    @Test
+    fun `get - PAYMENT_PARTIALLY_REFUNDED + 완전 JSON + ticket 존재 → paymentRefundContext 채워짐`() {
+        val actor = createUser(99L, nickname = "buyer-self")
+        val buyer = createUser(7L, nickname = "buyer-nick", email = "buyer@test.com")
+        val channel = createChannel(channelId = 30L, name = "퇴근후한판", owner = createUser(8L))
+        val event = createEvent(eventId = 50L, title = "토요일 보드게임", channel = channel)
+        val ticket = createTicket(
+            ticketId = 123L, buyer = buyer, event = event,
+            status = TicketStatus.PARTIALLY_REFUNDED,
+        )
+        val afterJson = """
+            {"ticketId":123,"paymentAttemptId":456,"eventId":50,
+             "refundAmount":5000,"refundedAmount":5000,"remainingRefundableAmount":20000,
+             "ticketStatus":"PARTIALLY_REFUNDED","paymentStatus":"PARTIALLY_REFUNDED","fullRefund":false}
+        """.trimIndent()
+        val log = buildPaymentRefundLog(actor, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, afterJson)
+        every { moderationAuditLogRepository.findById(2L) } returns Optional.of(log)
+        every { ticketRepository.findById(123L) } returns Optional.of(ticket)
+
+        val result = service.get(2L)
+
+        assertThat(result.action).isEqualTo(ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED)
+        assertThat(result.forcedRefundContext).isNull()
+        val ctx = result.paymentRefundContext
+        assertThat(ctx).isNotNull
+        assertThat(ctx!!.contextAvailable).isTrue()
+        assertThat(ctx.ticketId).isEqualTo(123L)
+        assertThat(ctx.paymentAttemptId).isEqualTo(456L)
+        assertThat(ctx.eventId).isEqualTo(50L)
+        assertThat(ctx.refundAmount).isEqualTo(5000L)
+        assertThat(ctx.refundedAmount).isEqualTo(5000L)
+        assertThat(ctx.remainingRefundableAmount).isEqualTo(20_000L)
+        // ticket.status 가 우선 — PARTIALLY_REFUNDED.
+        assertThat(ctx.ticketStatus).isEqualTo("PARTIALLY_REFUNDED")
+        assertThat(ctx.paymentStatus).isEqualTo("PARTIALLY_REFUNDED")
+        assertThat(ctx.fullRefund).isFalse()
+        assertThat(ctx.buyerId).isEqualTo(7L)
+        assertThat(ctx.buyerNickname).isEqualTo("buyer-nick")
+        assertThat(ctx.buyerEmail).isEqualTo("buyer@test.com")
+        assertThat(ctx.eventTitle).isEqualTo("토요일 보드게임")
+        assertThat(ctx.channelId).isEqualTo(30L)
+        assertThat(ctx.channelName).isEqualTo("퇴근후한판")
+    }
+
+    @Test
+    fun `get - PAYMENT_REFUNDED + fullRefund true + ticket REFUNDED → paymentRefundContext fullRefund=true`() {
+        val actor = createUser(99L)
+        val buyer = createUser(7L, email = "b@test.com")
+        val channel = createChannel(channelId = 30L, name = "ch", owner = createUser(8L))
+        val event = createEvent(eventId = 50L, title = "ev", channel = channel)
+        val ticket = createTicket(ticketId = 123L, buyer = buyer, event = event, status = TicketStatus.REFUNDED)
+        val afterJson = """
+            {"ticketId":123,"paymentAttemptId":456,"eventId":50,
+             "refundAmount":25000,"refundedAmount":25000,"remainingRefundableAmount":0,
+             "ticketStatus":"REFUNDED","paymentStatus":"REFUNDED","fullRefund":true}
+        """.trimIndent()
+        val log = buildPaymentRefundLog(actor, ModerationAuditAction.PAYMENT_REFUNDED, afterJson)
+        every { moderationAuditLogRepository.findById(2L) } returns Optional.of(log)
+        every { ticketRepository.findById(123L) } returns Optional.of(ticket)
+
+        val result = service.get(2L)
+
+        val ctx = result.paymentRefundContext!!
+        assertThat(ctx.contextAvailable).isTrue()
+        assertThat(ctx.fullRefund).isTrue()
+        assertThat(ctx.refundedAmount).isEqualTo(25_000L)
+        assertThat(ctx.remainingRefundableAmount).isEqualTo(0L)
+        assertThat(ctx.ticketStatus).isEqualTo("REFUNDED")
+        assertThat(ctx.paymentStatus).isEqualTo("REFUNDED")
+    }
+
+    @Test
+    fun `get - PAYMENT_PARTIALLY_REFUNDED + ticket 없음 → contextAvailable false + JSON 값만 유지`() {
+        val actor = createUser(99L)
+        val afterJson = """
+            {"ticketId":999,"paymentAttemptId":456,"eventId":50,
+             "refundAmount":5000,"refundedAmount":5000,"remainingRefundableAmount":20000,
+             "ticketStatus":"PARTIALLY_REFUNDED","paymentStatus":"PARTIALLY_REFUNDED","fullRefund":false}
+        """.trimIndent()
+        val log = buildPaymentRefundLog(actor, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, afterJson)
+        every { moderationAuditLogRepository.findById(2L) } returns Optional.of(log)
+        every { ticketRepository.findById(999L) } returns Optional.empty()
+
+        val result = service.get(2L)
+
+        val ctx = result.paymentRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        assertThat(ctx.ticketId).isEqualTo(999L)
+        assertThat(ctx.paymentAttemptId).isEqualTo(456L)
+        assertThat(ctx.eventId).isEqualTo(50L)
+        assertThat(ctx.refundAmount).isEqualTo(5000L)
+        assertThat(ctx.refundedAmount).isEqualTo(5000L)
+        assertThat(ctx.remainingRefundableAmount).isEqualTo(20_000L)
+        assertThat(ctx.ticketStatus).isEqualTo("PARTIALLY_REFUNDED")
+        assertThat(ctx.paymentStatus).isEqualTo("PARTIALLY_REFUNDED")
+        assertThat(ctx.fullRefund).isFalse()
+        assertThat(ctx.buyerId).isNull()
+        assertThat(ctx.buyerNickname).isNull()
+        assertThat(ctx.eventTitle).isNull()
+        assertThat(ctx.channelId).isNull()
+    }
+
+    @Test
+    fun `get - PAYMENT_PARTIALLY_REFUNDED + malformed JSON → contextAvailable false + ticket lookup 없음`() {
+        val actor = createUser(99L)
+        val log = buildPaymentRefundLog(
+            actor, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, "not-a-json{",
+        )
+        every { moderationAuditLogRepository.findById(2L) } returns Optional.of(log)
+
+        val result = service.get(2L)
+
+        val ctx = result.paymentRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        assertThat(ctx.ticketId).isNull()
+        assertThat(ctx.refundAmount).isNull()
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `get - PAYMENT_REFUNDED + afterValue null → contextAvailable false + ticket lookup 없음`() {
+        val actor = createUser(99L)
+        val log = buildPaymentRefundLog(actor, ModerationAuditAction.PAYMENT_REFUNDED, afterValue = null)
+        every { moderationAuditLogRepository.findById(2L) } returns Optional.of(log)
+
+        val result = service.get(2L)
+
+        val ctx = result.paymentRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        assertThat(ctx.ticketId).isNull()
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `get - non-payment-refund action 은 paymentRefundContext null`() {
+        val actor = createUser(99L)
+        val log = buildLog(actor)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+
+        val result = service.get(1L)
+
+        assertThat(result.paymentRefundContext).isNull()
+        assertThat(result.forcedRefundContext).isNull()
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `get - TICKET_FORCED_REFUNDED row 는 forcedRefundContext 만 채워지고 paymentRefundContext 는 null`() {
+        val actor = createUser(99L)
+        val buyer = createUser(7L, email = "b@test.com")
+        val channel = createChannel(channelId = 30L, name = "ch", owner = createUser(8L))
+        val event = createEvent(eventId = 50L, title = "ev", channel = channel)
+        val ticket = createTicket(ticketId = 123L, buyer = buyer, event = event, status = TicketStatus.REFUNDED)
+        val log = buildForcedRefundLog(actor, """{"ticketId":123,"paymentAttemptId":456,"amount":25000}""")
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+        every { ticketRepository.findById(123L) } returns Optional.of(ticket)
+
+        val result = service.get(1L)
+
+        assertThat(result.forcedRefundContext).isNotNull
+        assertThat(result.forcedRefundContext!!.contextAvailable).isTrue()
+        assertThat(result.paymentRefundContext).isNull()
+    }
+
+    @Test
+    fun `list - PAYMENT_PARTIALLY_REFUNDED row 가 있어도 list 응답은 paymentRefundContext null`() {
+        val actor = createUser(99L)
+        val log = buildPaymentRefundLog(
+            actor, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            """{"ticketId":123,"refundAmount":5000}""",
+        )
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(20), 1)
+
+        val page = service.list(page = 0, size = 20)
+
+        assertThat(page.content).hasSize(1)
+        assertThat(page.content[0].paymentRefundContext).isNull()
         // list 에서는 ticket lookup 도 시도하지 않아야 함 (N+1 방지).
         verify(exactly = 0) { ticketRepository.findById(any()) }
     }

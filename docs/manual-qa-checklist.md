@@ -648,6 +648,25 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 한 화면에서 본인이 처리한 일반 환불 / 부분 환불 / 강제 환불 건수를 세 분류로 분리된 채로 한눈에 확인. PR122 audit 데이터를 그대로 활용해 추가 fetch 부담이 없다.
 
+### 25. 사용자 환불 audit 상세 enrichment (PR126)
+**목적**: PR122 의 일반 사용자 환불 audit (`PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED`) 도 PR115 의 강제 환불 detail enrichment 와 동일하게 단건 detail 조회 시점에 buyer/event/channel + 세 금액 + fullRefund 플래그를 한 panel 에서 확인할 수 있는지 검증. list/CSV/archive 응답은 enrichment 제외 (N+1 회피 + CSV 호환 유지).
+
+**사전 조건**: `refundPaymentByTicket` 으로 부분 환불 1건 + 전액 환불(일반) 1건 처리해 `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 가 각각 누적된 상태.
+
+- [ ] 🖱 PR126 — `/admin?tab=audit-logs` 진입 → "부분 환불" row "상세" 클릭 → before/after JSON pretty-print 위에 "환불 상세" panel 노출 + buyer (닉네임/ID/이메일) / 이벤트 (제목/ID) / 채널 (이름/ID) / 티켓 ID / 결제 시도 ID / 환불 유형 (`부분 환불`) / 이번 환불 금액 / 누적 환불 금액 / 남은 환불 한도 / 티켓 상태 / 결제 상태 11 칸 grid 표시
+- [ ] 🖱 PR126 — "환불 완료" (전액) row "상세" 클릭 → 동일 panel + 환불 유형 `전액 환불` + 남은 환불 한도 ₩0 + 티켓 상태 `REFUNDED` + 결제 상태 `REFUNDED`
+- [ ] 🖱 PR126 — panel 의 ticketStatus 는 현재 DB ticket.status 가 우선. PARTIALLY_REFUNDED → 추가 부분 환불 → REFUNDED cascade 후 같은 row 재조회 시 ticketStatus 가 REFUNDED 로 갱신되어 표시됨 (JSON snapshot 이 아닌 lookup 결과 우선)
+- [ ] 🖱 PR126 — ticket 이 삭제된 row (devtools 로 시뮬레이션) → "원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다." fallback + JSON 에서 추출한 ticketId / paymentAttemptId / eventId / 세 금액 / paymentStatus / fullRefund 는 그대로 노출, buyer/event/channel 칸은 "—"
+- [ ] 🖱 PR126 — malformed afterValue JSON (devtools 로 강제) → 동일 fallback 카피 + 모든 lookup 값 "—"
+- [ ] 🖱 PR126 — non-payment-refund row ("수동 숨김" 등) "상세" 펼침 → "환불 상세" panel 표시되지 않음 (회귀 가드)
+- [ ] 🖱 PR126 — TICKET_FORCED_REFUNDED row "상세" 펼침 → "강제 환불 상세" panel 만 노출, "환불 상세" panel 은 노출되지 않음 (두 컨텍스트 상호 배타)
+- [ ] 🖱 PR126 — archive 탭에서 같은 row 가 보이더라도 enrichment panel 노출되지 않음 (archive endpoint 는 enrichment 제외)
+- [ ] 📋 PR126 — raw afterValue JSON pretty-print 영역은 panel 과 별개로 그대로 유지됨 (원본 audit row 변경 없음)
+- [ ] 📋 PR126 — CSV export (PR63 endpoint) 결과의 컬럼 / 행은 PR125 이전과 동일 — `paymentRefundContext` 가 포함되지 않음
+- [ ] 📋 PR126 — list endpoint (`GET /admin/moderation/audit-logs?page=...`) 응답의 각 row 에 `paymentRefundContext = null` (또는 누락) — 단건 detail (`/audit-logs/{id}`) 응답에만 채워짐 (N+1 회피)
+
+**기대 결과**: 운영자가 raw JSON 을 직접 읽지 않고도 일반 사용자 환불 audit row 의 buyer / event / channel / 세 금액 / 환불 유형 / 상태를 한 panel 에서 확인. PR115 의 강제 환불 panel 과 동일한 UX 패턴 — 두 panel 은 상호 배타적이라 한 row 가 둘 다 표시되지 않는다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

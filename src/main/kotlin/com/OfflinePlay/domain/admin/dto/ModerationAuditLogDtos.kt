@@ -13,6 +13,9 @@ import java.time.LocalDateTime
  * PR115 — forcedRefundContext: action 이 TICKET_FORCED_REFUNDED 인 단건 detail 조회에서만 채워짐.
  *   list / CSV export / archive 응답은 null 유지 (N+1 회피 + CSV 호환). 본 필드는 조회 시점
  *   enrichment 결과이며, 원본 [beforeValue]/[afterValue] 는 손대지 않는다.
+ * PR126 — paymentRefundContext: action 이 PAYMENT_PARTIALLY_REFUNDED / PAYMENT_REFUNDED 인 단건
+ *   detail 조회에서만 채워짐. PR115 와 같은 정책 — list / CSV / archive 응답은 null 유지. 원본
+ *   audit row 도 손대지 않는다.
  */
 data class ModerationAuditLogResponse(
     val id: Long,
@@ -27,6 +30,7 @@ data class ModerationAuditLogResponse(
     val reason: String?,
     val createdAt: LocalDateTime,
     val forcedRefundContext: ForcedRefundAuditContextResponse? = null,
+    val paymentRefundContext: PaymentRefundAuditContextResponse? = null,
 )
 
 /**
@@ -51,6 +55,40 @@ data class ForcedRefundAuditContextResponse(
     val buyerNickname: String?,
     val buyerEmail: String?,
     val eventId: Long?,
+    val eventTitle: String?,
+    val channelId: Long?,
+    val channelName: String?,
+    val contextAvailable: Boolean,
+)
+
+/**
+ * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 의 detail enrichment payload.
+ *
+ *  - `afterValue` JSON 에서 파싱한 값 (`ticketId` / `paymentAttemptId` / `eventId` / `refundAmount` /
+ *    `refundedAmount` / `remainingRefundableAmount` / `ticketStatus` / `paymentStatus` /
+ *    `fullRefund`) 과 조회 시점에 ticket → buyer / event / channel lookup 으로 채운 값을 묶음.
+ *  - PR115 의 [ForcedRefundAuditContextResponse] 와 형태가 비슷하지만 일반 환불 audit 에 특화:
+ *      - `amount` 가 아닌 세 금액 (refundAmount / refundedAmount / remainingRefundableAmount).
+ *      - `ticketStatus` / `paymentStatus` 둘 다 노출 (PR122 audit JSON 에 둘 다 있음).
+ *      - `fullRefund` 플래그 — false 면 PARTIALLY_REFUNDED, true 면 REFUNDED cascade.
+ *  - `contextAvailable` 의미는 [ForcedRefundAuditContextResponse] 와 동일 — ticketId JSON 파싱 +
+ *    ticket lookup 둘 다 성공해야 true. 둘 중 하나라도 빠지면 false.
+ *  - 본 응답은 audit row 의 **읽기 뷰** 일 뿐 — 원본 audit row 의 beforeValue/afterValue/reason 은
+ *    변경하지 않는다. lookup 실패가 detail 자체를 실패시키지 않도록 service 가 swallow.
+ */
+data class PaymentRefundAuditContextResponse(
+    val ticketId: Long?,
+    val paymentAttemptId: Long?,
+    val eventId: Long?,
+    val refundAmount: Long?,
+    val refundedAmount: Long?,
+    val remainingRefundableAmount: Long?,
+    val ticketStatus: String?,
+    val paymentStatus: String?,
+    val fullRefund: Boolean?,
+    val buyerId: Long?,
+    val buyerNickname: String?,
+    val buyerEmail: String?,
     val eventTitle: String?,
     val channelId: Long?,
     val channelName: String?,

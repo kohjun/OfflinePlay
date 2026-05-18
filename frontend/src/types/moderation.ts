@@ -193,6 +193,12 @@ export interface ModerationAuditLog {
    * list / CSV / archive 응답은 null/undefined 유지.
    */
   forcedRefundContext?: ForcedRefundAuditContext | null
+  /**
+   * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 의 detail enrichment.
+   * 동일하게 detail endpoint 에서만 채워짐. forcedRefundContext 와 상호 배타적 — 한 row 가
+   * 둘 다 채워지는 일은 없다.
+   */
+  paymentRefundContext?: PaymentRefundAuditContext | null
 }
 
 /**
@@ -209,6 +215,31 @@ export interface ForcedRefundAuditContext {
   buyerNickname: string | null
   buyerEmail: string | null
   eventId: number | null
+  eventTitle: string | null
+  channelId: number | null
+  channelName: string | null
+  contextAvailable: boolean
+}
+
+/**
+ * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 의 조회 시점 enrichment.
+ * 동일한 contextAvailable 의미 — false 면 ticket lookup 또는 JSON 파싱이 깨졌다는 뜻이고 UI 는
+ * fallback 카피로 떨어진다. 세 금액(`refundAmount` 이번 호출 / `refundedAmount` 누적 /
+ * `remainingRefundableAmount` 남은 환불 한도) 과 `fullRefund` 플래그가 추가된다.
+ */
+export interface PaymentRefundAuditContext {
+  ticketId: number | null
+  paymentAttemptId: number | null
+  eventId: number | null
+  refundAmount: number | null
+  refundedAmount: number | null
+  remainingRefundableAmount: number | null
+  ticketStatus: string | null
+  paymentStatus: string | null
+  fullRefund: boolean | null
+  buyerId: number | null
+  buyerNickname: string | null
+  buyerEmail: string | null
   eventTitle: string | null
   channelId: number | null
   channelName: string | null

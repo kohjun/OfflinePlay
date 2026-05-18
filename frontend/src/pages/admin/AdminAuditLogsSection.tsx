@@ -15,6 +15,7 @@ import type {
   ForcedRefundAuditContext,
   ModerationAuditAction,
   ModerationAuditLog,
+  PaymentRefundAuditContext,
   ReportTargetType,
 } from '../../types'
 
@@ -179,6 +180,90 @@ function ForcedRefundContextPanel({ context }: { context: ForcedRefundAuditConte
         <div>
           <dt>티켓 상태</dt>
           <dd>{context.ticketStatus ?? '—'}</dd>
+        </div>
+      </dl>
+    </section>
+  )
+}
+
+/**
+ * PR126 — `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 의 detail enrichment panel.
+ *  - PR115 의 [ForcedRefundContextPanel] 과 시각/접근성 패턴은 동일 — `.ct-audit-context` /
+ *    `.ct-audit-context-grid` 클래스를 그대로 재사용.
+ *  - 강제 환불과 다른 점: 한 줄(`amount`) 대신 세 금액 (이번 호출/누적/잔여) + `paymentStatus` +
+ *    `fullRefund` 플래그. fullRefund=true 면 cascade 로 전액 환불 완료, false 면 부분 환불.
+ *  - `contextAvailable=false` 일 때 fallback 카피는 강제 환불과 동일한 톤 — 운영자가 한 페이지에서
+ *    두 panel 을 오가며 같은 멘탈 모델을 쓰도록.
+ */
+function PaymentRefundContextPanel({ context }: { context: PaymentRefundAuditContext }) {
+  const formatAmount = (n: number | null) => (n == null ? '—' : `₩${n.toLocaleString('ko-KR')}`)
+  const formatRefundType = (full: boolean | null) => {
+    if (full === true) return '전액 환불'
+    if (full === false) return '부분 환불'
+    return '—'
+  }
+  return (
+    <section className="ct-audit-context" aria-label="환불 상세">
+      <strong>환불 상세</strong>
+      {context.contextAvailable ? null : (
+        <p className="muted" role="status">
+          원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다. (티켓 삭제 또는 JSON 파싱 실패)
+        </p>
+      )}
+      <dl className="ct-audit-context-grid">
+        <div>
+          <dt>구매자</dt>
+          <dd>
+            {context.buyerNickname ?? '—'}
+            {context.buyerId != null ? <span className="muted"> (#{context.buyerId})</span> : null}
+            {context.buyerEmail ? <div className="muted">{context.buyerEmail}</div> : null}
+          </dd>
+        </div>
+        <div>
+          <dt>이벤트</dt>
+          <dd>
+            {context.eventTitle ?? '—'}
+            {context.eventId != null ? <span className="muted"> (#{context.eventId})</span> : null}
+          </dd>
+        </div>
+        <div>
+          <dt>채널</dt>
+          <dd>
+            {context.channelName ?? '—'}
+            {context.channelId != null ? <span className="muted"> (#{context.channelId})</span> : null}
+          </dd>
+        </div>
+        <div>
+          <dt>티켓 ID</dt>
+          <dd>{context.ticketId != null ? `#${context.ticketId}` : '—'}</dd>
+        </div>
+        <div>
+          <dt>결제 시도 ID</dt>
+          <dd>{context.paymentAttemptId != null ? `#${context.paymentAttemptId}` : '—'}</dd>
+        </div>
+        <div>
+          <dt>환불 유형</dt>
+          <dd>{formatRefundType(context.fullRefund)}</dd>
+        </div>
+        <div>
+          <dt>이번 환불 금액</dt>
+          <dd>{formatAmount(context.refundAmount)}</dd>
+        </div>
+        <div>
+          <dt>누적 환불 금액</dt>
+          <dd>{formatAmount(context.refundedAmount)}</dd>
+        </div>
+        <div>
+          <dt>남은 환불 한도</dt>
+          <dd>{formatAmount(context.remainingRefundableAmount)}</dd>
+        </div>
+        <div>
+          <dt>티켓 상태</dt>
+          <dd>{context.ticketStatus ?? '—'}</dd>
+        </div>
+        <div>
+          <dt>결제 상태</dt>
+          <dd>{context.paymentStatus ?? '—'}</dd>
         </div>
       </dl>
     </section>
@@ -576,6 +661,10 @@ export function AdminAuditLogsSection() {
                         {display.action === 'TICKET_FORCED_REFUNDED' && display.forcedRefundContext ? (
                           <ForcedRefundContextPanel context={display.forcedRefundContext} />
                         ) : null}
+                        {(display.action === 'PAYMENT_PARTIALLY_REFUNDED' || display.action === 'PAYMENT_REFUNDED')
+                          && display.paymentRefundContext ? (
+                            <PaymentRefundContextPanel context={display.paymentRefundContext} />
+                          ) : null}
                         {display.beforeValue ? (
                           <><span className="muted">before</span><pre className="ct-audit-detail-pre">{prettyAuditValue(display.beforeValue)}</pre></>
                         ) : null}
