@@ -459,6 +459,8 @@ export function AdminModerationOverviewSection() {
                     {row.channelUnbanCount > 0 ? <span>제재 해제 {row.channelUnbanCount}</span> : null}
                     {row.appealDecisionCount > 0 ? <span>이의 처리 {row.appealDecisionCount}</span> : null}
                     {row.reportDecisionCount > 0 ? <span>신고 처리 {row.reportDecisionCount}</span> : null}
+                    {row.partialRefundCount > 0 ? <span>부분 환불 {row.partialRefundCount}</span> : null}
+                    {row.refundCount > 0 ? <span>환불 완료 {row.refundCount}</span> : null}
                     {row.forcedRefundCount > 0 ? <span>강제 환불 {row.forcedRefundCount}</span> : null}
                     {row.thresholdUpdateCount > 0 ? <span>임계치 변경 {row.thresholdUpdateCount}</span> : null}
                     {row.archiveCount > 0 ? <span>아카이브 {row.archiveCount}</span> : null}

@@ -67,6 +67,8 @@ data class AdminModerationStatsResponse(
  *  - thresholdUpdateCount  : THRESHOLD_UPDATED
  *  - archiveCount          : AUDIT_LOGS_ARCHIVED
  *  - forcedRefundCount     : TICKET_FORCED_REFUNDED (PR109)
+ *  - partialRefundCount    : PAYMENT_PARTIALLY_REFUNDED (PR124)
+ *  - refundCount           : PAYMENT_REFUNDED (PR124)
  *
  * actorSystem 은 system actor (V9 seed, [SystemActorService]) 여부 — scheduled archive 자동
  * 실행분이 사람 운영분과 섞여 보이지 않도록 UI 가 별도 뱃지로 표시한다.
@@ -90,6 +92,10 @@ data class AdminModerationActorStatItem(
     val archiveCount: Long,
     /** PR109 — [ModerationAuditAction.TICKET_FORCED_REFUNDED] 처리 건수. */
     val forcedRefundCount: Long,
+    /** PR124 — [ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED] 처리 건수 (일반 환불 부분). */
+    val partialRefundCount: Long,
+    /** PR124 — [ModerationAuditAction.PAYMENT_REFUNDED] 처리 건수 (일반 환불 전액/cascade). */
+    val refundCount: Long,
 )
 
 data class AdminModerationActorStatsResponse(

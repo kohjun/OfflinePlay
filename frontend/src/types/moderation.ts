@@ -104,6 +104,10 @@ export interface AdminModerationActorStatItem {
   archiveCount: number
   /** PR109 — TICKET_FORCED_REFUNDED audit action 처리 건수. */
   forcedRefundCount: number
+  /** PR124 — PAYMENT_PARTIALLY_REFUNDED 처리 건수 (일반 부분 환불). */
+  partialRefundCount: number
+  /** PR124 — PAYMENT_REFUNDED 처리 건수 (일반 전액 환불 / cascade). */
+  refundCount: number
 }
 
 export interface AdminModerationActorStats {

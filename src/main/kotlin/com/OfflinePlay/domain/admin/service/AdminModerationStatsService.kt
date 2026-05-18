@@ -252,6 +252,9 @@ class AdminModerationStatsService(
                     archiveCount = count(ModerationAuditAction.AUDIT_LOGS_ARCHIVED),
                     // PR109 — TICKET_FORCED_REFUNDED 는 별도 카운트. totalActionCount 에는 그대로 포함.
                     forcedRefundCount = count(ModerationAuditAction.TICKET_FORCED_REFUNDED),
+                    // PR124 — 일반 사용자 환불 audit. forced refund 와 분리된 카운트.
+                    partialRefundCount = count(ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED),
+                    refundCount = count(ModerationAuditAction.PAYMENT_REFUNDED),
                 )
             }
             .sortedWith(compareByDescending<AdminModerationActorStatItem> { it.totalActionCount }.thenBy { it.actorId })

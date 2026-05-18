@@ -369,6 +369,9 @@ class AdminModerationStatsServiceTest {
         assertThat(item.thresholdUpdateCount).isEqualTo(1L)
         assertThat(item.archiveCount).isZero()
         assertThat(item.forcedRefundCount).isZero()
+        // PR124 — 사용자 환불 audit 액션은 본 케이스에 포함되지 않음 → 0.
+        assertThat(item.partialRefundCount).isZero()
+        assertThat(item.refundCount).isZero()
     }
 
     // PR109 — TICKET_FORCED_REFUNDED 가 별도 카운트로 분류되고 totalActionCount 에도 합산되는지 검증.
@@ -401,6 +404,41 @@ class AdminModerationStatsServiceTest {
         assertThat(item.appealDecisionCount).isZero()
         assertThat(item.reportDecisionCount).isZero()
         assertThat(item.thresholdUpdateCount).isZero()
+        // PR124 — 사용자 환불 카운트도 본 케이스 입력엔 없음.
+        assertThat(item.partialRefundCount).isZero()
+        assertThat(item.refundCount).isZero()
+    }
+
+    // PR124 — PAYMENT_PARTIALLY_REFUNDED / PAYMENT_REFUNDED 가 각자 카운트로 분리되고 forced refund / 다른 액션과 섞이지 않는지 검증.
+    @Test
+    fun `getActorStats PAYMENT 환불 액션이 partialRefundCount refundCount 로 분류된다`() {
+        val now = LocalDateTime.now()
+        val admin = createUser(id = 1L, role = UserRole.ADMIN, nickname = "운영자A")
+        val logs = listOf(
+            createAuditLog(1L, admin, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, now.minusDays(1)),
+            createAuditLog(2L, admin, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, now.minusDays(2)),
+            createAuditLog(3L, admin, ModerationAuditAction.PAYMENT_REFUNDED, now.minusDays(3)),
+            createAuditLog(4L, admin, ModerationAuditAction.TICKET_FORCED_REFUNDED, now.minusDays(4)),
+        )
+        every { moderationAuditLogRepository.findByCreatedAtBetween(any(), any()) } returns logs
+
+        val response = service.getActorStats(null, null, null)
+
+        assertThat(response.items).hasSize(1)
+        val item = response.items[0]
+        assertThat(item.partialRefundCount).isEqualTo(2L)
+        assertThat(item.refundCount).isEqualTo(1L)
+        assertThat(item.forcedRefundCount).isEqualTo(1L)
+        assertThat(item.totalActionCount).isEqualTo(4L)
+        // 다른 카운트로 섞이지 않는다.
+        assertThat(item.hideCount).isZero()
+        assertThat(item.unhideCount).isZero()
+        assertThat(item.channelBanCount).isZero()
+        assertThat(item.channelUnbanCount).isZero()
+        assertThat(item.appealDecisionCount).isZero()
+        assertThat(item.reportDecisionCount).isZero()
+        assertThat(item.thresholdUpdateCount).isZero()
+        assertThat(item.archiveCount).isZero()
     }
 
     @Test

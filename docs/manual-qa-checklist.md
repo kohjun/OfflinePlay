@@ -628,6 +628,26 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 한 화면에서 본인이 처리한 강제 환불 건수를 다른 운영 액션과 함께 한눈에 확인할 수 있다. audit 데이터를 그대로 활용해 추가 fetch 부담이 없다.
 
+### 24. 운영자 활동 사용자 환불 카운트 (PR124)
+**목적**: PR122 의 일반 사용자 환불 audit (`PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED`) 가 PR93/PR109 의 운영자 활동 요약(`/admin?tab=overview`) actor 카드에 별도 카운트로 표시되는지 확인. forced refund 카운트와 분리된 채로 누적되어야 한다. 신규 endpoint / 마이그레이션 없이 PR122 audit 데이터를 재활용.
+
+**사전 조건**: ADMIN 또는 채널 owner 계정 1명 + 본인이 최근 30일 내 `refundPaymentByTicket` 으로 부분 환불 + 전액 환불 각 1회 이상 실행한 상태. ADMIN 의 경우 `/admin/tickets/{id}/forced-refund` 호출도 1회 이상이면 분리 확인 가능.
+
+- [ ] 🖱 `/admin?tab=overview` 진입 → 본인 actor row 의 breakdown 에 "부분 환불 N" / "환불 완료 N" 표시 (둘 다 N >= 1 인 경우)
+- [ ] 🖱 부분 환불을 한 번도 실행하지 않은 actor row 에서는 "부분 환불" 항목이 노출되지 않음 (`row.partialRefundCount === 0`)
+- [ ] 🖱 전액 환불(일반)을 한 번도 실행하지 않은 actor row 에서는 "환불 완료" 항목이 노출되지 않음 (`row.refundCount === 0`)
+- [ ] 🖱 같은 actor 가 부분 환불 1건 추가 처리 → overview 재로드 시 "부분 환불" 카운트 +1, "환불 완료" / "강제 환불" 카운트는 무변경 (action 분리)
+- [ ] 🖱 같은 actor 가 전액 환불(일반) 1건 추가 처리 → "환불 완료" 카운트 +1, "부분 환불" / "강제 환불" 카운트는 무변경
+- [ ] 🖱 같은 actor 가 ADMIN 강제 환불 1건 추가 처리 → "강제 환불" 카운트만 +1, "부분 환불" / "환불 완료" 무변경 — endpoint 가 다르므로 audit action 도 다름
+- [ ] 🖱 부분 환불 누적이 결제 금액에 도달해 cascade 가 발동한 호출 → 그 호출은 "환불 완료" 카운트에 들어가고 "부분 환불" 카운트에 들어가지 않음 (PR122 의 single audit 정책)
+- [ ] 🖱 일반/강제 환불 모두 `totalActionCount` 에 포함됨 — breakdown 합계 ≤ total
+- [ ] 🖱 다른 액션(hide / ban / report decision / archive / threshold update 등) 의 카운트는 환불을 추가해도 영향 받지 않음
+- [ ] 📋 `GET /api/v1/admin/moderation/actor-stats` 응답 JSON 의 각 `items[].partialRefundCount` / `items[].refundCount` 가 number 타입으로 존재 (row 없어도 0)
+- [ ] 📋 `moderation_audit_logs` 에 `PAYMENT_PARTIALLY_REFUNDED` row 가 P 건, `PAYMENT_REFUNDED` 가 R 건일 때 응답의 `partialRefundCount=P`, `refundCount=R`
+- [ ] 📋 신규 endpoint / 마이그레이션 없음 — DTO 2 필드 + service 2 줄 + frontend 2 줄만 변경. `forcedRefundCount` 와 다른 분류 카운트는 변경 없음
+
+**기대 결과**: 운영자가 한 화면에서 본인이 처리한 일반 환불 / 부분 환불 / 강제 환불 건수를 세 분류로 분리된 채로 한눈에 확인. PR122 audit 데이터를 그대로 활용해 추가 fetch 부담이 없다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결
