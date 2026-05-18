@@ -653,10 +653,12 @@ class PaymentService(
         if (event.channel.owner.id == buyer.id) throw OwnerCannotApplyException()
         if (event.participationFee <= 0L) throw FreeEventCannotPreparePaymentException()
 
+        // PR120 — PARTIALLY_REFUNDED 도 active 로 취급. 부분 환불 후 같은 buyer 가 같은 event 에
+        // 다시 prepare 호출하면 AlreadyJoined — 부분 환불은 참가 자격을 유지하므로 (PR117 정책).
         val hasLiveTicket = ticketRepository.existsByEventAndBuyerAndStatusIn(
             event = event,
             buyer = buyer,
-            statuses = listOf(TicketStatus.PAID, TicketStatus.USED),
+            statuses = listOf(TicketStatus.PAID, TicketStatus.USED, TicketStatus.PARTIALLY_REFUNDED),
         )
         if (hasLiveTicket) throw AlreadyJoinedException()
 

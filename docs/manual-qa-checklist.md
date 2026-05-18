@@ -311,6 +311,22 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 **Backend 멱등 / 가드 회귀**
 - [ ] `.\gradlew.bat test` green (특히 PaymentService refund 관련)
 
+**PR120 — 부분 환불 회귀 매트릭스** (사이클 클로저 게이트, 각 행 1회 spot-check)
+
+| 시나리오 | 입력 | 기대 결과 | 회귀 가드 |
+|---|---|---|---|
+| 부분 환불 누적 (3회) | 30,000 결제 → 5,000 + 5,000 + 20,000 | 1·2회: PARTIALLY_REFUNDED, 정원/participation 무변경. 3회(누적 30,000): REFUNDED, 정원-- 1, participation CANCELED, REFUND_COMPLETED 알림 1건 (full 카피) | PR117 §14 cascade |
+| amount=null 회귀 | 30,000 결제, amount 미지정 | gateway 에 30,000 cancel + full cascade (PR42 기존 동작 유지) | PR42 회귀 |
+| amount=0 / -1 / 빈값 | 부분 환불 폼 | 클라이언트 사전 차단 (warning toast), backend 호출 없음 | PR118 검증 |
+| amount > remaining | 30,000 결제, refundedAmount=20,000 인데 15,000 부분 환불 요청 | 클라이언트 차단 OR backend 400 "환불 금액은 남은 환불 가능 금액(10,000원)을 초과할 수 없습니다." | PR117 InvalidRefundAmountException |
+| USED 부분 환불 시도 | USED 티켓 + amount=5,000 | `TicketAlreadyUsedException` 409, gateway 미호출 | PR42 USED 가드 |
+| 시작 후 부분 환불 시도 | 시작 시각 < now + amount=5,000 | `RefundDeadlinePassedException` 409, gateway 미호출 | PR43 deadline 가드 |
+| PARTIALLY_REFUNDED 티켓 보유자가 같은 event 에 재신청 | 동일 buyer/event 로 preparePayment 호출 | `AlreadyJoinedException` 409 (PR120 — validatePrepareable 의 active statuses 에 PARTIALLY_REFUNDED 포함) | PR120 validatePrepareable |
+| 전액 환불 (cascade) 후 같은 event 에 재신청 | REFUNDED 티켓 보유자가 preparePayment 호출 | participation status = CANCELED → 재신청 가능 (event.applyForEvent 의 REJECTED/CANCELED → PENDING 분기) | PR42 reapply |
+| 전액 환불 후 같은 ticket 에 다시 refund 호출 | REFUNDED 티켓에 refundPaymentByTicket 호출 (amount 유무 무관) | 멱등 응답 (gateway 재호출 없음, 정원 추가 감소 없음) | PR42 멱등 + PR78 정원 가드 |
+| Admin forced refund of PARTIALLY_REFUNDED 티켓 | refundedAmount=10,000 인 30,000 attempt 에 admin forced refund 호출 | gateway 에 remaining=20,000 cancel + 즉시 REFUNDED + 정원-- + participation CANCELED + audit `TICKET_FORCED_REFUNDED` row 1건 (afterValue.amount = 30,000 총액) | PR117 admin path 확장 |
+| Frontend label coverage | TicketDetailPage / MyPage / TicketCheckInPage | PARTIALLY_REFUNDED 상태에서 "부분 환불됨" 라벨 + warning tone Badge 표시 (3 페이지 모두) | PR118 type coverage |
+
 ### 15. 결제·환불·재신청 정합성 (PR76 / PR78 / PR79)
 
 사전 조건: 유료 이벤트 1건 (시작 시각 24h+ 후, 정원 여유), 본인 계정으로 로그인.
