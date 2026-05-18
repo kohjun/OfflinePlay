@@ -3,7 +3,14 @@ package com.contenido.domain.admin.service
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.entity.ModerationAuditLog
 import com.contenido.domain.admin.repository.ModerationAuditLogRepository
+import com.contenido.domain.channel.entity.Channel
+import com.contenido.domain.channel.entity.ChannelCategory
+import com.contenido.domain.event.entity.Event
+import com.contenido.domain.event.entity.EventStatus
 import com.contenido.domain.report.entity.ReportTargetType
+import com.contenido.domain.ticket.entity.Ticket
+import com.contenido.domain.ticket.entity.TicketStatus
+import com.contenido.domain.ticket.repository.TicketRepository
 import com.contenido.domain.user.entity.User
 import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
@@ -49,6 +56,7 @@ class ModerationAuditLogServiceTest {
 
     @MockK lateinit var moderationAuditLogRepository: ModerationAuditLogRepository
     @MockK lateinit var userRepository: UserRepository
+    @MockK lateinit var ticketRepository: TicketRepository
     private val objectMapper = ObjectMapper()
 
     private lateinit var service: ModerationAuditLogService
@@ -58,6 +66,7 @@ class ModerationAuditLogServiceTest {
         service = ModerationAuditLogService(
             moderationAuditLogRepository,
             userRepository,
+            ticketRepository,
             objectMapper,
         )
     }
@@ -353,12 +362,66 @@ class ModerationAuditLogServiceTest {
         return root to cb
     }
 
-    private fun createUser(id: Long, nickname: String = "user$id"): User =
-        User("admin$id@test.com", "encoded", nickname, "0101234${id.toString().padStart(4, '0')}")
+    private fun createUser(
+        id: Long,
+        nickname: String = "user$id",
+        email: String = "admin$id@test.com",
+    ): User =
+        User(email, "encoded", nickname, "0101234${id.toString().padStart(4, '0')}")
             .apply {
                 ReflectionTestUtils.setField(this, "id", id)
                 updateRole(UserRole.ADMIN)
             }
+
+    private fun createChannel(channelId: Long, name: String, owner: User): Channel =
+        Channel(owner, name, "설명", ChannelCategory.MUSIC).apply {
+            ReflectionTestUtils.setField(this, "id", channelId)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.now())
+            ReflectionTestUtils.setField(this, "updatedAt", LocalDateTime.now())
+        }
+
+    private fun createEvent(eventId: Long, title: String, channel: Channel): Event = Event(
+        channel = channel,
+        title = title,
+        description = "desc",
+        location = "서울",
+        mainImageUrl = "https://e.com/$eventId.jpg",
+        startAt = LocalDateTime.now().minusDays(1),
+        endAt = LocalDateTime.now().minusHours(1),
+        maxParticipants = 10,
+        participationFee = 25_000L,
+        refundPolicy = "전액",
+        detailContent = "detail",
+    ).apply {
+        ReflectionTestUtils.setField(this, "id", eventId)
+        ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.now())
+        ReflectionTestUtils.setField(this, "updatedAt", LocalDateTime.now())
+    }
+
+    private fun createTicket(
+        ticketId: Long,
+        buyer: User,
+        event: Event,
+        status: TicketStatus,
+    ): Ticket = Ticket(event = event, buyer = buyer, price = 25_000L, status = status).apply {
+        ReflectionTestUtils.setField(this, "id", ticketId)
+        ReflectionTestUtils.setField(this, "purchasedAt", LocalDateTime.now().minusDays(2))
+        ReflectionTestUtils.setField(this, "updatedAt", LocalDateTime.now())
+    }
+
+    private fun buildForcedRefundLog(actor: User, afterValue: String?): ModerationAuditLog =
+        ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.TICKET_FORCED_REFUNDED,
+            targetType = null,
+            targetId = null,
+            beforeValue = null,
+            afterValue = afterValue,
+            reason = "운영 환불",
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 1L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.now())
+        }
 
     private fun buildLog(actor: User): ModerationAuditLog =
         ModerationAuditLog(
@@ -416,6 +479,146 @@ class ModerationAuditLogServiceTest {
         every { moderationAuditLogRepository.findById(999L) } returns Optional.empty()
 
         assertThrows<ModerationAuditLogNotFoundException> { service.get(999L) }
+    }
+
+    // ── PR115 forcedRefundContext enrichment ─────────────────────────────────
+
+    @Test
+    fun `get - TICKET_FORCED_REFUNDED + afterValue JSON 완전 + ticket 존재 → forcedRefundContext 채워짐 (buyer event channel)`() {
+        val actor = createUser(99L, nickname = "admin")
+        val buyer = createUser(7L, nickname = "buyer-nick", email = "buyer@test.com")
+        val channel = createChannel(channelId = 30L, name = "퇴근후한판", owner = createUser(8L))
+        val event = createEvent(eventId = 50L, title = "토요일 보드게임", channel = channel)
+        val ticket = createTicket(ticketId = 123L, buyer = buyer, event = event, status = TicketStatus.REFUNDED)
+        val afterJson = """{"ticketId":123,"paymentAttemptId":456,"ticketStatus":"REFUNDED","amount":25000}"""
+        val log = buildForcedRefundLog(actor, afterJson)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+        every { ticketRepository.findById(123L) } returns Optional.of(ticket)
+
+        val result = service.get(1L)
+
+        assertThat(result.action).isEqualTo(ModerationAuditAction.TICKET_FORCED_REFUNDED)
+        val ctx = result.forcedRefundContext
+        assertThat(ctx).isNotNull
+        assertThat(ctx!!.contextAvailable).isTrue()
+        assertThat(ctx.ticketId).isEqualTo(123L)
+        assertThat(ctx.paymentAttemptId).isEqualTo(456L)
+        assertThat(ctx.amount).isEqualTo(25000L)
+        // 현재 ticket.status 가 우선 — REFUNDED.
+        assertThat(ctx.ticketStatus).isEqualTo("REFUNDED")
+        assertThat(ctx.buyerId).isEqualTo(7L)
+        assertThat(ctx.buyerNickname).isEqualTo("buyer-nick")
+        assertThat(ctx.buyerEmail).isEqualTo("buyer@test.com")
+        assertThat(ctx.eventId).isEqualTo(50L)
+        assertThat(ctx.eventTitle).isEqualTo("토요일 보드게임")
+        assertThat(ctx.channelId).isEqualTo(30L)
+        assertThat(ctx.channelName).isEqualTo("퇴근후한판")
+    }
+
+    @Test
+    fun `get - TICKET_FORCED_REFUNDED + afterValue JSON 일부 누락도 가능한 context 포함`() {
+        val actor = createUser(99L)
+        val buyer = createUser(7L, email = "b@test.com")
+        val channel = createChannel(channelId = 30L, name = "ch", owner = createUser(8L))
+        val event = createEvent(eventId = 50L, title = "ev", channel = channel)
+        val ticket = createTicket(ticketId = 123L, buyer = buyer, event = event, status = TicketStatus.REFUNDED)
+        // paymentAttemptId / amount 누락. ticketId 만으로도 lookup 진행.
+        val afterJson = """{"ticketId":123}"""
+        val log = buildForcedRefundLog(actor, afterJson)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+        every { ticketRepository.findById(123L) } returns Optional.of(ticket)
+
+        val result = service.get(1L)
+
+        val ctx = result.forcedRefundContext!!
+        assertThat(ctx.contextAvailable).isTrue()
+        assertThat(ctx.ticketId).isEqualTo(123L)
+        assertThat(ctx.paymentAttemptId).isNull()
+        assertThat(ctx.amount).isNull()
+        // ticket.status 가 우선이라 JSON 에 없어도 채워짐.
+        assertThat(ctx.ticketStatus).isEqualTo("REFUNDED")
+        assertThat(ctx.eventId).isEqualTo(50L)
+        assertThat(ctx.channelName).isEqualTo("ch")
+    }
+
+    @Test
+    fun `get - TICKET_FORCED_REFUNDED + ticket 없음 → detail 200 + contextAvailable false + JSON 값만 유지`() {
+        val actor = createUser(99L)
+        val afterJson = """{"ticketId":999,"paymentAttemptId":456,"ticketStatus":"REFUNDED","amount":10000}"""
+        val log = buildForcedRefundLog(actor, afterJson)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+        every { ticketRepository.findById(999L) } returns Optional.empty()
+
+        val result = service.get(1L)
+
+        val ctx = result.forcedRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        assertThat(ctx.ticketId).isEqualTo(999L)
+        assertThat(ctx.paymentAttemptId).isEqualTo(456L)
+        assertThat(ctx.amount).isEqualTo(10000L)
+        // ticket 없으면 JSON 의 ticketStatus 가 그대로 보임.
+        assertThat(ctx.ticketStatus).isEqualTo("REFUNDED")
+        assertThat(ctx.buyerId).isNull()
+        assertThat(ctx.buyerNickname).isNull()
+        assertThat(ctx.eventId).isNull()
+        assertThat(ctx.channelId).isNull()
+    }
+
+    @Test
+    fun `get - TICKET_FORCED_REFUNDED + afterValue malformed JSON → detail 200 + contextAvailable false`() {
+        val actor = createUser(99L)
+        val log = buildForcedRefundLog(actor, "not-a-json-string{")
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+
+        val result = service.get(1L)
+
+        val ctx = result.forcedRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        assertThat(ctx.ticketId).isNull()
+        assertThat(ctx.buyerId).isNull()
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `get - TICKET_FORCED_REFUNDED + afterValue null → contextAvailable false`() {
+        val actor = createUser(99L)
+        val log = buildForcedRefundLog(actor, afterValue = null)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+
+        val result = service.get(1L)
+
+        val ctx = result.forcedRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        assertThat(ctx.ticketId).isNull()
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `get - non-forced-refund action 은 forcedRefundContext null`() {
+        val actor = createUser(99L)
+        val log = buildLog(actor)
+        every { moderationAuditLogRepository.findById(1L) } returns Optional.of(log)
+
+        val result = service.get(1L)
+
+        assertThat(result.forcedRefundContext).isNull()
+        verify(exactly = 0) { ticketRepository.findById(any()) }
+    }
+
+    @Test
+    fun `list - TICKET_FORCED_REFUNDED row 가 있어도 list 응답은 forcedRefundContext null`() {
+        val actor = createUser(99L)
+        val log = buildForcedRefundLog(actor, """{"ticketId":123,"paymentAttemptId":456}""")
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(20), 1)
+
+        val page = service.list(page = 0, size = 20)
+
+        assertThat(page.content).hasSize(1)
+        assertThat(page.content[0].forcedRefundContext).isNull()
+        // list 에서는 ticket lookup 도 시도하지 않아야 함 (N+1 방지).
+        verify(exactly = 0) { ticketRepository.findById(any()) }
     }
 
     // ── PR63: exportToCsv ────────────────────────────────────────────────────

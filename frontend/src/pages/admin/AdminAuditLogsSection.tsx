@@ -12,6 +12,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
 import type {
   ArchivedModerationAuditLog,
+  ForcedRefundAuditContext,
   ModerationAuditAction,
   ModerationAuditLog,
   ReportTargetType,
@@ -114,6 +115,67 @@ function prettyAuditValue(raw: string | null | undefined): string {
     }
   } catch { /* not JSON */ }
   return raw
+}
+
+/**
+ * PR115 — `TICKET_FORCED_REFUNDED` audit row 의 detail enrichment panel.
+ *  - `contextAvailable=true` : buyer/event/channel 정보까지 채워졌으므로 6칸 grid 표시.
+ *  - `contextAvailable=false` : ticket 이 삭제됐거나 afterValue 파싱 실패 — fallback 카피 +
+ *    그래도 JSON 에서 추출된 값은 그대로 노출 (운영자가 ticketId 만으로도 사람에게 물어볼 수 있게).
+ *  - 원본 audit row 의 beforeValue / afterValue 는 panel 과 별개로 위에 pretty-print 됨.
+ */
+function ForcedRefundContextPanel({ context }: { context: ForcedRefundAuditContext }) {
+  const formatAmount = (n: number | null) => (n == null ? '—' : `₩${n.toLocaleString('ko-KR')}`)
+  return (
+    <section className="ct-audit-context" aria-label="강제 환불 상세">
+      <strong>강제 환불 상세</strong>
+      {context.contextAvailable ? null : (
+        <p className="muted" role="status">
+          원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다. (티켓 삭제 또는 JSON 파싱 실패)
+        </p>
+      )}
+      <dl className="ct-audit-context-grid">
+        <div>
+          <dt>구매자</dt>
+          <dd>
+            {context.buyerNickname ?? '—'}
+            {context.buyerId != null ? <span className="muted"> (#{context.buyerId})</span> : null}
+            {context.buyerEmail ? <div className="muted">{context.buyerEmail}</div> : null}
+          </dd>
+        </div>
+        <div>
+          <dt>이벤트</dt>
+          <dd>
+            {context.eventTitle ?? '—'}
+            {context.eventId != null ? <span className="muted"> (#{context.eventId})</span> : null}
+          </dd>
+        </div>
+        <div>
+          <dt>채널</dt>
+          <dd>
+            {context.channelName ?? '—'}
+            {context.channelId != null ? <span className="muted"> (#{context.channelId})</span> : null}
+          </dd>
+        </div>
+        <div>
+          <dt>티켓 ID</dt>
+          <dd>{context.ticketId != null ? `#${context.ticketId}` : '—'}</dd>
+        </div>
+        <div>
+          <dt>결제 시도 ID</dt>
+          <dd>{context.paymentAttemptId != null ? `#${context.paymentAttemptId}` : '—'}</dd>
+        </div>
+        <div>
+          <dt>환불 금액</dt>
+          <dd>{formatAmount(context.amount)}</dd>
+        </div>
+        <div>
+          <dt>티켓 상태</dt>
+          <dd>{context.ticketStatus ?? '—'}</dd>
+        </div>
+      </dl>
+    </section>
+  )
 }
 
 export function AdminAuditLogsSection() {
@@ -504,6 +566,9 @@ export function AdminAuditLogsSection() {
                       <div className="ct-audit-detail">
                         {detailLoading && !detail ? <span className="muted">상세 불러오는 중…</span> : null}
                         {detailError ? <span className="muted" role="alert">상세 조회 실패: {detailError}</span> : null}
+                        {display.action === 'TICKET_FORCED_REFUNDED' && display.forcedRefundContext ? (
+                          <ForcedRefundContextPanel context={display.forcedRefundContext} />
+                        ) : null}
                         {display.beforeValue ? (
                           <><span className="muted">before</span><pre className="ct-audit-detail-pre">{prettyAuditValue(display.beforeValue)}</pre></>
                         ) : null}

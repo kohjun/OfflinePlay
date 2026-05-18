@@ -561,6 +561,15 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] 🖱 PR113 — "필터 초기화" 클릭 → 칩 active 도 함께 해제 (`auditFilters.action='' ` 동기화)
 - [ ] 🖱 PR113 — 액션 select dropdown 옵션에도 "강제 환불" / "감사 로그 아카이브" 추가됨 (select 와 chip 둘 다에서 같은 backend action 값 전송)
 - [ ] 🖱 PR113 — `aria-pressed` 속성이 칩에 적용 (devtools accessibility tree 에서 toggle button 으로 인식)
+- [ ] 🖱 PR115 — 강제 환불 audit row "상세" 펼침 → before/after JSON pretty-print 위에 "강제 환불 상세" panel 노출 + buyer (닉네임/ID/이메일) / 이벤트 (제목/ID) / 채널 (이름/ID) / 티켓 ID / 결제 시도 ID / 환불 금액 (`₩25,000` 통화 포맷) / 티켓 상태 7칸 grid 표시
+- [ ] 🖱 PR115 — panel 의 ticketStatus 는 현재 DB ticket.status (보통 REFUNDED) 가 우선. ticket 이 lookup 됐다면 `afterValue` JSON 의 snapshot 값보다 ticket.status 가 우선 표시됨 (사용자가 본 화면에서 최신 상태 확인)
+- [ ] 🖱 PR115 — ticket 이 삭제된 row (devtools 로 ticket 강제 삭제 시뮬레이션) → panel 상단에 "원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다. (티켓 삭제 또는 JSON 파싱 실패)" fallback + JSON 에서 추출한 ticketId / paymentAttemptId / amount 는 그대로 노출, buyer/event/channel 칸은 "—"
+- [ ] 🖱 PR115 — malformed afterValue JSON (devtools 로 강제) → 동일 fallback 카피 + 모든 lookup 값 "—"
+- [ ] 🖱 PR115 — non-forced-refund row ("수동 숨김" 등) "상세" 펼침 → "강제 환불 상세" panel 표시되지 않음 (회귀 가드)
+- [ ] 🖱 PR115 — archive 탭에서 같은 forced refund row 가 보이더라도 enrichment panel 노출되지 않음 (archive endpoint 는 enrichment 제외)
+- [ ] 📋 PR115 — raw afterValue JSON pretty-print 영역은 panel 과 별개로 그대로 유지됨 (원본 audit row 변경 없음)
+- [ ] 📋 PR115 — CSV export (PR63 endpoint) 결과의 컬럼 / 행은 PR114 이전과 동일 — `forcedRefundContext` 가 포함되지 않음
+- [ ] 📋 PR115 — list endpoint (`GET /admin/moderation/audit-logs?page=...`) 응답의 각 row 에 `forcedRefundContext = null` (또는 누락) — 단건 detail (`/audit-logs/{id}`) 응답에만 채워짐 (N+1 회피)
 
 **기대 결과**: ADMIN 이 일반 환불 경로로 막혀 있던 케이스를 명시적 사유 기록과 함께 한 곳에서 처리할 수 있다. 환불 cascade, buyer 알림, audit 기록이 모두 동일 트랜잭션에서 일관되게 적용된다.
 

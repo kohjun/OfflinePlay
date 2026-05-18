@@ -33,6 +33,57 @@
   overflow-wrap: anywhere;
 }
 
+/* PR115 — 강제 환불 audit row 의 detail enrichment panel. raw before/after JSON 위에 표시. */
+.ct-audit-context {
+  background: var(--surface-muted, #f5f5f7);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.ct-audit-context > strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.ct-audit-context-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin: 0;
+}
+
+.ct-audit-context-grid > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+}
+
+.ct-audit-context-grid dt {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.ct-audit-context-grid dd {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0;
+  word-break: break-word;
+}
+
+.ct-audit-context-grid dd .muted {
+  font-size: 11px;
+  font-weight: 400;
+}
+
 /* PR113 — 감사 로그 빠른 필터 row. action select 위에 1줄 chip 영역. */
 .ct-audit-quick-filters {
   align-items: center;

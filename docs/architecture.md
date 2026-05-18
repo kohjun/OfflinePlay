@@ -460,7 +460,7 @@ POST /api/v1/reports                     ← reporter
 - `REPORT_DISMISSED`, `APPEAL_APPROVED`, `APPEAL_REJECTED`
 - `THRESHOLD_UPDATED`
 - `AUDIT_LOGS_ARCHIVED` (PR65 — archive job 자체의 기록)
-- `TICKET_FORCED_REFUNDED` (PR106 — ADMIN 강제 전액 환불. `targetType=null`, `afterValue` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 동봉, `reason` 은 운영 사유. PR109 부터 `AdminModerationStatsService.getActorStats` 응답의 `forcedRefundCount` 로도 집계되어 운영자 활동 카드에 별도 표시)
+- `TICKET_FORCED_REFUNDED` (PR106 — ADMIN 강제 전액 환불. `targetType=null`, `afterValue` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 동봉, `reason` 은 운영 사유. PR109 부터 `AdminModerationStatsService.getActorStats` 응답의 `forcedRefundCount` 로도 집계되어 운영자 활동 카드에 별도 표시. **PR115** 부터 단건 detail (`GET /admin/moderation/audit-logs/{id}`) 응답에 `forcedRefundContext` 가 채워진다 — `afterValue` 의 ticketId 로 ticket → buyer / event / channel 을 조회 시점 lookup. 원본 audit row 의 `beforeValue`/`afterValue` 는 손대지 않고, lookup 실패 시 `contextAvailable=false` 로 fallback. list / CSV export / archive 응답은 enrichment 제외 — N+1 회피 + CSV 호환 유지)
 
 조회 / 검색: `AdminAuditController` + `ModerationAuditLogSpecs`. CSV export 1000 행 한도 (`ModerationAuditLogService.EXPORT_LIMIT`).
 
@@ -592,5 +592,11 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR107 — 강제 환불 흐름 문서화 ([payment-refund-policy.md §13](payment-refund-policy.md) + 본 문서 §5.2.1) + §3 / §4.4 / §8.1 / §10 Known Exclusions 갱신
 - PR108 — Release notes (`docs/release-notes-local-bundle.md`) PR104~PR107 사이클로 refresh
 - PR109 — Admin actor stats 응답에 `forcedRefundCount` 필드 추가 + 운영자 활동 카드 breakdown 1줄 (PR93 stats 위에 audit 데이터 그대로 활용, 신규 endpoint/마이그레이션 없음)
+- PR110 — Release bundle 문서 PR104~PR109 사이클로 refresh (post-push 회고 모드)
+- PR111 — `AdminPaymentToolsSection` UX polish (안내 bullet / aria-describedby / labeled result grid / role=status / 4xx-5xx 친화 카피)
+- PR112 — Forced refund 실행 전 "REFUND" 텍스트 확인 잠금 (클라이언트 잠금, API payload 무변경)
+- PR113 — `AdminAuditLogsSection` 에 forced refund quick filter chip + frontend `ModerationAuditAction` union 을 backend enum 과 동기화 (`AUDIT_LOGS_ARCHIVED` + `TICKET_FORCED_REFUNDED` 추가)
+- PR114 — Release bundle 문서 PR110~PR113 사이클로 refresh
+- PR115 — Forced refund audit detail enrichment (`ModerationAuditLogResponse.forcedRefundContext`) — 단건 detail 조회 시점에 ticket → buyer/event/channel lookup 으로 운영자가 한 화면에서 확인. list/CSV/archive 응답은 enrichment 제외 (N+1 회피 + CSV 호환)
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.

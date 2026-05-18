@@ -172,6 +172,32 @@ export interface ModerationAuditLog {
   afterValue: string | null
   reason: string | null
   createdAt: string
+  /**
+   * PR115 — `TICKET_FORCED_REFUNDED` audit row 의 detail enrichment.
+   * detail endpoint (`GET /admin/moderation/audit-logs/{id}`) 응답에서만 채워짐.
+   * list / CSV / archive 응답은 null/undefined 유지.
+   */
+  forcedRefundContext?: ForcedRefundAuditContext | null
+}
+
+/**
+ * PR115 — TICKET_FORCED_REFUNDED audit row 의 조회 시점 enrichment.
+ * `contextAvailable=false` 이면 ticket 이 삭제됐거나 afterValue JSON 파싱 실패 — UI 가 fallback 카피
+ * 를 표시. JSON 에서 추출한 값 일부는 그대로 노출될 수 있다 (예: ticketId 만 있고 buyer 는 없음).
+ */
+export interface ForcedRefundAuditContext {
+  ticketId: number | null
+  paymentAttemptId: number | null
+  amount: number | null
+  ticketStatus: string | null
+  buyerId: number | null
+  buyerNickname: string | null
+  buyerEmail: string | null
+  eventId: number | null
+  eventTitle: string | null
+  channelId: number | null
+  channelName: string | null
+  contextAvailable: boolean
 }
 
 /**

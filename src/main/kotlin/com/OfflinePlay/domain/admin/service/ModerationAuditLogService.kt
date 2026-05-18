@@ -1,14 +1,17 @@
 package com.contenido.domain.admin.service
 
+import com.contenido.domain.admin.dto.ForcedRefundAuditContextResponse
 import com.contenido.domain.admin.dto.ModerationAuditLogResponse
 import com.contenido.domain.admin.entity.ModerationAuditAction
 import com.contenido.domain.admin.entity.ModerationAuditLog
 import com.contenido.domain.admin.repository.ModerationAuditLogRepository
 import com.contenido.domain.admin.repository.ModerationAuditLogSpecs
 import com.contenido.domain.report.entity.ReportTargetType
+import com.contenido.domain.ticket.repository.TicketRepository
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.ModerationAuditLogNotFoundException
 import com.contenido.global.exception.UserNotFoundException
+import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
@@ -41,6 +44,11 @@ import java.time.format.DateTimeParseException
 class ModerationAuditLogService(
     private val moderationAuditLogRepository: ModerationAuditLogRepository,
     private val userRepository: UserRepository,
+    /**
+     * PR115 — `TICKET_FORCED_REFUNDED` audit row 의 detail enrichment 만을 위해 주입. list / CSV /
+     * archive 응답은 enrich 하지 않으므로 N+1 부담 없음.
+     */
+    private val ticketRepository: TicketRepository,
     private val objectMapper: ObjectMapper,
 ) {
 
@@ -109,13 +117,15 @@ class ModerationAuditLogService(
 
     /**
      * PR63 — 단건 상세. id 가 없으면 [ModerationAuditLogNotFoundException].
-     * 응답 shape 은 list 와 동일 [ModerationAuditLogResponse]. detail page 가 필요로 하는 추가
-     * 필드는 본 PR 범위 밖.
+     * 응답 shape 은 list 와 동일 [ModerationAuditLogResponse].
+     *
+     * PR115 — `TICKET_FORCED_REFUNDED` 인 row 에 한해 `forcedRefundContext` 를 채워 buyer/event/
+     * channel 정보를 함께 반환한다. list / CSV / archive 응답은 enrich 하지 않는다.
      */
     fun get(id: Long): ModerationAuditLogResponse {
         val log = moderationAuditLogRepository.findById(id)
             .orElseThrow { ModerationAuditLogNotFoundException() }
-        return log.toResponse()
+        return log.toResponse(enrichForcedRefund = true)
     }
 
     /**
@@ -206,7 +216,7 @@ class ModerationAuditLogService(
         }
     }
 
-    private fun ModerationAuditLog.toResponse() = ModerationAuditLogResponse(
+    private fun ModerationAuditLog.toResponse(enrichForcedRefund: Boolean = false) = ModerationAuditLogResponse(
         id = id,
         actorId = actor.id,
         actorNickname = actor.nickname,
@@ -218,5 +228,73 @@ class ModerationAuditLogService(
         afterValue = afterValue,
         reason = reason,
         createdAt = createdAt,
+        forcedRefundContext = if (enrichForcedRefund && action == ModerationAuditAction.TICKET_FORCED_REFUNDED)
+            buildForcedRefundContext(afterValue)
+        else null,
     )
+
+    /**
+     * PR115 — `TICKET_FORCED_REFUNDED` row 의 `afterValue` JSON 을 best-effort 파싱하고 ticket 을
+     * lookup 해서 운영자가 한 화면에서 buyer/event/channel 까지 확인할 수 있는 context 를 만든다.
+     *
+     * 정책:
+     *  - 본 함수는 절대 throw 하지 않는다 — detail 자체가 enrichment 실패로 깨지면 안 됨.
+     *  - afterValue 가 null / 빈 문자열 / 파싱 실패 → contextAvailable=false + 모든 필드 null.
+     *  - ticketId 가 JSON 에 있으면 [TicketRepository] 로 단건 조회. 성공 시 buyer/event/channel
+     *    필드를 채움 (LAZY 연관관계가 readOnly 트랜잭션 안에서 정상 fetch 됨).
+     *  - ticket 조회 실패 (삭제·없음) → JSON 에서 파싱한 값만 그대로 두고 contextAvailable=false.
+     *  - amount 는 backend Long. JSON 에서 정수가 아닌 경우 null.
+     *  - ticketStatus 는 JSON 의 문자열 그대로 — enum 변환을 시도하지 않는다 (호환).
+     */
+    private fun buildForcedRefundContext(afterValue: String?): ForcedRefundAuditContextResponse {
+        val empty = ForcedRefundAuditContextResponse(
+            ticketId = null, paymentAttemptId = null, amount = null, ticketStatus = null,
+            buyerId = null, buyerNickname = null, buyerEmail = null,
+            eventId = null, eventTitle = null, channelId = null, channelName = null,
+            contextAvailable = false,
+        )
+        if (afterValue.isNullOrBlank()) return empty
+        val node: JsonNode = try {
+            objectMapper.readTree(afterValue)
+        } catch (e: Exception) {
+            return empty
+        }
+        if (!node.isObject) return empty
+
+        val ticketId = node.get("ticketId")?.takeIf { it.canConvertToLong() }?.asLong()
+        val paymentAttemptId = node.get("paymentAttemptId")?.takeIf { it.canConvertToLong() }?.asLong()
+        val amount = node.get("amount")?.takeIf { it.canConvertToLong() }?.asLong()
+        val ticketStatusFromJson = node.get("ticketStatus")?.takeIf { it.isTextual }?.asText()
+
+        val ticket = ticketId?.let { id ->
+            runCatching { ticketRepository.findById(id).orElse(null) }.getOrNull()
+        }
+        if (ticket == null) {
+            return ForcedRefundAuditContextResponse(
+                ticketId = ticketId, paymentAttemptId = paymentAttemptId, amount = amount,
+                ticketStatus = ticketStatusFromJson,
+                buyerId = null, buyerNickname = null, buyerEmail = null,
+                eventId = null, eventTitle = null, channelId = null, channelName = null,
+                contextAvailable = false,
+            )
+        }
+        val buyer = ticket.buyer
+        val event = ticket.event
+        val channel = event.channel
+        return ForcedRefundAuditContextResponse(
+            ticketId = ticket.id,
+            paymentAttemptId = paymentAttemptId,
+            amount = amount,
+            // 현재 ticket.status 를 우선 (refund 후라면 REFUNDED). JSON 값은 audit 시점 snapshot 으로 fallback.
+            ticketStatus = ticket.status.name,
+            buyerId = buyer.id,
+            buyerNickname = buyer.nickname,
+            buyerEmail = buyer.email,
+            eventId = event.id,
+            eventTitle = event.title,
+            channelId = channel.id,
+            channelName = channel.name,
+            contextAvailable = true,
+        )
+    }
 }

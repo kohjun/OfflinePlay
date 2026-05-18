@@ -10,6 +10,9 @@ import java.time.LocalDateTime
  * PR61 — audit log 단건 응답. before/after 는 service 가 직렬화한 JSON 문자열 그대로 노출.
  * 운영자가 한 줄로 "누가 / 언제 / 무엇을 / 어떤 대상에" 를 읽을 수 있게 actorNickname 동봉.
  * PR71 — actorSystem: scheduler 등 자동 작업의 actor 여부 (actor.email == system actor email).
+ * PR115 — forcedRefundContext: action 이 TICKET_FORCED_REFUNDED 인 단건 detail 조회에서만 채워짐.
+ *   list / CSV export / archive 응답은 null 유지 (N+1 회피 + CSV 호환). 본 필드는 조회 시점
+ *   enrichment 결과이며, 원본 [beforeValue]/[afterValue] 는 손대지 않는다.
  */
 data class ModerationAuditLogResponse(
     val id: Long,
@@ -23,6 +26,35 @@ data class ModerationAuditLogResponse(
     val afterValue: String?,
     val reason: String?,
     val createdAt: LocalDateTime,
+    val forcedRefundContext: ForcedRefundAuditContextResponse? = null,
+)
+
+/**
+ * PR115 — `TICKET_FORCED_REFUNDED` audit row 의 detail enrichment payload.
+ *
+ *  - `afterValue` JSON 에서 파싱한 값 (`ticketId`/`paymentAttemptId`/`amount`/`ticketStatus`) 과
+ *    조회 시점에 ticket → buyer / event / channel lookup 으로 채운 값 (id + 사람이 읽는 이름) 을 묶음.
+ *  - `contextAvailable` :
+ *      - true  : ticketId 가 JSON 에서 잘 나왔고 ticket lookup 도 성공해서 buyer/event/channel 까지
+ *                전부 채워졌다.
+ *      - false : 둘 중 하나라도 빠짐 — JSON malformed / ticketId 없음 / ticket 삭제됨 등. UI 가
+ *                "원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다." fallback 을 표시.
+ *  - 본 응답은 audit row 의 **읽기 뷰** 일 뿐 — 원본 audit row 의 beforeValue/afterValue/reason 은
+ *    변경하지 않는다. lookup 실패가 detail 자체를 실패시키지 않도록 service 가 swallow.
+ */
+data class ForcedRefundAuditContextResponse(
+    val ticketId: Long?,
+    val paymentAttemptId: Long?,
+    val amount: Long?,
+    val ticketStatus: String?,
+    val buyerId: Long?,
+    val buyerNickname: String?,
+    val buyerEmail: String?,
+    val eventId: Long?,
+    val eventTitle: String?,
+    val channelId: Long?,
+    val channelName: String?,
+    val contextAvailable: Boolean,
 )
 
 /**
