@@ -33,6 +33,19 @@
   overflow-wrap: anywhere;
 }
 
+/* PR113 — 감사 로그 빠른 필터 row. action select 위에 1줄 chip 영역. */
+.ct-audit-quick-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ct-audit-quick-filters > span {
+  font-size: 12px;
+}
+
 /* PR62 — 감사 로그 필터 폼. 모바일 420 에서 한 줄 안 들어가면 wrap. */
 .ct-audit-filters {
   display: grid;

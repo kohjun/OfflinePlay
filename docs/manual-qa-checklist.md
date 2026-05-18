@@ -553,6 +553,14 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] 📋 PG gateway 가 Failure 응답을 보낸 경우 (devtools 로 mock) → 502 "PG 환불 처리에 실패했습니다." + ticket 상태는 보존 (PAID/USED 그대로, audit 기록 없음)
 - [ ] 📋 새 마이그레이션 없음 (V10 까지만 존재). `ModerationAuditAction.TICKET_FORCED_REFUNDED` enum 추가만 코드 변경.
 - [ ] 📋 PR112 — request payload (Network 탭) 는 `{ "reason": "..." }` 만 포함. `confirmText` 가 backend 로 전송되지 않음 (클라이언트 잠금)
+- [ ] 🖱 PR113 — 강제 환불 1건 처리 후 `/admin?tab=audit-logs` 진입 → 액션 select 위에 "빠른 필터" 라벨 + "강제 환불" 칩 노출
+- [ ] 🖱 PR113 — "강제 환불" 칩 클릭 → 칩이 active style (primary fill) + 액션 select 가 "강제 환불" 로 자동 갱신 + 목록이 `TICKET_FORCED_REFUNDED` row 만 표시 + 현재 페이지가 1 페이지로 reset (기존 페이지가 2 이상이었다면)
+- [ ] 🖱 PR113 — TICKET_FORCED_REFUNDED row 의 액션 Badge 가 "강제 환불" 라벨 + warning tone, AUDIT_LOGS_ARCHIVED 라벨이 있는 row 가 있다면 "감사 로그 아카이브" + neutral tone 으로 표시 (PR65~PR106 enum 동기화)
+- [ ] 🖱 PR113 — 칩 active 상태에서 row "상세" 클릭 → `afterValue` JSON pretty-print 에 `ticketId`, `paymentAttemptId`, `ticketStatus`, `amount` 4 키가 들어 있음. 별도 backend 검색 없이 row detail 에서 확인 가능
+- [ ] 🖱 PR113 — active 상태에서 칩 재클릭 → 필터 해제 (action='' 로 복귀, 전체 로그 표시)
+- [ ] 🖱 PR113 — "필터 초기화" 클릭 → 칩 active 도 함께 해제 (`auditFilters.action='' ` 동기화)
+- [ ] 🖱 PR113 — 액션 select dropdown 옵션에도 "강제 환불" / "감사 로그 아카이브" 추가됨 (select 와 chip 둘 다에서 같은 backend action 값 전송)
+- [ ] 🖱 PR113 — `aria-pressed` 속성이 칩에 적용 (devtools accessibility tree 에서 toggle button 으로 인식)
 
 **기대 결과**: ADMIN 이 일반 환불 경로로 막혀 있던 케이스를 명시적 사유 기록과 함께 한 곳에서 처리할 수 있다. 환불 cascade, buyer 알림, audit 기록이 모두 동일 트랜잭션에서 일관되게 적용된다.
 

@@ -151,6 +151,13 @@ export type ModerationAuditAction =
   | 'APPEAL_REJECTED'
   | 'REPORT_RESOLVED'
   | 'REPORT_DISMISSED'
+  /** PR66 — audit log archive 실행. afterValue 에 archived count / cutoffAt JSON. */
+  | 'AUDIT_LOGS_ARCHIVED'
+  /**
+   * PR106 — ADMIN 강제 환불. targetType=null (ReportTargetType 에 TICKET 없음),
+   * afterValue JSON 에 ticketId / paymentAttemptId / ticketStatus / amount 동봉.
+   */
+  | 'TICKET_FORCED_REFUNDED'
 
 export interface ModerationAuditLog {
   id: number

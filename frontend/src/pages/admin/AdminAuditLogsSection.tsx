@@ -27,6 +27,8 @@ const AUDIT_ACTION_LABEL: Record<ModerationAuditAction, string> = {
   APPEAL_REJECTED: '이의 제기 거절',
   REPORT_RESOLVED: '신고 해결',
   REPORT_DISMISSED: '신고 기각',
+  AUDIT_LOGS_ARCHIVED: '감사 로그 아카이브',
+  TICKET_FORCED_REFUNDED: '강제 환불',
 }
 
 const AUDIT_ACTION_TONE: Record<ModerationAuditAction, 'danger' | 'warning' | 'success' | 'neutral' | 'primary'> = {
@@ -39,6 +41,8 @@ const AUDIT_ACTION_TONE: Record<ModerationAuditAction, 'danger' | 'warning' | 's
   APPEAL_REJECTED: 'warning',
   REPORT_RESOLVED: 'success',
   REPORT_DISMISSED: 'neutral',
+  AUDIT_LOGS_ARCHIVED: 'neutral',
+  TICKET_FORCED_REFUNDED: 'warning',
 }
 
 const TARGET_TYPE_LABEL: Record<ReportTargetType, string> = {
@@ -59,6 +63,8 @@ const AUDIT_ACTION_OPTIONS: ModerationAuditAction[] = [
   'REPORT_RESOLVED',
   'REPORT_DISMISSED',
   'THRESHOLD_UPDATED',
+  'TICKET_FORCED_REFUNDED',
+  'AUDIT_LOGS_ARCHIVED',
 ]
 
 const AUDIT_TARGET_TYPE_OPTIONS: ReportTargetType[] = ['CHANNEL', 'EVENT', 'POST', 'COMMENT', 'REVIEW']
@@ -341,6 +347,25 @@ export function AdminAuditLogsSection() {
         </button>
         <button type="button" className={`chip${auditTab === 'archived' ? ' is-active' : ''}`} onClick={() => setAuditTab('archived')}>
           아카이브
+        </button>
+      </div>
+
+      <div className="ct-audit-quick-filters" aria-label="빠른 필터">
+        <span className="muted">빠른 필터</span>
+        <button
+          type="button"
+          className={`chip${auditFilters.action === 'TICKET_FORCED_REFUNDED' ? ' is-active' : ''}`}
+          onClick={() => {
+            setAuditFilters((prev) => ({
+              ...prev,
+              action: prev.action === 'TICKET_FORCED_REFUNDED' ? '' : 'TICKET_FORCED_REFUNDED',
+            }))
+            setAuditPage(0); setArchivedPage(0)
+          }}
+          aria-pressed={auditFilters.action === 'TICKET_FORCED_REFUNDED'}
+          title="action=TICKET_FORCED_REFUNDED 만 필터링 (재클릭 해제)"
+        >
+          강제 환불
         </button>
       </div>
 
