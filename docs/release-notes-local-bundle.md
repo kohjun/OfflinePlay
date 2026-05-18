@@ -1,28 +1,30 @@
-# Local Release Bundle — PR115
+# Local Release Bundle — PR117 to PR119
 
-본 문서는 origin/main 대비 **로컬 main 이 앞서 있는 1 커밋** 을 push 하기 전에 한 번 훑는 ship-readiness 노트다.
+본 문서는 origin/main 대비 **로컬 main 이 앞서 있는 3 커밋** 을 push 하기 전에 한 번 훑는 ship-readiness 노트다.
 
 | 항목 | 값 |
 |---|---|
 | Base | `origin/main` |
-| Head | `db91787 feat(admin): enrich forced refund audit details` |
-| Ahead | **1 commit** |
-| First ahead | `db91787 feat(admin): enrich forced refund audit details` (PR115) |
+| Head | `<PR119 docs commit>` (커밋 직후 갱신) |
+| Ahead | **3 commits** |
+| First ahead | `a84c950 feat(payment): add partial refund foundation` (PR117) |
 | 작성 시점 | 2026-05-18 |
 
-직전 push (PR110~PR114, 5 커밋 = 결제 운영 도구 UX 보강 + audit quick filter + release bundle 문서 사이클) 가 origin 에 반영된 위에 얹은 **단독 backend+frontend PR** 한 건. PR115 는 PR113 이 quick filter 까지 닫아 둔 audit row 의 가독성을 한 단계 더 — 단건 detail 조회 시 ticket → buyer / event / channel 을 조회 시점 lookup 으로 채운다.
+직전 push (PR115 + PR116, 2 커밋 = forced refund audit detail enrichment + release bundle 문서) 가 origin 에 반영된 위에 얹은 **부분 환불 도입 한 사이클**. PR117 은 backend foundation, PR118 은 frontend UX, PR119 는 정책/구조 문서 + 본 release bundle 갱신.
 
 ---
 
 ## 1. 커밋 묶음 요약
 
-### Forced refund audit detail enrichment
+### Partial refund — backend foundation + frontend UX + docs
 
 | commit | PR | 요약 |
 |---|---|---|
-| `db91787` | PR115 | `TICKET_FORCED_REFUNDED` audit row 의 단건 detail (`GET /admin/moderation/audit-logs/{id}`) 응답에 `forcedRefundContext` 추가. `afterValue` JSON 에서 ticketId/paymentAttemptId/amount/ticketStatus 를 best-effort 파싱 + `TicketRepository.findById(ticketId)` 로 ticket → buyer / event / channel 까지 lookup. 실패 시 `contextAvailable=false` + 가능한 raw 값만 유지. list / CSV export / archive 응답은 enrichment 제외 (N+1 회피 + CSV 호환). 원본 audit row (`beforeValue`/`afterValue`/`reason`) 무변경. backend: `ModerationAuditLogResponse.forcedRefundContext` 신규 + `ForcedRefundAuditContextResponse` DTO (12 필드) + `ModerationAuditLogService` 에 `TicketRepository` 주입 + `buildForcedRefundContext` private 헬퍼 (`runCatching` 으로 swallow). frontend: `ForcedRefundAuditContext` 타입 + `AdminAuditLogsSection` 의 detail expand 안에 `ForcedRefundContextPanel` (raw JSON pretty-print 위에 표시) + `admin.css` `.ct-audit-context` / `.ct-audit-context-grid` 룰. tests: 신규 7 케이스 (완전 JSON + ticket / 부분 JSON / ticket 부재 / malformed JSON / null afterValue / non-forced-refund / list endpoint enrichment 미적용) — N+1 가드 verify 포함. docs: architecture §8.1 cross-reference + §11 PR history + manual-qa §22 PR115 9 항목 |
+| `a84c950` | PR117 | 부분 환불 backend foundation. V11 `payment_attempts.refunded_amount BIGINT NOT NULL DEFAULT 0` migration + `TicketStatus.PARTIALLY_REFUNDED` + `PaymentStatus.PARTIALLY_REFUNDED` enum + `PaymentAttempt` 헬퍼 (`remainingRefundableAmount()` / `markPartiallyRefunded(delta, reason)` / `markFullyRefunded(reason)` — `markRefunded` 는 fully 로 위임) + `RefundTicketRequest.amount: Long? = null` 추가 (null → 남은 환불 가능 금액 전체 = 기존 전액 동작) + `RefundTicketResponse` 에 `refundedAmount` / `remainingRefundableAmount` 필드 추가 + `InvalidRefundAmountException` (400) 신규 + `PaymentService.refundPaymentByTicket` 의 부분 환불 분기 (`applyPartialRefund` 헬퍼 — participation / capacity 무변경, partial 알림 카피) + 누적 도달 시 기존 `markRefundedInternal` (full cascade) 자동 진입 + `forceRefundByAdmin` 가 PARTIALLY_REFUNDED 티켓도 허용 (remaining 만큼 cancel 호출 후 REFUNDED 로 cascade) + PR117 신규 6 테스트 케이스 (부분 환불 성공 / 누적 후 full cascade / amount=0/-1/over → 400 / amount=null 회귀 / PARTIALLY_REFUNDED 티켓 추가 환불) |
+| `4a3f646` | PR118 | 부분 환불 frontend UX. `TicketStatus` / `PaymentStatus` union 에 `PARTIALLY_REFUNDED` 추가 (backend enum 동기화) + `RefundTicketRequest.amount?` / `RefundTicketResponse.refundedAmount` / `remainingRefundableAmount` 타입 반영 + `TicketDetailPage` 의 환불 진입을 inline form 으로 교체 (전액/부분 라디오 + amount input + 사유 textarea + 진행/취소 버튼) + 클라이언트 사전 검증 (1 이상 정수 / remaining 이하) + 부분 환불 후 form 유지 ("추가 환불 요청" 진입) + REFUNDED 도달 시 form 자동 닫힘 + `TICKET_STATUS_LABEL` 3곳에 "부분 환불됨" (warning tone) 추가 + MyPage `isTerminalTicket` 가드는 여전히 REFUNDED/CANCELED 만 (PARTIALLY_REFUNDED 는 active) + `payment.css` `.ct-ticket-refund-form` / `.ct-ticket-refund-radio` / `.ct-ticket-refund-actions` 신설 + 4xx 친화 카피 (400 + "환불 금액..." → "환불 금액을 확인해주세요") |
+| `<PR119>` | PR119 | 정책 / 구조 문서. `docs/payment-refund-policy.md` §11.7 / §13.7 의 "부분 환불" Known exclusion 제거 + 새 §14 "PR117 — 부분 환불 (Partial Refund)" 섹션 (정책 요약 / 스키마 / 엔티티 헬퍼 / cascade 전이 / frontend / 의도적 제외) + §1.1 TicketStatus 표에 PARTIALLY_REFUNDED 추가. `docs/architecture.md` §5.2 환불 흐름 표에 partial branch 추가 + §5.2.1 forced refund 의 상태 허용 PARTIALLY_REFUNDED 추가 + §10 Known Exclusions 의 "부분 환불" → 구현됨으로 변경 + "부분 forced refund" 신규 항목 + §11 PR history 에 PR116/PR117/PR118 entry. `docs/manual-qa-checklist.md` §14 환불 플로우에 부분 환불 / 추가 환불 / 1원 미만·remaining 초과 검증 / cascade 확인 / MyPage badge 유지 11 항목. 본 release-notes 갱신 (PR117~PR119 묶음 self-audit). |
 
-**본 PR 의 결과**: `/admin?tab=audit-logs` 에서 PR113 의 "강제 환불" quick filter 로 진입 → row 상세 펼침 → raw JSON pretty-print 위에 7칸 labeled grid (구매자 / 이벤트 / 채널 / 티켓 ID / 결제 시도 ID / 환불 금액 / 티켓 상태) 가 노출. ticket 이 lookup 되면 ticket.status 가 현재 상태로, 부재면 JSON snapshot 으로 fallback. 운영자가 `afterValue` JSON 의 `"ticketId": 123` 만 보고 다른 화면으로 점프할 필요가 없어졌다.
+**본 사이클 결과**: 사용자가 `/tickets/{id}` 에서 결제 금액의 일부만 환불받고 참가 자격은 유지할 수 있다. 누적 환불액이 결제 금액에 도달하면 기존 전액 환불 cascade (정원 회복 + participation CANCELED + Ticket.REFUNDED) 가 발동. ADMIN forced refund 는 운영 정책상 항상 한 번에 남은 금액 전액을 환불해 REFUNDED 로 cascade — PR117 의 PARTIALLY_REFUNDED 티켓도 forced refund 한 번이면 끝까지 처리된다.
 
 ---
 
@@ -46,7 +48,7 @@ push 직전 `git status -sb` 로 위 파일들이 staged 영역에 들어가 있
 
 ```
 git -C C:/WOYA status -sb
-## main...origin/main [ahead 1]
+## main...origin/main [ahead 3]
  M .claude/settings.local.json
  M build/resources/main/application.yml
 ```
@@ -57,56 +59,58 @@ git -C C:/WOYA status -sb
 
 ## 3. 검증 기록 (사이클 내 빌드/테스트 결과)
 
-본 PR 은 단건이지만 **backend + frontend + tests + docs 8 파일** 을 동시에 건드린다. 그래서 좁은 단위 테스트 + 전체 backend test + frontend build 세 단계로 모두 게이트.
-
 | 시점 | 검증 | 결과 |
 |---|---|---|
-| PR115 (`db91787`) | backend 좁은 `--tests *ModerationAuditLogServiceTest` | green (2m 16s) — 신규 7 케이스 모두 통과 + 기존 PR61/PR62/PR63 회귀 가드도 그대로 |
-| PR115 (`db91787`) | backend 전체 `gradle test` | green (3m 10s, BUILD SUCCESSFUL) — `ModerationAuditLogService` 생성자에 `TicketRepository` 주입이 추가됐지만 Spring DI 가 자동 해결, 다른 service / controller 회귀 없음 |
-| PR115 (`db91787`) | frontend `npm run build` | green (101 modules, 886ms — `tsc -b` + Vite 모두 통과) |
+| PR117 (`a84c950`) | backend 좁은 `--tests *PaymentServiceTest` | green (2m 19s) — 신규 6 케이스 (부분 환불 성공 + 부분 → full cascade + amount=0/-1/over + null 회귀 + PARTIALLY_REFUNDED 추가 환불) + 기존 PR42 / PR43 / PR78 / PR81 / PR82 / PR106 회귀 가드 통과 |
+| PR117 (`a84c950`) | backend full `gradle test` | green (1m 16s, BUILD SUCCESSFUL) — `PaymentAttempt` 엔티티 변경 (`refundedAmount` 컬럼 추가) + `TicketStatus` / `PaymentStatus` enum 확장 + `RefundTicketResponse` shape 변경에 대해 모든 의존 service / controller / repository test 회귀 없음 |
+| PR118 (`4a3f646`) | frontend `npm run build` | green (101 modules, 812ms — `tsc -b` + Vite 모두 통과). frontend type 확장 (`RefundTicketRequest.amount`, `RefundTicketResponse.refundedAmount/remainingRefundableAmount`, `TicketStatus.PARTIALLY_REFUNDED`, `PaymentStatus.PARTIALLY_REFUNDED`) 가 모든 호출처에서 정상 인식 |
+| PR119 (`<commit>`) | docs-only | build/test 생략 |
 
-**마지막 frontend `npm run build` green**: PR115 (`db91787`).
+**마지막 frontend `npm run build` green**: PR118 (`4a3f646`).
 
-**마지막 전체 backend `gradle test` green**: PR115 (`db91787`).
+**마지막 전체 backend `gradle test` green**: PR117 (`a84c950`).
 
-push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 cold-start 로 다시 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록 참고).
+push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 cold-start 로 다시 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록 참고). 실제 본 사이클 내에서도 PR117 좁은 테스트 첫 시도가 daemon cache lock 으로 실패 → `--stop` 후 재시도 green 으로 회복한 사례 있음.
 
 ---
 
 ## 4. 운영 / 배포 주의사항
 
-### Flyway 마이그레이션
+### Flyway 마이그레이션 — V11 신규
 
-**본 PR 은 새 V 마이그레이션 없음.** 신규 컬럼 / 테이블 / index 없음. 전체 마이그레이션 범위는 V1~V10 그대로 (직전 PR95 V10 이 마지막).
+**`V11__add_payment_attempt_refunded_amount.sql`** — `ALTER TABLE payment_attempts ADD COLUMN refunded_amount BIGINT NOT NULL DEFAULT 0`.
 
-### Audit 원본 row 무변경 (정책)
+- **기존 row 안전**: default 0 으로 자동 채워진다. 운영 환경의 기존 PaymentAttempt 들은 `refundedAmount = 0` 으로 시작 → `remainingRefundableAmount = amount` (= 결제 금액 전체) 로 인식되어 정책 변경 전 환불 흐름과 동일하게 동작.
+- **이미 환불된 row** (PR42 이전 환불): `refundedAt != null` 이지만 `refundedAmount = 0` 상태. 새 코드는 `remainingRefundableAmount` 가 amount 이므로 추가 환불 가능하게 보이는 회귀 가능성 있다 — 이를 막기 위해 `refundPaymentByTicket` 는 `ticket.status == REFUNDED` 분기에서 멱등 응답을 먼저 처리한다 (gateway 재호출 없이). 즉 ticket.status 가 권위 있는 가드. ADMIN forced refund 도 같은 가드.
+- **새 enum**: `TicketStatus.PARTIALLY_REFUNDED` / `PaymentStatus.PARTIALLY_REFUNDED` 는 Kotlin enum 으로만 추가 — DB 의 `status` 컬럼은 `VARCHAR(20)` 이라 새 enum 값 (`PARTIALLY_REFUNDED`, 19자) 을 그대로 수용 가능. schema migration 불필요.
 
-본 PR 은 **읽기 시점 enrichment 뿐** — audit row 의 `beforeValue` / `afterValue` / `reason` 컬럼은 손대지 않는다. 다음을 보장:
+### 부분 환불 정책 (PR117)
 
-- 과거에 기록된 `TICKET_FORCED_REFUNDED` row 도 신규 detail endpoint 에서 동일한 enrichment 시도 — `afterValue` JSON 만 잘 파싱되면 `ticketId` 로 lookup 진행.
-- 과거 row 의 JSON shape 이 부분적이거나 결측이어도 가능한 값 (예: ticketId 만) 은 raw 그대로 노출 + `contextAvailable=false` fallback.
-- audit retention / archive 정책 (PR65~PR70) 무영향 — archive 된 row 는 본 enrichment 대상 아님 (active 테이블 단건 endpoint 만 enrich).
-- back-fill migration 없음 — 향후 row shape 변경이 있어도 본 PR 의 best-effort 파싱이 그대로 호환.
+- **사용자 흐름** (`POST /tickets/{id}/refund`):
+  - `amount` null → 남은 환불 가능 금액 전체 환불 (= 기존 전액 동작 회귀)
+  - `amount` 지정 → `1 <= amount <= remainingRefundableAmount` 검증, 위반 시 400 `InvalidRefundAmountException`
+  - 누적이 결제 금액 미만이면 PARTIALLY_REFUNDED (참가/정원 무변경, partial 알림)
+  - 누적이 결제 금액에 도달하면 REFUNDED (full cascade: 정원-- / participation CANCELED / full 알림)
+- **USED / deadline / 권한 가드**: PR42 / PR43 그대로. USED 티켓 부분 환불 시도 → `TicketAlreadyUsedException`. 시작 이후 → `RefundDeadlinePassedException`.
+- **ADMIN forced refund** (`/admin/tickets/{id}/forced-refund`): 정책 무변경 — 항상 남은 금액 전체를 환불해 REFUNDED 로 cascade. PARTIALLY_REFUNDED 티켓에 호출하면 remaining 만큼 cancel 후 REFUNDED. 운영 의미: "이 티켓의 환불을 한 번에 끝낸다".
+- **알림**: `NotificationType.REFUND_COMPLETED` 재사용 (새 type 도입 X). 메시지 카피로 partial/full 구분.
+- **webhook**: `PaymentStatus.PARTIALLY_REFUNDED` 가 webhook 입력으로 도착하면 로그 후 skip (지원하지 않음). PR42 webhook 정책 변경 없음.
 
-### CSV export 무변경
+### 동시 환불 race
 
-`GET /admin/moderation/audit-logs/export` 응답의 컬럼 / 행 / 인코딩 무변경. `forcedRefundContext` 는 응답 DTO 의 default null 필드라 직렬화 시 CSV builder 에 영향 없음 (CSV builder 는 명시적으로 10개 컬럼만 직렬화 — `id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue`).
+같은 attempt 에 두 사용자가 동시에 refund 호출하면 (예: buyer + owner) `remainingRefundableAmount` 계산이 race condition 으로 일관되지 않을 수 있다. 본 PR 은 별도 lock 을 두지 않고 backend 검증을 신뢰 — 후순위 호출이 400 으로 거부된다. PG 측에서도 cancelAmount 가 잔액을 초과하면 거부될 것. 운영 빈도가 낮아 race 발생률은 미미하며, PR118 UI 는 사용자가 자기 view 의 remaining 으로 검증하므로 자기 자신 더블 클릭은 form 의 `disabled` 가드로 차단.
 
-운영자가 CSV 를 외부 도구로 가공하던 흐름이 그대로 유지된다. enrichment 정보를 batch 로 받고 싶으면 후속 PR 후보.
+### CSV export / audit / archive 무변경
 
-### Archive endpoint 무변경
+- 일반 사용자 부분 환불은 audit log (`moderation_audit_logs`) 를 만들지 않는다 (PR42 정책 그대로 — 일반 환불은 audit 비대상).
+- ADMIN forced refund 는 `TICKET_FORCED_REFUNDED` audit row 1건. afterValue JSON 의 `amount` 는 attempt.amount (총 결제 금액) 가 그대로 — partial refund 의 누적 amount 가 아님. PR115 의 forcedRefundContext enrichment 도 그대로 동작.
+- CSV export 의 컬럼 / 행은 PR114 이전과 동일 — `refundedAmount` 등 새 필드는 포함되지 않음.
 
-`GET /admin/moderation/audit-logs/archive` 와 `/archive/{originalId}` 두 endpoint 는 PR115 enrichment 대상 아님. `ArchivedModerationAuditLogResponse` 에 `forcedRefundContext` 필드 자체가 없으므로 frontend archive tab 도 panel 미노출. archive 된 row 의 ticket 은 retention 정책상 이미 오래된 데이터일 가능성이 크고 lookup 부담이 큰데, 운영 가치는 낮다 (archive 는 회고용).
+### Frontend status 표시 (PR118)
 
-### N+1 회피 정책
-
-`buildForcedRefundContext` 는 `get(id)` 단건 호출에서만 실행. `list(...)` / `exportToCsv(...)` 는 기존 그대로 `toResponse()` (enrichForcedRefund=false) 호출. 한 페이지 20개 row 가 모두 forced refund 라도 list 응답은 ticket lookup 0회 — 운영자가 detail expand 한 row 만 추가 쿼리 발생 (보통 1~2 row).
-
-테스트 (`list - TICKET_FORCED_REFUNDED row 가 있어도 list 응답은 forcedRefundContext null`) 가 `verify(exactly = 0) { ticketRepository.findById(any()) }` 로 N+1 가드.
-
-### Forced refund backend 실행 정책 (PR106 그대로 — 본 PR 무변경)
-
-본 PR 은 **PR106 의 backend 실행 정책을 일절 건드리지 않는다**. 환불 endpoint / payload / 권한 / audit 기록 / buyer 알림 / 전액 한정 / 일반 환불 경로 가드 모두 그대로. PR115 는 audit row 의 **읽기 뷰** 만 풍성하게 한다.
+- 모든 `TICKET_STATUS_LABEL` (TicketDetailPage / MyPage / TicketCheckInPage) 에 "부분 환불됨" (warning tone) 추가.
+- MyPage 의 `isTerminalTicket = REFUNDED || CANCELED` — PARTIALLY_REFUNDED 는 active 로 취급, "참가 확정" highlight + "티켓 보기" 버튼 유지. 사용자 직관에 부합 (참가 자격은 유지되므로 ticket 진입 가능).
+- TicketDetailPage 의 `isUsable = PAID || PARTIALLY_REFUNDED` — QR / 체크인 코드 활성. 부분 환불을 받아도 행사 입장 가능.
 
 ---
 
@@ -116,25 +120,24 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 
 | 영역 | 상태 |
 |---|---|
-| **부분 환불** | 전액만. `cancelAmount = attempt.amount`. PR106 의 강제 환불도 전액 한정. `Ticket.refundedAmount` 컬럼 / `TicketStatus.PARTIALLY_REFUNDED` enum 모두 미도입. payment-refund-policy.md §13.7 / §11.7. |
-| **부분 환불 시 정원 cascade 정책** | 미결정 — 부분 환불 PR 진행 전 `Event.currentParticipants` 감소 여부 (감소 / 유지 / 운영자 선택) 결정 필요. |
-| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED 카운트 일치 batch 없음. |
+| **부분 forced refund** | ADMIN `/admin/tickets/{id}/forced-refund` 는 PR117 부터 PARTIALLY_REFUNDED 티켓도 받지만 항상 한 번에 remaining 전체를 환불 (cascade). 부분 금액 forced refund 는 별도 endpoint 또는 옵션 도입 필요. |
+| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED/PARTIALLY_REFUNDED 카운트 일치 batch 없음. 부분 환불 도입으로 batch 가 더 복잡해졌지만 본 PR 범위 밖. |
 | **환불 실패 큐 / 자동 재시도** | `refund.failed` webhook 처리는 단순 skip. |
 | **PortOne / 다른 PG 어댑터** | interface 만 열려 있고 구현체는 Toss + Mock 만. |
 | **정원 race condition lock** | confirm 시점 재검증만. READY 다수 동시 confirm 시 초과 가능. |
+| **부분 환불 동시 race** | 별도 lock 없음. 후순위 호출이 400 으로 거부될 뿐 — race 빈도 낮아 의도적으로 lock 도입 보류. |
 | **Kafka outbox** | 도입 설계만 (`kafka-outbox-plan.md`). 알림은 직접 SSE push. |
 | **Push / Email channel preference** | preference 는 NotificationType 차원만. 채널별 선택 불가. |
 | **Preference 변경 audit / 이력** | PR104 의 `updatedAt` 은 lightweight signal — 변경 이력 / actor / 전·후 값 미저장. 별도 history 테이블 도입은 후속 PR. |
-| **Forced refund detail page (deep-link 회고 뷰)** | PR115 의 row 확장 panel 위에 별도 페이지로 "이 환불 한 건의 buyer 다른 결제 / 같은 event 의 다른 환불 audit / providerPaymentKey → PG 콘솔 외부 링크" 까지 확장. backend 작은 endpoint 추가 (1 ticket → 관련 audit 묶음) + frontend 새 라우트. |
-| **Forced refund row 의 same-event grouping** | quick filter 결과를 event 별로 묶어 한 행사가 N건 환불됐는지 한눈에. backend는 `event_id` 기반 group by audit 필요 (audit 테이블에 event_id 가 직접 없어서 ticket → event 조인 필요). |
-| **Archive audit detail 에도 enrichment** | 현재 PR115 는 active 테이블만 대상. archive row 는 retention 정책상 이미 오래된 데이터라 ticket lookup 부담은 크고 가치는 낮지만, 필요해지면 별도 PR. |
-| **CSV export 에 enrichment 컬럼** | 현재 CSV 는 audit 원본 10 컬럼 그대로. 외부 도구에서 batch 로 buyer/event 정보까지 받고 싶다면 별도 export endpoint 또는 enrichment column 옵션 필요. |
+| **부분 환불 webhook** | PG 가 partial cancel webhook 을 보낼 가능성은 본 PR 범위 밖. `PaymentStatus.PARTIALLY_REFUNDED` webhook 입력은 무시. |
+| **부분 환불 audit** | 일반 사용자 부분 환불은 audit log 비대상 (PR42 정책 그대로). ADMIN forced refund 만 `TICKET_FORCED_REFUNDED` audit. |
+| **CSV export 의 partial 정보** | CSV 는 audit 원본 10 컬럼 그대로. 부분 환불 누적 보기를 batch 로 받고 싶다면 별도 export endpoint 필요. |
 | **COMMENT cascade 자동 hide** | comment cascade 미구현 — 운영자 수동 처리. |
 | **실시간 잔여 자리 SSE 채널 / QR 회전 / 푸시** | 잔여 자리는 SSE refetch 기반 + highlight (PR91). QR 30초 회전 / push 알림 / 시스템 밝기는 미구현. |
 
-직전 사이클의 release notes 에 있던 다음 항목은 본 PR 에서 채워졌으므로 제거됐다:
+직전 사이클의 release notes 에 있던 다음 항목은 본 사이클에서 채워졌으므로 제거됐다:
 
-- **"Forced refund audit row 의 buyer / event title enrichment"** → PR115 가 detail endpoint 에서 buyer / event title / channel name 까지 모두 채워서 row 확장만으로 즉시 확인 가능.
+- **"부분 환불 미구현 — 일반 사용자/owner 환불 흐름"** → PR117 으로 구현. ADMIN forced refund 의 부분 금액 호출은 여전히 미구현 (위 follow-ups 의 "부분 forced refund" 항목으로 분리).
 
 ---
 
@@ -146,26 +149,22 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 
 - §1~§11 — 회원가입 / 채널 / 이벤트 생성 / 참가 신청 / 승인·거절 / 티켓 / 체크인 / 공지 / 알림 라우팅 / 비밀번호 변경
 
-### 결제·환불·재신청 (PR106/PR111/PR112/PR113 기존 정책 회귀 가드)
+### 결제·환불·재신청 (본 묶음 영향)
 
-- §13~§16 — 결제 / 환불 / 재신청 / 결제 알림 라우트 가드 (기존 정책 그대로 동작하는지 회귀 가드)
-- **§22 ADMIN 강제 환불 운영 도구 — PR115 항목** — 본 PR 의 핵심:
-  - 강제 환불 1건 실행 후 audit logs quick filter 진입 → row "상세" 펼침 → "강제 환불 상세" panel 노출 + buyer (닉네임/ID/이메일) / 이벤트 (제목/ID) / 채널 (이름/ID) / 티켓 ID / 결제 시도 ID / 환불 금액 (`₩25,000`) / 티켓 상태 7칸 grid 확인
-  - panel 상단 ticketStatus 가 **현재 DB ticket.status** (보통 REFUNDED) 가 우선 — afterValue snapshot 보다 ticket 우선
-  - ticket 삭제 시뮬레이션 / malformed JSON 시 "원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다." fallback + JSON 의 raw 값 (ticketId/paymentAttemptId/amount) 은 그대로 노출, buyer/event/channel 칸은 "—"
-  - non-forced-refund row ("수동 숨김" 등) detail 에는 panel 노출되지 않음 (회귀 가드)
-  - archive tab 의 같은 forced refund row 는 panel 노출되지 않음 (archive endpoint enrichment 제외)
-  - raw `beforeValue` / `afterValue` JSON pretty-print 는 panel 과 별개로 그대로 유지 (원본 audit row 변경 없음)
-  - CSV export 결과의 컬럼 / 행은 PR114 이전과 동일 — `forcedRefundContext` 미포함
-  - list endpoint 응답의 각 row 에 `forcedRefundContext = null` (Network 탭 spot-check) — N+1 회피
-- PR106 / PR111 / PR112 / PR113 항목은 직전 push 그대로 동작 회귀 가드
+- §13 결제 플로우 (PR74) — 회귀 가드
+- **§14 환불 플로우** — 본 묶음의 핵심:
+  - PR42 기존 항목 (전액 환불 회귀)
+  - **PR118 신규**: inline 환불 form (전액/부분 라디오) + amount input + 사유 + 진행/취소 + 부분 환불 후 form 유지 + 추가 환불 + 누적 도달 시 cascade + 1원 미만 / remaining 초과 사전 차단 + 400 친화 카피
+  - **PR118 신규**: PARTIALLY_REFUNDED 티켓 MyPage 카드는 active 로 유지 + status Badge "부분 환불됨" warning + QR 활성
+- §15~§16 재신청 / 결제 알림 라우트 가드 — 회귀
+- §22 ADMIN 강제 환불 (PR106/PR111/PR112/PR113) — 회귀. PARTIALLY_REFUNDED 티켓에 forced refund 호출 시 정상 REFUNDED 로 cascade 되는지 spot-check 권장
 
 ### 운영 콘솔
 
-- §12 / §19 — 기존 Admin 콘솔 + 운영자 활동 요약 (PR93 + PR109)
-- §23 운영자 활동 강제 환불 카운트 (PR109) — 본 PR 무변경, 회귀 가드만
+- §12 / §19 — 기존 Admin 콘솔 + 운영자 활동 요약 (PR93 + PR109) — 회귀
+- §23 운영자 활동 강제 환불 카운트 (PR109) — 회귀
 
-### 알림 (PR104 영향, 본 PR 무변경)
+### 알림 (PR104 영향, 본 묶음 무변경)
 
 - §20 알림 수신 설정 / §20a 묶음 토글 / §20b Quick Mute + Undo / §20c 마지막 저장 시각 / §21 알림 메타데이터 일관성
 
@@ -188,22 +187,23 @@ cd C:/WOYA/frontend && npm run build
 # git -C C:/WOYA push origin main
 ```
 
-`./gradlew.bat test` 가 cold-start 일 때 `PermissionIntegrationTest` 등 Spring context 초기화에서 flaky 가 보일 수 있다. 같은 명령 재실행으로 회복되면 본 PR 의 변경과 무관하다고 본다 (PR74 stabilize 시리즈 기록).
+`./gradlew.bat test` 가 cold-start 일 때 `PermissionIntegrationTest` 등 Spring context 초기화에서 flaky 가 보일 수 있다. 같은 명령 재실행으로 회복되면 본 묶음의 변경과 무관하다고 본다 (PR74 stabilize 시리즈 기록). 본 사이클 내에서도 PR117 좁은 테스트 첫 시도가 `caches-jvm` 잠금 실패 → `--stop && rerun` 으로 회복한 사례 있음.
 
-본 PR 은 `ModerationAuditLogService` 의 생성자에 `TicketRepository` 가 추가됐다. Spring DI 가 자동 해결하므로 wiring 변경은 불필요하지만, 부팅 시 ApplicationContext 가 정상 로드되는지 (다른 service 에서 같은 service 를 주입받는 경우 등) cold-start full test 에서 한 번 더 확인된다.
+본 묶음은 V11 migration 을 포함한다. Flyway 가 부팅 시 자동 적용 — staging 에 deploy 할 때 V10 → V11 migration 이 한 번 돌고, 이후 cold-start 부팅 로그에서 V11 적용 라인을 확인하면 안전.
 
 ---
 
 ## 8. 다음 사이클 (push 이후 추천)
 
-본 PR 로 forced refund audit row 의 detail enrichment 까지 닫혔다. 다음 사이클의 후보:
+본 사이클로 부분 환불 1단계가 완결됐다. 다음 사이클의 후보:
 
-1. **PR117 옵션 A — partial refund first step**: `payment-refund-policy.md §13.7 / §11.7` 의 부분 환불 1 단계. `Ticket.refundedAmount` 컬럼 + V11 migration + refund endpoint 의 optional `amount` 인자 + UI 금액 입력. **사전 정책 결정 필요**: 부분 환불 시 `Event.currentParticipants` cascade (감소 / 유지 / 운영자 선택) 및 `TicketStatus.PARTIALLY_REFUNDED` enum 도입 여부. 결제 도메인의 마지막 큰 미구현.
-2. **PR117 옵션 B — Forced refund deep-link detail page**: PR115 의 row 확장 panel 을 별도 라우트 (예: `/admin/audit-logs/{id}`) 로 확장 — 같은 buyer 의 다른 결제 attempt 목록, 같은 event 의 다른 forced refund audit, providerPaymentKey → PG 콘솔 외부 링크. backend 작은 endpoint 추가 (1 ticket → 관련 audit 묶음) + frontend 새 라우트.
-3. **PR117 옵션 C — Push/Email channel preference 1 단계**: NotificationType 차원 위에 `channel` 차원을 추가하는 큰 정책 결정. backend 모델 확장 필요. 정책 결정 선행.
+1. **PR120 — Partial refund regression hardening**: 정책/UI 안정성 게이트. PaymentServiceTest 에 부분 환불 여러 번 누적 / cascade / full 후 재환불 차단 / PARTIALLY_REFUNDED 상태 reapply 가드 + EventServiceTest 에 PARTIALLY_REFUNDED participation 의 AlreadyJoined 유지 + Admin forced refund 의 PARTIALLY_REFUNDED 처리 + frontend label coverage spot-check. 본 PR 시퀀스의 마지막 단계 — 즉시 진행 권장.
+2. **PR121 옵션 A — 부분 forced refund**: ADMIN 의 `/admin/tickets/{id}/forced-refund` 에 optional amount 추가 (현재는 한 번에 remaining 전체). 운영자가 노쇼 보상의 일부만 돌려주는 케이스에 사용. backend + frontend.
+3. **PR121 옵션 B — 환불 reconciliation batch**: PG 측 일별 cancel 데이터를 받아 REFUNDED/PARTIALLY_REFUNDED 카운트 합산과 일치 검증. 부분 환불 도입으로 정합성 위험이 커진 만큼 운영 안정성에 가치 큼. 큰 backend PR.
+4. **PR121 옵션 C — 부분 환불 audit log**: 일반 사용자 부분 환불도 audit 에 기록 (현재는 ADMIN forced refund 만 audit). 환불 이력 추적 운영 가치. 작은 backend PR.
 
-옵션 A 는 결제 도메인의 마지막 큰 미구현 — 정책 결정 비용이 큼. 옵션 B 는 PR115 의 자연스러운 다음 한 걸음 — 같은 영역의 점진 확장. 옵션 C 는 별도 큰 사이클로 권장.
+옵션 1 (PR120) 은 본 사이클의 자연스러운 클로저. PR121 은 별도 사이클 권장.
 
 ---
 
-본 문서는 push **이전** 의 self-audit 용. push 후에는 본 문서를 그대로 두고 (또는 별도 `release-notes/PR115.md` 로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.
+본 문서는 push **이전** 의 self-audit 용. push 후에는 본 문서를 그대로 두고 (또는 별도 `release-notes/PR117-PR119.md` 로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.

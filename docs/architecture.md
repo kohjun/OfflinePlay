@@ -203,26 +203,36 @@ client (PaymentPage)
 
 confirm 멱등: 이미 PAID 인 attempt 에 다시 confirm 이 들어와도 gateway 재호출 없이 기존 응답 반환.
 
-### 5.2 환불 (PR42 + PR81~82 보정)
+### 5.2 환불 (PR42 + PR81~82 보정 + PR117 부분 환불)
 
 ```
 POST /tickets/{ticketId}/refund   ← buyer / 채널 owner / ADMIN (PR42)
-   ├─ PG gateway.refund()  (Toss POST /v1/payments/{paymentKey}/cancel, Mock 은 항상 성공)
-   ├─ Ticket: PAID → REFUNDED
-   ├─ PaymentAttempt.refundedAt 기록 (status=PAID 유지 — REFUNDED 권위는 Ticket)
-   ├─ Event.currentParticipants -- (정원 회복)
-   ├─ EventParticipation: APPROVED → CANCELED (PR82 sync 보강)
-   └─ Notification(REFUND_COMPLETED) → buyer 1건 (PR81, best-effort)
+   body: { reason?, amount? }     ← amount 는 PR117 — null 이면 남은 환불 가능 금액 전체
+   ├─ PG gateway.refund(amount = 이번 호출 금액)
+   ├─ amount == remainingRefundableAmount  (전액 cascade)
+   │     ├─ Ticket: PAID → REFUNDED      (또는 PARTIALLY_REFUNDED → REFUNDED)
+   │     ├─ PaymentAttempt: refundedAmount = amount, refundedAt, status=PAID 유지
+   │     ├─ Event.currentParticipants --
+   │     ├─ EventParticipation: APPROVED → CANCELED
+   │     └─ Notification(REFUND_COMPLETED, title="환불이 완료되었어요") → buyer
+   └─ amount < remainingRefundableAmount  (partial — PR117)
+         ├─ Ticket: PAID → PARTIALLY_REFUNDED  (또는 그대로 PARTIALLY_REFUNDED)
+         ├─ PaymentAttempt: refundedAmount += amount, refundedAt, status=PARTIALLY_REFUNDED
+         ├─ (정원 / participation 변경 없음)
+         └─ Notification(REFUND_COMPLETED, title="부분 환불이 처리되었어요") → buyer
 ```
 
-거부 조건 요약 (PR42 §11.3, PR43 시간 가드):
+거부 조건 요약 (PR42 §11.3, PR43 시간 가드, PR117 금액 가드):
 - USED 티켓 → `TicketAlreadyUsedException` 409
 - CANCELED 티켓 → `PaymentNotRefundableException` 409
 - 이미 REFUNDED → 멱등 응답 (no throw, gateway 재호출 없음)
 - 이벤트 시작 시각 ≤ now → `RefundDeadlinePassedException` 409
 - PG gateway 실패 → `RefundFailedException` 502
+- **PR117** — `amount < 1` 또는 `amount > remainingRefundableAmount` → `InvalidRefundAmountException` 400
 
-webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRefundedWebhook`). 멱등 가드: `attempt.refundedAt != null` 이면 skip.
+webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRefundedWebhook`). 멱등 가드: `attempt.refundedAt != null` 이면 skip. webhook 은 부분 환불 입력을 처리하지 않는다 (`PARTIALLY_REFUNDED` webhook 은 무시).
+
+자세한 부분 환불 정책 (cascade 조건 / PG 호출 / 알림 카피 / 상태 전이): [docs/payment-refund-policy.md §14](payment-refund-policy.md).
 
 #### 5.2.1 ADMIN 강제 전액 환불 (PR106)
 
@@ -241,7 +251,8 @@ POST /admin/tickets/{ticketId}/forced-refund   ← ADMIN only
 - **권한**: ADMIN 만 (buyer / channel owner 는 본 경로로 호출 불가)
 - **상태 허용**: PAID + USED — 일반 경로의 `TicketAlreadyUsedException` / `RefundDeadlinePassedException` 우회
 - **상태 거부**: REFUNDED → `TicketAlreadyRefundedException` (멱등 응답 아님, 실수 방지) / CANCELED → `PaymentNotRefundableException`
-- **부분 환불 미지원** — `attempt.amount` 전액만. (관련 미구현 항목은 §10 참고)
+- **상태 허용**: PAID / USED / **PARTIALLY_REFUNDED (PR117)** — PARTIALLY_REFUNDED 티켓에 강제 환불 호출 시 **남은 금액 전체** 를 환불해 REFUNDED 로 cascade
+- **부분 forced refund 미지원** — 일반 사용자 흐름은 PR117 으로 부분 환불 가능하지만, ADMIN 강제 환불은 여전히 한 번에 남은 금액 전액을 환불 (운영 의미: "이 티켓의 환불을 한 번에 끝낸다")
 - **사유 필수** — `@NotBlank @Size(1..500)`. audit `reason` 컬럼 + 응답 `refundReason` 에 그대로 기록
 - **buyer 알림** — 기존 `REFUND_COMPLETED` 1건. **운영 사유는 알림 메시지에 노출되지 않음** (사용자 친화 카피 유지)
 - **audit + 환불 cascade 가 같은 트랜잭션** — audit 실패 시 환불도 rollback (§8.1 audit 정책 일관)
@@ -535,8 +546,9 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 | 항목 | 현 상태 | 이전 PR / 후속 PR |
 |---|---|---|
 | **COMMENT cascade 자동 hide** | 자동 hide 대상은 §7.1 enum 5종. comment cascade(부모 글 hide 시 자식 댓글 자동 hide) 는 운영자 수동 처리. | 향후 PR |
-| **부분 환불** | 전액 환불만. `cancelAmount = attempt.amount`. PR106 의 ADMIN 강제 환불도 전액 한정. | 향후 PR (payment-refund-policy §11.7) |
-| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED 카운트 일치 batch 없음. | 향후 PR |
+| ~~**부분 환불**~~ | **PR117 에서 일반 사용자/owner/ADMIN 환불 흐름에 도입.** `RefundTicketRequest.amount` (null → 남은 환불 가능 금액 전체) + `PaymentAttempt.refundedAmount` 누적 + `TicketStatus.PARTIALLY_REFUNDED` / `PaymentStatus.PARTIALLY_REFUNDED` enum. 누적 도달 시 기존 full cascade. ADMIN forced refund 는 여전히 한 번에 전체 환불. | payment-refund-policy §14 |
+| **부분 forced refund** | ADMIN `/admin/tickets/{id}/forced-refund` 는 한 번에 남은 금액 전액만 환불 (PR117). 부분 금액 forced refund 는 별도 endpoint 또는 옵션 도입이 필요. | 향후 PR |
+| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED/PARTIALLY_REFUNDED 카운트 일치 batch 없음. 부분 환불 도입으로 더 복잡해졌으나 batch 는 그대로 미구현. | 향후 PR |
 | **환불 실패 큐 / 자동 재시도** | `refund.failed` webhook 처리는 단순 skip. | 향후 PR |
 | **PortOne / 다른 PG 어댑터** | `PaymentGateway` interface 는 열려 있으나 구현체는 Toss + Mock 만. | 향후 PR |
 | **정원 race condition lock** | confirm 시점 재검증만. READY 다수가 동시 confirm 시 초과 가능. | 향후 PR |
@@ -598,5 +610,8 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR113 — `AdminAuditLogsSection` 에 forced refund quick filter chip + frontend `ModerationAuditAction` union 을 backend enum 과 동기화 (`AUDIT_LOGS_ARCHIVED` + `TICKET_FORCED_REFUNDED` 추가)
 - PR114 — Release bundle 문서 PR110~PR113 사이클로 refresh
 - PR115 — Forced refund audit detail enrichment (`ModerationAuditLogResponse.forcedRefundContext`) — 단건 detail 조회 시점에 ticket → buyer/event/channel lookup 으로 운영자가 한 화면에서 확인. list/CSV/archive 응답은 enrichment 제외 (N+1 회피 + CSV 호환)
+- PR116 — Release bundle 문서 PR115 사이클로 refresh
+- PR117 — Partial refund backend foundation: V11 `payment_attempts.refunded_amount` 컬럼 + `TicketStatus.PARTIALLY_REFUNDED` / `PaymentStatus.PARTIALLY_REFUNDED` enum + `PaymentAttempt` 헬퍼 (`remainingRefundableAmount` / `markPartiallyRefunded` / `markFullyRefunded`) + `RefundTicketRequest.amount` optional + 부분 환불 cascade (참가/정원 무변경, 누적 도달 시 full cascade) + `InvalidRefundAmountException` (400) + admin forced refund 도 PARTIALLY_REFUNDED 티켓의 남은 금액 cascade 지원
+- PR118 — Partial refund frontend UX: `TicketDetailPage` inline refund form (전액/부분 라디오 + amount input + 사유) + `TICKET_STATUS_LABEL` "부분 환불됨" (warning tone) + MyPage `isTerminalTicket` 가드 유지 (PARTIALLY_REFUNDED 는 active) + 4xx 친화 카피 (1원 미만 / remaining 초과 / 동시 환불 race)
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
