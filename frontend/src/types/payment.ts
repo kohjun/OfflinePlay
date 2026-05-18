@@ -1,7 +1,15 @@
 import type { TicketStatus } from './ticket'
 
-/** Mirrors backend PaymentStatus. */
-export type PaymentStatus = 'READY' | 'PAID' | 'FAILED' | 'CANCELED'
+/**
+ * Mirrors backend PaymentStatus.
+ * PR117 — PARTIALLY_REFUNDED 추가 (부분 환불 진행 중 PaymentAttempt 상태).
+ */
+export type PaymentStatus =
+  | 'READY'
+  | 'PAID'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'PARTIALLY_REFUNDED'
 
 /** Mirrors backend PaymentProvider. NONE = PR39 단계 (실제 PG 미연동). */
 export type PaymentProvider = 'NONE' | 'TOSS' | 'PORTONE'
@@ -44,18 +52,31 @@ export interface PaymentConfirmResponse {
   approvedAt: string | null
 }
 
-/** Mirrors backend RefundTicketRequest. reason 은 빈 값일 수 있으며 서버가 USER_REQUEST 로 대체. */
+/**
+ * Mirrors backend RefundTicketRequest.
+ *  - reason : 빈 값일 수 있으며 서버가 USER_REQUEST 로 대체.
+ *  - amount : PR117 — 부분 환불 금액 (원, BIGINT). null/undefined 이면 남은 환불 가능 금액 전체
+ *             (= 전액 환불). 1 <= amount <= remainingRefundableAmount 가 아니면 backend 가 400.
+ */
 export interface RefundTicketRequest {
   reason?: string | null
+  amount?: number | null
 }
 
-/** Mirrors backend RefundTicketResponse. */
+/**
+ * Mirrors backend RefundTicketResponse.
+ *  - amount                    : 결제 총액 (참조용).
+ *  - refundedAmount            : PR117 — 누적 환불 금액 (이번 호출 포함).
+ *  - remainingRefundableAmount : PR117 — 남은 환불 가능 금액. 0 이면 fully refunded.
+ */
 export interface RefundTicketResponse {
   ticketId: number
   ticketStatus: TicketStatus
   paymentAttemptId: number
   provider: PaymentProvider
   amount: number
+  refundedAmount: number
+  remainingRefundableAmount: number
   refundedAt: string
   providerPaymentKey: string | null
 }

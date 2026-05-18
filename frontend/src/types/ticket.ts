@@ -1,5 +1,14 @@
-/** Mirrors backend TicketStatus. PG 미연동이라 PAID 만 발급되며 USED/REFUNDED/CANCELED 는 향후 상태. */
-export type TicketStatus = 'PAID' | 'USED' | 'REFUNDED' | 'CANCELED'
+/**
+ * Mirrors backend TicketStatus.
+ * PR117 — PARTIALLY_REFUNDED 추가. 부분 환불 진행 중 (refundedAmount > 0, < amount) 상태이며
+ * 참가 자격은 유지된다. 누적 환불액이 amount 에 도달하면 REFUNDED 로 cascade.
+ */
+export type TicketStatus =
+  | 'PAID'
+  | 'USED'
+  | 'REFUNDED'
+  | 'CANCELED'
+  | 'PARTIALLY_REFUNDED'
 
 /**
  * Mirrors backend TicketDetailResponse — 참가자 티켓 패스/QR 화면.

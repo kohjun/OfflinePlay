@@ -267,8 +267,16 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **TicketDetail 환불 요청 (시작 시각 24h 초과)**
 - [ ] "환불 요청" 버튼 활성, 환불 마감 chip 미노출
-- [ ] 버튼 → confirm("정말 환불을 진행할까요?") → prompt(사유) → 성공 토스트 → 티켓 status REFUNDED 갱신
+- [ ] 버튼 클릭 → inline 환불 form 펼침 (PR118): "환불 방식" 라디오 (전액 환불 / 부분 환불) + 사유 textarea + "환불 진행" / "취소" 버튼
+- [ ] 전액 환불 선택 + 진행 → confirm("전액 환불을 진행할까요? 참가 신청이 취소되고 정원이 복구됩니다.") → 성공 토스트 → 티켓 status REFUNDED 갱신 + form 자동 닫힘
 - [ ] 환불 후 버튼 자체가 사라짐, 영수증/이벤트 상세 보기 버튼만 남음
+- [ ] PR118 — 부분 환불 선택 시 amount input 추가 노출 + 최대값 안내 ("남은 환불 가능 금액 N원")
+- [ ] PR118 — 부분 환불 진행 → confirm("N원 부분 환불을 진행할까요? 참가 자격은 유지됩니다.") → 성공 토스트 "부분 환불이 처리되었어요" + ticket status = PARTIALLY_REFUNDED + "참가 확정" 유지 + 정원 변동 없음
+- [ ] PR118 — 부분 환불 후 form 이 닫히지 않고 "추가 환불 요청" 버튼으로 다시 진입 가능. 남은 환불 가능 금액이 응답에서 받은 값으로 갱신됨
+- [ ] PR118 — 부분 환불 누적이 결제 금액에 도달 → ticket status = REFUNDED + 정원 감소 + form 자동 닫힘 + 일반 환불 카피
+- [ ] PR118 — amount 가 1 미만 / 음수 / 빈값 → 클라이언트 측 warning 토스트 ("1원 이상 정수로 입력해주세요.") + 요청 미발생
+- [ ] PR118 — amount 가 남은 환불 가능 금액 초과 → 클라이언트 측 warning 토스트 ("남은 환불 가능 금액 N원 이하로 입력해주세요.") + 요청 미발생
+- [ ] PR118 — backend 가 400 + "환불 금액..." 메시지로 거부 (예: 동시 환불로 remaining 변경) → "환불 금액을 확인해주세요" danger 토스트 + message 그대로
 
 **TicketDetail 환불 요청 (시작 시각 24h 이내)**
 - [ ] 상단에 환불 마감 카운트다운 chip ("N시간 M분 후 마감")
@@ -296,6 +304,8 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] 카드의 status 뱃지가 "참가 확정" 이 아닌 "환불됨"(danger) 으로 변경
 - [ ] "티켓 보기" 버튼이 "영수증 보기"(secondary) 로 변경 — 클릭 시 동일하게 ticket page 진입
 - [ ] 카드 자체의 "is-approved" highlight 제거 (테두리 처리)
+- [ ] PR118 — 부분 환불된 ticket (PARTIALLY_REFUNDED) 은 status 라벨 "부분 환불됨" 으로 표시되지만 카드 자체는 "참가 확정" highlight 가 유지됨 (isTerminalTicket 가드 — REFUNDED/CANCELED 만 terminal 로 취급, PARTIALLY_REFUNDED 는 active)
+- [ ] PR118 — TicketDetailPage 의 status Badge 도 PARTIALLY_REFUNDED 일 때 warning tone + "부분 환불됨" 라벨 표시. QR / 체크인 코드는 그대로 활성 (참가 자격 유지)
 - [ ] 결제 탭에서 "환불됨" 필터 클릭 → REFUNDED 항목만 표시
 
 **Backend 멱등 / 가드 회귀**

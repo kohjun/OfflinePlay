@@ -27,13 +27,15 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
   USED: '사용 완료',
   REFUNDED: '환불됨',
   CANCELED: '취소됨',
+  PARTIALLY_REFUNDED: '부분 환불됨',
 }
 
-const STATUS_TONE: Record<TicketStatus, 'primary' | 'success' | 'danger' | 'neutral'> = {
+const STATUS_TONE: Record<TicketStatus, 'primary' | 'success' | 'danger' | 'neutral' | 'warning'> = {
   PAID: 'success',
   USED: 'neutral',
   REFUNDED: 'danger',
   CANCELED: 'neutral',
+  PARTIALLY_REFUNDED: 'warning',
 }
 
 function formatDateTime(value: string) {
@@ -74,6 +76,14 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
   const [forbidden, setForbidden] = useState(false)
   const [checkingIn, setCheckingIn] = useState(false)
   const [refunding, setRefunding] = useState(false)
+  // PR118 — 환불 form 상태. 'full' / 'partial' 라디오 + amount input + reason.
+  const [refundFormOpen, setRefundFormOpen] = useState(false)
+  const [refundMode, setRefundMode] = useState<'full' | 'partial'>('full')
+  const [refundAmountInput, setRefundAmountInput] = useState('')
+  const [refundReason, setRefundReason] = useState('')
+  // 마지막 환불 응답이 알려준 남은 환불 가능 금액. null 이면 아직 한 번도 환불하지 않았거나 모름.
+  // 초기값으로는 ticket.participationFee 를 사용 (전액 결제 기준 최대).
+  const [remainingRefundable, setRemainingRefundable] = useState<number | null>(null)
 
   // QR 시각 회전용 — 30 초마다 1 씩 증가하는 epoch. 실제 server token (checkInCode) 은
   // 동일하지만, cell 패턴을 epoch + checkInCode 로 다시 계산해서 "살아있다" 는 인상을 준다.
@@ -157,37 +167,109 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
   }
 
   /**
-   * 환불 요청. PAID + (buyer 본인 or owner or ADMIN) 일 때만 버튼이 활성화되지만
-   * 권한은 백엔드가 최종 판정하므로 UI 는 PAID 상태만 가드한다.
+   * 환불 요청. PR118 — 전액/부분 라디오 + amount input + reason 의 inline form.
    *
-   * 사유 입력은 `window.prompt` 로 간단히 받음. 빈 값이어도 백엔드가 "USER_REQUEST" 로 대체.
-   * 백엔드 응답은 멱등(이미 REFUNDED 면 기존 정보 반환)이라 더블 클릭으로도 안전.
+   * 정책:
+   *  - 전액 환불: `amount` 를 보내지 않음 → backend 가 남은 환불 가능 금액 전체를 환불.
+   *  - 부분 환불: 1 이상, max (= remainingRefundable ?? participationFee) 이하.
+   *  - 부분 환불 후 ticket 상태가 PARTIALLY_REFUNDED 면 form 을 닫지 않고 다음 부분 환불 가능.
+   *  - 전액 환불 (cascade) 후엔 form 자동 닫힘 + ticketStatus = REFUNDED.
+   *
+   * 권한은 backend 가 최종 판정 (buyer 본인 / owner / ADMIN). UI 는 PAID/PARTIALLY_REFUNDED 만 진입.
    */
+  function openRefundForm() {
+    if (!ticket) return
+    setRefundFormOpen(true)
+    setRefundMode('full')
+    setRefundAmountInput('')
+    setRefundReason('')
+  }
+
+  function closeRefundForm() {
+    setRefundFormOpen(false)
+    setRefundMode('full')
+    setRefundAmountInput('')
+    setRefundReason('')
+  }
+
   async function handleRefund() {
     if (!ticket || refunding) return
-    if (!window.confirm('정말 환불을 진행할까요? 발급된 티켓이 환불 상태로 전환됩니다.')) return
-    const reason = window.prompt('환불 사유 (선택)', '') ?? ''
+    const maxAmount = remainingRefundable ?? ticket.participationFee
+
+    let amountPayload: number | null = null
+    if (refundMode === 'partial') {
+      const parsed = Number(refundAmountInput.trim())
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1) {
+        showToast({
+          title: '부분 환불 금액을 확인해주세요',
+          message: '1원 이상 정수로 입력해주세요.',
+          tone: 'warning',
+        })
+        return
+      }
+      if (parsed > maxAmount) {
+        showToast({
+          title: '환불 가능 금액을 초과했어요',
+          message: `남은 환불 가능 금액 ${maxAmount.toLocaleString()}원 이하로 입력해주세요.`,
+          tone: 'warning',
+        })
+        return
+      }
+      amountPayload = parsed
+    }
+
+    const confirmMsg =
+      refundMode === 'full'
+        ? '전액 환불을 진행할까요? 참가 신청이 취소되고 정원이 복구됩니다.'
+        : `${(amountPayload ?? 0).toLocaleString()}원 부분 환불을 진행할까요? 참가 자격은 유지됩니다.`
+    if (!window.confirm(confirmMsg)) return
+
     setRefunding(true)
     try {
-      const result = await refundTicket(ticket.ticketId, { reason: reason || null })
-      setTicket({ ...ticket, ticketStatus: result.ticketStatus })
-      showToast({
-        title: '환불이 완료되었어요',
-        message: `${result.amount.toLocaleString()}원이 환불 처리되었습니다.`,
-        tone: 'success',
+      const result = await refundTicket(ticket.ticketId, {
+        reason: refundReason.trim() || null,
+        amount: amountPayload,
       })
+      setTicket({ ...ticket, ticketStatus: result.ticketStatus })
+      setRemainingRefundable(result.remainingRefundableAmount)
+      const refundedThisCall = result.refundedAmount - (remainingRefundable != null
+        ? ticket.participationFee - remainingRefundable
+        : 0)
+      const messageAmount = amountPayload ?? refundedThisCall
+      if (result.ticketStatus === 'PARTIALLY_REFUNDED') {
+        showToast({
+          title: '부분 환불이 처리되었어요',
+          message: `${messageAmount.toLocaleString()}원 부분 환불 완료 (남은 환불 가능 ${result.remainingRefundableAmount.toLocaleString()}원)`,
+          tone: 'success',
+        })
+        // 다음 부분 환불을 받을 수 있도록 form 은 열어두되 입력은 리셋.
+        setRefundAmountInput('')
+        setRefundReason('')
+        setRefundMode('full')
+      } else {
+        showToast({
+          title: '환불이 완료되었어요',
+          message: `${result.refundedAmount.toLocaleString()}원이 환불 처리되었습니다.`,
+          tone: 'success',
+        })
+        closeRefundForm()
+      }
     } catch (err) {
       const status = (err as { status?: number } | null)?.status
       const rawMsg = err instanceof Error ? err.message : ''
       // 백엔드 한국어 메시지를 prefix 매칭해 친화적 title/안내 카피로 치환.
-      // - RefundDeadlinePassedException : "이벤트가 이미 시작되어 환불할 수 없습니다."
+      // - RefundDeadlinePassedException  : "이벤트가 이미 시작되어 환불할 수 없습니다."
       // - PaymentNotRefundableException  : "취소된 티켓..", "PG 결제 키..", "PAID 상태인.." 등
       // - TicketAlreadyRefundedException : "이미 환불 처리된 티켓입니다."
+      // - InvalidRefundAmountException   : "환불 금액은 1원 이상..", "남은 환불 가능 금액..." (PR117)
       let title: string
       let message: string
       if (status === 403) {
         title = '환불 권한이 없습니다'
         message = rawMsg || '본인 또는 관리자만 환불할 수 있어요.'
+      } else if (status === 400 && rawMsg.includes('환불 금액')) {
+        title = '환불 금액을 확인해주세요'
+        message = rawMsg
       } else if (status === 409 && rawMsg.includes('이벤트가 이미 시작')) {
         title = '환불 가능 시간이 지났어요'
         message = '환불은 이벤트 시작 전까지만 가능해요. 부득이한 사정은 운영자에게 문의해주세요.'
@@ -265,7 +347,10 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
     )
   }
 
-  const isUsable = ticket.ticketStatus === 'PAID'
+  // PR118 — PARTIALLY_REFUNDED 도 isUsable 로 본다 (부분 환불은 참가 자격을 유지하므로 QR /
+  // 체크인 가능). REFUNDED / CANCELED / USED 만 unusable.
+  const isUsable =
+    ticket.ticketStatus === 'PAID' || ticket.ticketStatus === 'PARTIALLY_REFUNDED'
   // viewer 가 buyer 가 아니고 CREATOR/ADMIN 이면 체크인 시도 가능. 실제 권한(channel owner/STAFF)은 서버가 검증.
   const isStaffViewer = Boolean(
     user && user.userId !== ticket.buyerId && (user.role === 'CREATOR' || user.role === 'ADMIN'),
@@ -432,17 +517,15 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
         >
           이벤트 상세 보기
         </button>
-        {canRefund ? (
+        {canRefund && !refundFormOpen ? (
           <>
             <button
               type="button"
               className="button button-secondary is-block"
-              onClick={handleRefund}
+              onClick={openRefundForm}
               disabled={refunding}
-              aria-busy={refunding}
             >
-              {refunding ? <span className="button-spinner" aria-hidden="true" /> : null}
-              {refunding ? '환불 처리 중...' : '환불 요청'}
+              {ticket.ticketStatus === 'PARTIALLY_REFUNDED' ? '추가 환불 요청' : '환불 요청'}
             </button>
             {hoursToStart != null && hoursToStart < 24 ? (
               <p className="ct-ticket-refund-closed muted" role="status">
@@ -450,10 +533,104 @@ export function TicketDetailPage({ ticketId, onNavigate }: TicketDetailPageProps
               </p>
             ) : null}
           </>
-        ) : !isStaffViewer && isUsable && ticket.participationFee > 0 ? (
+        ) : !isStaffViewer && isUsable && ticket.participationFee > 0 && !canRefund ? (
           <p className="ct-ticket-refund-closed muted" role="status">
             이벤트가 시작되어 환불 가능 시간이 지났어요. 부득이한 사정은 운영자에게 문의해주세요.
           </p>
+        ) : null}
+
+        {refundFormOpen ? (
+          <form
+            className="ct-ticket-refund-form"
+            aria-label="환불 요청 양식"
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleRefund()
+            }}
+          >
+            <fieldset disabled={refunding}>
+              <legend>환불 방식</legend>
+              <label className="ct-ticket-refund-radio">
+                <input
+                  type="radio"
+                  name="refundMode"
+                  value="full"
+                  checked={refundMode === 'full'}
+                  onChange={() => setRefundMode('full')}
+                />
+                <span>
+                  <strong>전액 환불</strong>
+                  <small className="muted"> · 참가가 취소되고 정원이 복구됩니다.</small>
+                </span>
+              </label>
+              <label className="ct-ticket-refund-radio">
+                <input
+                  type="radio"
+                  name="refundMode"
+                  value="partial"
+                  checked={refundMode === 'partial'}
+                  onChange={() => setRefundMode('partial')}
+                />
+                <span>
+                  <strong>부분 환불</strong>
+                  <small className="muted"> · 참가 자격과 정원은 그대로 유지됩니다.</small>
+                </span>
+              </label>
+            </fieldset>
+
+            {refundMode === 'partial' ? (
+              <label className="form-field" htmlFor="ct-refund-amount">
+                <span>환불 금액 (원)</span>
+                <input
+                  id="ct-refund-amount"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={remainingRefundable ?? ticket.participationFee}
+                  value={refundAmountInput}
+                  onChange={(e) => setRefundAmountInput(e.target.value)}
+                  disabled={refunding}
+                  placeholder={`최대 ${(remainingRefundable ?? ticket.participationFee).toLocaleString()}`}
+                />
+                <span className="muted">
+                  남은 환불 가능 금액: {(remainingRefundable ?? ticket.participationFee).toLocaleString()}원
+                </span>
+              </label>
+            ) : null}
+
+            <label className="form-field" htmlFor="ct-refund-reason">
+              <span>환불 사유 (선택)</span>
+              <textarea
+                id="ct-refund-reason"
+                rows={2}
+                maxLength={500}
+                value={refundReason}
+                onChange={(e) => setRefundReason(e.target.value)}
+                disabled={refunding}
+                placeholder="예: 일정 변경"
+              />
+            </label>
+
+            <div className="ct-ticket-refund-actions">
+              <button
+                type="submit"
+                className="button button-primary"
+                disabled={refunding}
+                aria-busy={refunding}
+              >
+                {refunding ? <span className="button-spinner" aria-hidden="true" /> : null}
+                {refunding ? '환불 처리 중…' : '환불 진행'}
+              </button>
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={closeRefundForm}
+                disabled={refunding}
+              >
+                취소
+              </button>
+            </div>
+          </form>
         ) : null}
       </section>
     </main>

@@ -22,13 +22,15 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
   USED: '사용 완료',
   REFUNDED: '환불됨',
   CANCELED: '취소됨',
+  PARTIALLY_REFUNDED: '부분 환불됨',
 }
 
-const STATUS_TONE: Record<TicketStatus, 'primary' | 'success' | 'danger' | 'neutral'> = {
+const STATUS_TONE: Record<TicketStatus, 'primary' | 'success' | 'danger' | 'neutral' | 'warning'> = {
   PAID: 'success',
   USED: 'neutral',
   REFUNDED: 'danger',
   CANCELED: 'neutral',
+  PARTIALLY_REFUNDED: 'warning',
 }
 
 function formatDateTime(value: string) {

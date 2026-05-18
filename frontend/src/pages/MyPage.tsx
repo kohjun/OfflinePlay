@@ -64,6 +64,7 @@ const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
   USED: '사용 완료',
   REFUNDED: '환불됨',
   CANCELED: '취소됨',
+  PARTIALLY_REFUNDED: '부분 환불됨',
 }
 
 interface ActionEntry {
