@@ -1,16 +1,21 @@
-# Local Release Bundle — PR104 to PR107
+# Local Release Bundle — PR104 to PR109
 
-본 문서는 origin/main 대비 **로컬 main 이 앞서 있는 4 커밋** 을 push 하기 전에 한 번 훑는 ship-readiness 노트다.
+본 문서는 직전 push (PR104~PR109, 6 커밋) 의 ship-readiness 노트다. 본 묶음은 **이미 push 됐다** — origin/main 이 본 문서의 head 와 동일 (`dc8afb4`). 다음 묶음 시작 전에 이 문서를 새 release-notes 로 갈음하거나 `release-notes/` 디렉터리로 옮긴다.
 
 | 항목 | 값 |
 |---|---|
-| Base | `origin/main` |
-| Head | `6df6a6d docs(payment): document admin forced refund` |
-| Ahead | **4 commits** |
-| First ahead | `77b666a feat(notification): show preference updated time` (PR104) |
+| Base | `origin/main` (push 직전 기준) |
+| Head | `dc8afb4 feat(admin): count forced refunds in actor stats` |
+| Ahead | **0 commits** (push 완료, 본 사이클의 6 커밋이 origin 에 반영됨) |
+| First ahead (직전) | `77b666a feat(notification): show preference updated time` (PR104) |
 | 작성 시점 | 2026-05-18 |
 
-직전 push (PR81~PR102, 22 커밋 = 결제 안정화 + 구조 분리 + 알림 설정 사이클) 가 이미 origin 에 반영된 상태. 본 묶음은 그 위에 얹은 **알림 설정 마지막 한 칸 (preference updatedAt signal) + 결제 도메인 운영 도구 (ADMIN 강제 전액 환불)** 두 사이클이다.
+직전 push (PR81~PR102, 22 커밋 = 결제 안정화 + 구조 분리 + 알림 설정 사이클) 가 origin 에 반영된 위에 얹은 두 사이클 + 후처리 두 PR:
+
+- **알림 설정 마지막 한 칸** (preference updatedAt signal — PR104~105)
+- **결제 도메인 운영 도구** (ADMIN 강제 전액 환불 — PR106~107)
+- **release bundle 문서 갱신** (PR108)
+- **운영자 활동 통계에 forced refund 분류 추가** (PR109)
 
 ---
 
@@ -34,13 +39,20 @@ PR95~PR102 의 알림 설정 사이클 마무리. 별도 history 테이블 없�
 | `1f17d06` | PR106 | `POST /admin/tickets/{id}/forced-refund` (ADMIN 전용) + `AdminPaymentController` / `AdminPaymentService` / `PaymentService.forceRefundByAdmin` + `ModerationAuditAction.TICKET_FORCED_REFUNDED` enum + `AdminPaymentToolsSection` 새 admin 탭 + PaymentServiceTest 6건 + AdminPaymentServiceTest 2건 |
 | `6df6a6d` | PR107 | payment-refund-policy §13 신규 + architecture §3.1 / §3.3 / §4.4 / §5.2.1 / §8.1 / §10 / §11 갱신. 부분 환불은 여전히 미지원임을 §10 / §13.7 에서 명시 |
 
+### 후처리 — bundle docs refresh + actor stats forced refund 분류
+
+| commit | PR | 요약 |
+|---|---|---|
+| `63f0b1d` | PR108 | `docs/release-notes-local-bundle.md` 신규 작성 — PR104~PR107 묶음 self-audit 노트 (당시 4 ahead 기준). 코드 변경 없음, docs only |
+| `dc8afb4` | PR109 | `AdminModerationActorStatItem.forcedRefundCount` 신규 필드 + `AdminModerationStatsService.getActorStats` 가 `TICKET_FORCED_REFUNDED` 액션을 별도 카운트로 분류 + frontend `AdminModerationOverviewSection` breakdown 에 "강제 환불 N" row 추가 (count > 0 일 때만) + architecture §8.1 / §11 / payment-refund-policy §13.7 cross-link 갱신 + manual-qa §23 신설. backend AdminModerationStatsServiceTest 1 신규 케이스 + 기존 "action 분류" 케이스에 `forcedRefundCount=0` assertion 추가 |
+
 ---
 
-## 2. Push 전 확인사항
+## 2. Push 전 확인사항 (사이클 회고용)
 
 ### 스테이징 금지 파일
 
-다음 파일들은 **절대 stage / commit 하지 않는다** — 사이클 내내 합의된 제외 목록:
+다음 파일들은 본 사이클 내내 **stage / commit 하지 않았다** — 합의된 제외 목록:
 
 - `.claude/settings.local.json`
 - `.claude/scheduled_tasks.lock`
@@ -50,19 +62,21 @@ PR95~PR102 의 알림 설정 사이클 마무리. 별도 history 테이블 없�
 - `frontend/dist/**`
 - `*.tsbuildinfo`
 
-push 직전 `git status -sb` 로 위 파일들이 staged 영역에 들어가 있지 않은지 한 번 더 확인한다. 위 파일들은 작업 트리에 modified/untracked 로 남아 있어도 정상이다.
+push 직후 작업 트리에 위 파일들이 modified/untracked 로 남아 있어도 정상 — origin 에는 반영되지 않는다.
 
-### 최종 git 상태 (push 직전 예상)
+### push 직후 git 상태 (실측)
 
 ```
 git -C C:/WOYA status -sb
-## main...origin/main [ahead 4]
+## main...origin/main
  M .claude/settings.local.json
  M build/resources/main/application.yml
-?? .claude/scheduled_tasks.lock
+
+git -C C:/WOYA log --oneline origin/main..HEAD
+(empty)
 ```
 
-위 외에 staged 변화가 있으면 push 보류하고 원인 확인.
+origin/main 이 본 문서의 head 와 동일. 본 사이클 종료.
 
 ---
 
@@ -78,12 +92,16 @@ git -C C:/WOYA status -sb
 | PR106 (`1f17d06`) | backend full `gradle test` | green (1m 31s, 168 base + PR95 4 + PR93 5 + PR104 4 + PR106 8 신규 모두 통과) |
 | PR106 (`1f17d06`) | frontend `npm run build` | green (101 modules, 1.48s) |
 | PR107 (`6df6a6d`) | docs-only | build/test 생략 |
+| PR108 (`63f0b1d`) | docs-only | build/test 생략 |
+| PR109 (`dc8afb4`) | backend 좁은 `--tests *AdminModerationStatsServiceTest*` | green — 1 신규 케이스 (TICKET_FORCED_REFUNDED 3건 + HIDE 1 + ARCHIVE 1 → forcedRefundCount=3, totalActionCount=5) + 기존 "action 분류" 케이스에 `forcedRefundCount=0` assertion 추가 |
+| PR109 (`dc8afb4`) | backend full `gradle test` | green (1m 38s, 168 base + PR95 4 + PR93 5 + PR104 4 + PR106 8 + PR109 1 신규 모두 통과) |
+| PR109 (`dc8afb4`) | frontend `npm run build` | green (101 modules, 1.42s) |
 
-**마지막 전체 backend `gradle test` green**: PR106 (`1f17d06`). 이후 backend 변경은 PR107 docs only 라 회귀 위험 없음.
+**마지막 전체 backend `gradle test` green**: PR109 (`dc8afb4`).
 
-**마지막 frontend `npm run build` green**: PR106 (`1f17d06`). PR107 은 docs only.
+**마지막 frontend `npm run build` green**: PR109 (`dc8afb4`).
 
-push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 다시 cold-start 로 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록 참고).
+push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 cold-start 로 다시 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록 참고).
 
 ---
 
@@ -91,7 +109,7 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 
 ### Flyway 마이그레이션
 
-**본 묶음은 새 V 마이그레이션 없음.** PR104 는 기존 `user_notification_preferences.updated_at` 컬럼만 활용하고, PR106 도 새 테이블/컬럼 없이 `ModerationAuditAction` enum 값 추가로만 구현됐다. 전체 마이그레이션 범위는 V1~V10 그대로 — 직전 push (PR95 의 V10) 가 마지막.
+**본 묶음은 새 V 마이그레이션 없음.** PR104 는 기존 `user_notification_preferences.updated_at` 컬럼만 활용하고, PR106 도 새 테이블/컬럼 없이 `ModerationAuditAction` enum 값 추가로만 구현됐다. PR109 도 audit 테이블 / DTO 만 갱신 — 새 컬럼 없음. 전체 마이그레이션 범위는 V1~V10 그대로 — 직전 push (PR95 의 V10) 가 마지막.
 
 ### Notification preference `updatedAt` (PR104)
 
@@ -105,12 +123,18 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 - 일반 사용자 환불 경로 (`POST /tickets/{id}/refund`) 의 deadline / USED 가드는 **무변경** — 일반 사용자는 여전히 시작 전 + PAID 만 환불 가능. ADMIN 만 본 운영 도구를 통해 우회.
 - ADMIN 이 일반 경로 (`/tickets/{id}/refund`) 로 시작 전 환불을 처리할 때는 PR42 기존 권한 로직 그대로 (audit 기록 없음). USED / 시작 후 환불을 처리하려면 **반드시** `/admin/tickets/{id}/forced-refund` 사용 — audit 가 기록되도록.
 - 운영 사유 (`reason`) 는 audit log 의 `reason` 컬럼 + 응답 `refundReason` 에는 그대로 저장되지만, **buyer 알림 메시지에는 노출되지 않는다** (사용자 친화 카피 유지).
-- `ModerationAuditAction.TICKET_FORCED_REFUNDED` 가 audit 테이블에 누적 — 운영 콘솔 §19 의 actor stats 에서는 별도 카운트 필드를 추가해야 표시되지만, 본 묶음은 stats DTO 를 건드리지 않았다 (후속 PR 후보).
+
+### 운영자 활동 stats 의 forced refund 분류 (PR109)
+
+- `AdminModerationActorStatItem.forcedRefundCount` 신규 필드 — `ModerationAuditAction.TICKET_FORCED_REFUNDED` 처리 건수.
+- `totalActionCount` 는 여전히 audit row 수 그대로 (forcedRefundCount 가 포함된 합).
+- frontend breakdown row 에 "강제 환불 N" 표시 — `forcedRefundCount > 0` 일 때만 노출. 0 이면 기존 row 와 동일하게 표시 (UI 회귀 없음).
+- system actor (V9 seed scheduler) 는 강제 환불을 수행하지 않으므로 `forcedRefundCount` 가 항상 0. 운영자 actor 행에서만 의미 있음.
 
 ### Audit 아카이브 스케줄러 (PR68~70 기존, 본 묶음에서 변경 없음)
 
 - 디폴트 OFF (V8 seed). 본 push 자체로 동작이 바뀌지 않는다.
-- 단, PR106 의 `TICKET_FORCED_REFUNDED` audit row 가 같은 `moderation_audit_logs` 테이블에 누적되므로, archive scheduler 가 활성화된 운영 환경에서는 환불 audit 도 retention 정책에 따라 archive 된다 (archive 후에도 `moderation_audit_log_archive` 에서 조회 가능).
+- 단, PR106 의 `TICKET_FORCED_REFUNDED` audit row 가 같은 `moderation_audit_logs` 테이블에 누적되므로, archive scheduler 가 활성화된 운영 환경에서는 환불 audit 도 retention 정책에 따라 archive 된다 (archive 후에도 `moderation_audit_log_archive` 에서 조회 가능). PR109 의 `forcedRefundCount` 는 active 테이블 기준 — archive 된 row 는 카운트되지 않는다.
 
 ### 결제 hardening (PR40~42 기존)
 
@@ -133,11 +157,13 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 | **Kafka outbox** | 도입 설계만 (`kafka-outbox-plan.md`). 알림은 직접 SSE push. |
 | **Push / Email channel preference** | preference 는 NotificationType 차원만. 채널별 선택 불가. |
 | **Preference 변경 audit / 이력** | PR104 의 `updatedAt` 은 lightweight signal — 변경 이력 / actor / 전·후 값 미저장. 별도 history 테이블 도입은 후속 PR. |
-| **운영자 활동 stats 에 forced refund 카운트** | `AdminModerationStatsService.getActorStats` (PR93) 응답에 `TICKET_FORCED_REFUNDED` 별도 카운트 필드 없음. 현재는 audit 로만 추적. |
 | **COMMENT cascade 자동 hide** | comment cascade 미구현 — 운영자 수동 처리. |
 | **실시간 잔여 자리 SSE 채널 / QR 회전 / 푸시** | 잔여 자리는 SSE refetch 기반 + highlight (PR91). QR 30초 회전 / push 알림 / 시스템 밝기는 미구현. |
 
-직전 push 의 release notes 에 있던 **"USED 후 강제 환불 (운영 도구)"** 항목은 PR106 으로 채워졌으므로 제거됐다.
+직전 사이클의 release notes 에 있던 다음 항목들은 본 묶음에서 채워졌으므로 제거됐다:
+
+- **"USED 후 강제 환불 (운영 도구)"** → PR106 으로 구현
+- **"운영자 활동 stats 에 forced refund 카운트"** → PR109 로 구현
 
 ---
 
@@ -156,7 +182,8 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 
 ### 운영 콘솔
 
-- §12 / §19 — 기존 Admin 콘솔 + 운영자 활동 요약 (직전 push 의 PR93). 본 묶음은 운영자 활동 stats DTO 를 건드리지 않았지만, audit 테이블에 새 액션이 누적되므로 audit 탭의 필터·CSV 가 `TICKET_FORCED_REFUNDED` 액션을 정상 표시하는지 spot-check 권장
+- §12 / §19 — 기존 Admin 콘솔 + 운영자 활동 요약 (직전 push 의 PR93)
+- **§23 운영자 활동 강제 환불 카운트 (PR109)** — actor stats breakdown 에 "강제 환불 N" row 가 forcedRefundCount > 0 일 때만 노출 + 0 일 때 회귀 없음 spot-check
 
 ### 알림 (본 묶음의 PR104 영향)
 
@@ -170,7 +197,9 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 
 ---
 
-## 7. Push 전 권장 명령
+## 7. Push 전 권장 명령 (사이클 회고용)
+
+본 묶음은 이미 push 됐다. 다음 사이클에서 동일 검증 흐름을 적용할 수 있도록 명령을 그대로 보존한다.
 
 ```bash
 # 1) 최종 상태 확인
@@ -191,14 +220,14 @@ cd C:/WOYA/frontend && npm run build
 
 ## 8. 다음 사이클 (push 이후 추천)
 
-push 이후 origin/main 이 평탄해진 다음 단계로:
+본 묶음에서 옵션 B (PR93 actor stats 에 forced refund 분류) 가 PR109 로 채워졌으므로 다음 사이클의 후보는:
 
-1. **PR109 옵션 A — partial refund first step**: `payment-refund-policy.md §13.7 / §11.7` 의 부분 환불 1 단계. `Ticket.refundedAmount` 컬럼 + V11 migration + refund endpoint 의 optional `amount` 인자 + UI 금액 입력. **사전 정책 결정 필요**: 부분 환불 시 `Event.currentParticipants` cascade (감소 / 유지 / 운영자 선택) 및 `TicketStatus.PARTIALLY_REFUNDED` enum 도입 여부.
-2. **PR109 옵션 B — forced refund stats in actor activity**: PR93 의 `AdminModerationStatsService.getActorStats` 응답에 `forcedRefundCount` 필드 추가 (현재 `archiveCount` 옆에). 작은 backend+frontend PR — actor stats DTO 갱신 + UI breakdown 한 줄 추가.
-3. **PR109 옵션 C — Push/Email channel preference 1 단계**: NotificationType 차원 위에 `channel` 차원을 추가하는 큰 정책 결정. backend 모델 확장 필요. 정책 결정 선행.
+1. **PR110 옵션 A — partial refund first step**: `payment-refund-policy.md §13.7 / §11.7` 의 부분 환불 1 단계. `Ticket.refundedAmount` 컬럼 + V11 migration + refund endpoint 의 optional `amount` 인자 + UI 금액 입력. **사전 정책 결정 필요**: 부분 환불 시 `Event.currentParticipants` cascade (감소 / 유지 / 운영자 선택) 및 `TicketStatus.PARTIALLY_REFUNDED` enum 도입 여부.
+2. **PR110 옵션 B — Push/Email channel preference 1 단계**: NotificationType 차원 위에 `channel` 차원을 추가하는 큰 정책 결정. backend 모델 확장 필요. 정책 결정 선행.
+3. **PR110 옵션 C — forced refund 운영 콘솔 보강**: PR109 로 stats 카운트는 들어갔지만, `/admin/audit-logs` 검색 / CSV export 에서 `TICKET_FORCED_REFUNDED` 액션 필터 별도 그룹 / 도메인별 환불 액션 집계 등 추가 운영 가시성. 작은 backend+frontend PR.
 
-옵션 B 가 가장 작고 안전 (audit 데이터가 이미 누적되고 있으므로 표시만 추가). 옵션 A 는 결제 도메인의 마지막 큰 미구현. 옵션 C 는 정책 결정 선행 필요.
+옵션 A 는 결제 도메인의 마지막 큰 미구현. 옵션 B 는 정책 결정 선행 필요. 옵션 C 는 작고 안전 (audit 데이터가 이미 누적되고 있으므로 표시·필터만 추가).
 
 ---
 
-본 문서는 push **이전** 의 self-audit 용. push 후에는 본 문서를 그대로 두고 (or 별도 `release-notes/` 디렉터리로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.
+본 문서는 push **이후** 의 사이클 회고 / 다음 사이클 시작용 참조 노트로 전환됐다. 다음 묶음을 시작할 때 본 문서를 갈음하거나 `release-notes/PR104-PR109.md` 로 이동시킨 뒤 새 release-notes 를 만든다.
