@@ -249,3 +249,102 @@
   color: var(--primary-text);
 }
 
+/* =========================================================================
+   PR106/PR111 — Admin Forced Refund console
+   ========================================================================= */
+
+/* `form-field` 는 본 페이지의 ticketId / reason input 컨테이너 wrapper. PR111 에서
+   라벨/필드/help/카운터를 세로 그리드로 정리. */
+.form-field {
+  display: grid;
+  gap: 6px;
+}
+
+.form-field > span:first-child {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.form-field input,
+.form-field textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  border-color: var(--border-strong);
+  outline: none;
+}
+
+.form-field textarea {
+  resize: vertical;
+}
+
+.ct-forced-refund-notice {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+
+.ct-forced-refund-notice li {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ct-forced-refund-result__head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.ct-forced-refund-result__grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.ct-forced-refund-result__grid > div {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.ct-forced-refund-result__grid span {
+  color: var(--text-tertiary);
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.ct-forced-refund-result__grid strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ct-forced-refund-result__reason {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.ct-forced-refund-result__reason p {
+  color: var(--text-primary);
+  font-size: 13px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
