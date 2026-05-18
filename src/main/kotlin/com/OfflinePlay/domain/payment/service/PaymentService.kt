@@ -38,6 +38,7 @@ import com.contenido.global.exception.FreeEventCannotPreparePaymentException
 import com.contenido.global.exception.InvalidPaymentAmountException
 import com.contenido.global.exception.InvalidPaymentOrderIdException
 import com.contenido.global.exception.InvalidPaymentStateException
+import com.contenido.global.exception.InvalidRefundAmountException
 import com.contenido.global.exception.OwnerCannotApplyException
 import com.contenido.global.exception.PaymentAttemptNotFoundException
 import com.contenido.global.exception.PaymentConfirmFailedException
@@ -185,6 +186,14 @@ class PaymentService(
             PaymentStatus.READY -> {
                 log.warn("[handleWebhook] webhook with READY status — ignoring, attemptId={}", attempt.id)
             }
+            // PR117 — PARTIALLY_REFUNDED 는 webhook 입력 값이 아니다 (사용자/owner/ADMIN 동기 요청
+            // 흐름에서만 발생). 안전상 들어와도 무시.
+            PaymentStatus.PARTIALLY_REFUNDED -> {
+                log.warn(
+                    "[handleWebhook] PARTIALLY_REFUNDED webhook is not supported, attemptId={} — skip",
+                    attempt.id,
+                )
+            }
         }
     }
 
@@ -229,8 +238,8 @@ class PaymentService(
     }
 
     /**
-     * 사용자/owner/ADMIN 환불 요청. PG refund 호출 + Ticket REFUNDED 전환 +
-     * 정원 -- + EventParticipation CANCELED 전환.
+     * 사용자/owner/ADMIN 환불 요청. PG refund 호출 + Ticket 상태 전환 + (전액 환불 시)
+     * 정원 -- + EventParticipation CANCELED.
      *
      * 권한:
      *  - ticket.buyer 본인 — 본인이 셀프 환불 요청
@@ -238,19 +247,24 @@ class PaymentService(
      *  - ADMIN     — 운영 개입
      *  - 그 외 (STAFF 포함) → [UnauthorizedException]
      *
-     * 상태 분기:
-     *  - PAID  : 정상 환불 진행
-     *  - USED  : [TicketAlreadyUsedException] (체크인 후 환불은 운영 도구로 별도)
-     *  - REFUNDED : 이미 환불됨 — gateway 재호출 없이 기존 정보로 멱등 응답
-     *  - CANCELED : [PaymentNotRefundableException] (참가 취소된 티켓은 환불 대상 아님)
+     * 상태 분기 (ticket.status):
+     *  - PAID                : 정상 환불 진행
+     *  - PARTIALLY_REFUNDED  : PR117 — 부분 환불 진행 중. 남은 환불 가능 금액 내에서 추가 환불 가능.
+     *  - USED                : [TicketAlreadyUsedException] (체크인 후 환불은 운영 도구로 별도)
+     *  - REFUNDED            : 이미 전액 환불됨 — gateway 재호출 없이 기존 정보로 멱등 응답
+     *  - CANCELED            : [PaymentNotRefundableException] (참가 취소된 티켓은 환불 대상 아님)
      *
-     * PaymentAttempt 가 PAID 가 아니거나 providerPaymentKey 가 비어 있으면 환불 불가
-     * ([PaymentNotRefundableException]) — 결제 완료 시점 정보 없이는 PG 에 환불 요청 못함.
+     * PaymentAttempt 가 PAID/PARTIALLY_REFUNDED 아니거나 providerPaymentKey 가 비어 있으면 환불 불가.
      *
-     * 시간 가드 (PR43 MVP):
-     *  - 이벤트 시작 시각 이후 환불 요청은 [RefundDeadlinePassedException] 으로 차단.
-     *    ADMIN 도 본 메서드로는 막힌다 — 노쇼/행사 취소 보상은 별도 ADMIN 전용 운영 도구로.
-     *  - 기획자/주최자 측 행사 취소로 인한 강제 환불은 후속 PR 에서 `force=true` 또는 별도 endpoint.
+     * 시간 가드 (PR43): 이벤트 시작 시각 이후 환불 요청은 [RefundDeadlinePassedException] 으로 차단.
+     * 일반 환불 경로는 PR117 의 부분 환불에서도 동일하게 적용. ADMIN 운영 우회는 별도
+     * [forceRefundByAdmin] 사용.
+     *
+     * PR117 — 부분 환불:
+     *  - [RefundTicketRequest.amount] 가 null 이면 남은 환불 가능 금액 전체 (기존 전액 환불 동작).
+     *  - 지정 시 1 <= amount <= remainingRefundableAmount. 범위 위반은 [InvalidRefundAmountException].
+     *  - 누적 환불액이 amount 미만이면 partial cascade (참가/정원 무영향).
+     *  - 누적 환불액이 amount 에 도달하면 full cascade (참가 CANCELED + 정원--).
      */
     @Transactional
     fun refundPaymentByTicket(
@@ -272,7 +286,7 @@ class PaymentService(
                     .orElseThrow { PaymentNotRefundableException("연결된 결제 시도를 찾을 수 없습니다.") }
                 return attempt.toRefundResponse(ticket)
             }
-            TicketStatus.PAID -> { /* 진행 */ }
+            TicketStatus.PAID, TicketStatus.PARTIALLY_REFUNDED -> { /* 진행 */ }
         }
 
         // PR43: 이벤트 시작 시각 이후 환불 차단. USED 가드와 함께 "행사가 시작되면 환불 불가"
@@ -283,34 +297,47 @@ class PaymentService(
 
         val attempt = paymentAttemptRepository.findByTicket(ticket)
             .orElseThrow { PaymentNotRefundableException("연결된 결제 시도를 찾을 수 없습니다.") }
-        if (attempt.status != PaymentStatus.PAID) {
+        if (attempt.status != PaymentStatus.PAID && attempt.status != PaymentStatus.PARTIALLY_REFUNDED) {
             throw PaymentNotRefundableException("PAID 상태인 결제만 환불 가능합니다.")
-        }
-        // 이미 환불 처리된 attempt 면 멱등 응답 (ticket.status 가 정상이라면 데이터 불일치이지만 안전 우선).
-        if (attempt.refundedAt != null) {
-            throw TicketAlreadyRefundedException()
         }
         val providerKey = attempt.providerPaymentKey?.takeIf { it.isNotBlank() }
             ?: throw PaymentNotRefundableException("PG 결제 키가 없어 환불할 수 없습니다.")
+        val remaining = attempt.remainingRefundableAmount()
+        if (remaining <= 0L) throw TicketAlreadyRefundedException()
+
+        // PR117 — 금액 결정. null 이면 remaining 전체 (전액 환불). 지정 시 1..remaining 범위 검증.
+        val refundAmount = request.amount ?: remaining
+        if (refundAmount < 1L) {
+            throw InvalidRefundAmountException("환불 금액은 1원 이상이어야 합니다.")
+        }
+        if (refundAmount > remaining) {
+            throw InvalidRefundAmountException("환불 금액은 남은 환불 가능 금액(${remaining}원)을 초과할 수 없습니다.")
+        }
+        val willBeFullyRefunded = refundAmount == remaining
 
         val reason = request.reason?.trim().orEmpty().ifBlank { "USER_REQUEST" }
         val result = paymentGateway.refund(
             PaymentGatewayRefundRequest(
                 providerPaymentKey = providerKey,
-                amount = attempt.amount,
+                amount = refundAmount,
                 reason = reason,
             )
         )
 
         return when (result) {
             is PaymentGatewayRefundResult.Success -> {
-                markRefundedInternal(attempt, ticket, reason)
+                if (willBeFullyRefunded) {
+                    // 누적 환불이 결제 금액에 도달 — 기존 전액 환불 cascade.
+                    markRefundedInternal(attempt, ticket, reason)
+                } else {
+                    applyPartialRefund(attempt, ticket, refundAmount, reason)
+                }
                 attempt.toRefundResponse(ticket)
             }
             is PaymentGatewayRefundResult.Failure -> {
                 log.warn(
-                    "[refund] gateway rejected ticketId={} code={} msg={}",
-                    ticket.id, result.code, result.message,
+                    "[refund] gateway rejected ticketId={} amount={} code={} msg={}",
+                    ticket.id, refundAmount, result.code, result.message,
                 )
                 throw RefundFailedException(result.code, result.message)
             }
@@ -363,15 +390,19 @@ class PaymentService(
         when (ticket.status) {
             TicketStatus.REFUNDED -> throw TicketAlreadyRefundedException()
             TicketStatus.CANCELED -> throw PaymentNotRefundableException("취소된 티켓은 환불 대상이 아닙니다.")
-            TicketStatus.PAID, TicketStatus.USED -> { /* 진행 — deadline 검사 생략 */ }
+            // PR117 — PARTIALLY_REFUNDED 도 허용. remaining 만큼을 추가 환불해 REFUNDED 로 cascade.
+            TicketStatus.PAID, TicketStatus.USED, TicketStatus.PARTIALLY_REFUNDED -> { /* 진행 — deadline 검사 생략 */ }
         }
 
         val attempt = paymentAttemptRepository.findByTicket(ticket)
             .orElseThrow { PaymentNotRefundableException("연결된 결제 시도를 찾을 수 없습니다.") }
-        if (attempt.status != PaymentStatus.PAID) {
+        if (attempt.status != PaymentStatus.PAID && attempt.status != PaymentStatus.PARTIALLY_REFUNDED) {
             throw PaymentNotRefundableException("PAID 상태인 결제만 환불 가능합니다.")
         }
-        if (attempt.refundedAt != null) throw TicketAlreadyRefundedException()
+        // PR117 — 이미 fully refunded (refundedAmount == amount) 면 차단. partial 진행 중인 attempt
+        // 는 refundedAt != null 이라도 remaining > 0 이면 추가 환불 가능.
+        val remaining = attempt.remainingRefundableAmount()
+        if (remaining <= 0L) throw TicketAlreadyRefundedException()
         val providerKey = attempt.providerPaymentKey?.takeIf { it.isNotBlank() }
             ?: throw PaymentNotRefundableException("PG 결제 키가 없어 환불할 수 없습니다.")
 
@@ -379,22 +410,53 @@ class PaymentService(
         val result = paymentGateway.refund(
             PaymentGatewayRefundRequest(
                 providerPaymentKey = providerKey,
-                amount = attempt.amount,
+                amount = remaining,
                 reason = trimmedReason,
             )
         )
         return when (result) {
             is PaymentGatewayRefundResult.Success -> {
+                // ADMIN 강제 환불은 항상 remaining 전액을 끝까지 환불 → full cascade.
                 markRefundedInternal(attempt, ticket, trimmedReason)
                 attempt.toRefundResponse(ticket)
             }
             is PaymentGatewayRefundResult.Failure -> {
                 log.warn(
-                    "[forceRefundByAdmin] gateway rejected ticketId={} code={} msg={}",
-                    ticket.id, result.code, result.message,
+                    "[forceRefundByAdmin] gateway rejected ticketId={} amount={} code={} msg={}",
+                    ticket.id, remaining, result.code, result.message,
                 )
                 throw RefundFailedException(result.code, result.message)
             }
+        }
+    }
+
+    /**
+     * PR117 — 부분 환불 적용. 누적 환불 금액만 증가시키고 ticket/attempt status 를
+     * PARTIALLY_REFUNDED 로 갱신한다. 정원(`currentParticipants`) / participation 상태는 **변경하지
+     * 않는다** — 부분 환불은 참가 자격을 유지한 채 일부 금액만 돌려주는 운영 의미이다.
+     *
+     * buyer 에게 REFUND_COMPLETED 알림을 발송한다 (full cascade 와 동일 NotificationType 재사용,
+     * 메시지에 "부분 환불 ₩N" 표기). 알림 실패는 환불 트랜잭션을 막지 않는다.
+     */
+    private fun applyPartialRefund(
+        attempt: PaymentAttempt,
+        ticket: Ticket,
+        deltaAmount: Long,
+        reason: String,
+    ) {
+        attempt.markPartiallyRefunded(deltaAmount, reason)
+        ticket.markPartiallyRefunded()
+        runCatching {
+            notificationService.notify(
+                receiverIds = listOf(attempt.buyer.id),
+                type = NotificationType.REFUND_COMPLETED,
+                title = "부분 환불이 처리되었어요",
+                message = "${attempt.event.title} ₩${"%,d".format(deltaAmount)} 부분 환불이 처리되었습니다.",
+                targetType = "tickets",
+                targetId = ticket.id,
+            )
+        }.onFailure { e ->
+            log.warn("[refund] partial buyer notify failed: {}", e.message)
         }
     }
 
@@ -407,10 +469,14 @@ class PaymentService(
      *  - EventParticipation 이 있으면 CANCELED 로 전환 (이미 CANCELED 면 no-op)
      *  - PR81: buyer 에게 REFUND_COMPLETED 알림 (best-effort, 알림 실패가 환불을 막지 않음)
      *
-     * 한 attempt 에 한 번만 호출되도록 호출처가 `refundedAt == null` 가드.
+     * 한 attempt 에 한 번만 호출되도록 호출처가 remaining > 0 가드.
      * PR78 — 정원 가드: ACTIVE(PENDING/APPROVED) 였던 경우에만 decreaseParticipant. terminal
      * (CANCELED/REJECTED) 이면 이미 카운트에서 빠진 상태로 간주 (또는 애초에 카운트되지 않음).
      * participation 자체가 없으면 정상 PAID 흐름으로 들어온 것으로 보고 감소.
+     *
+     * PR117 — partial refund 누적이 amount 에 도달한 경우의 cascade 진입점도 동일하게 본 메서드.
+     * [PaymentAttempt.markRefunded] 가 내부적으로 [PaymentAttempt.markFullyRefunded] 를 호출해
+     * refundedAmount = amount, status = PAID, refundedAt set 을 한 번에 정리한다.
      */
     private fun markRefundedInternal(attempt: PaymentAttempt, ticket: Ticket, reason: String) {
         attempt.markRefunded(reason)
@@ -450,6 +516,8 @@ class PaymentService(
             paymentAttemptId = id,
             provider = provider,
             amount = amount,
+            refundedAmount = refundedAmount,
+            remainingRefundableAmount = remainingRefundableAmount(),
             refundedAt = (refundedAt ?: LocalDateTime.now()).toString(),
             providerPaymentKey = providerPaymentKey,
         )

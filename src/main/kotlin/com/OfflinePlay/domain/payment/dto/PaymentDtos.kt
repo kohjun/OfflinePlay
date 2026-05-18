@@ -75,16 +75,23 @@ data class PaymentConfirmResponse(
  *
  *  - [reason] : 운영 로그에 남기는 사유. 사용자 환불 폼에서 빈 값일 수 있어 service 단에서 trim
  *               + default("USER_REQUEST") 처리. 최대 500자.
+ *  - [amount] : PR117 — 부분 환불 금액. null 이면 남은 환불 가능 금액 전체 (기존 전액 환불 동작과
+ *               동일). 지정 시 1 이상, [com.contenido.domain.payment.entity.PaymentAttempt.remainingRefundableAmount]
+ *               이하여야 한다. 단위는 amount 와 동일 (원, BIGINT).
  */
 data class RefundTicketRequest(
     val reason: String? = null,
+    val amount: Long? = null,
 )
 
 /**
  * `POST /api/v1/tickets/{ticketId}/refund` 응답.
  *
- *  - [ticketId] / [ticketStatus] : 환불 후 ticket 상태 (REFUNDED).
- *  - [refundedAt]                : PaymentAttempt 가 기록한 환불 처리 시각 (서버 기준).
+ *  - [ticketId] / [ticketStatus] : 환불 후 ticket 상태 (REFUNDED 또는 PARTIALLY_REFUNDED).
+ *  - [amount]                    : 결제 시도의 총 결제 금액 (참조용, PR42 부터 그대로).
+ *  - [refundedAmount]            : PR117 — 누적 환불 금액 (이번 호출 포함).
+ *  - [remainingRefundableAmount] : PR117 — 남은 환불 가능 금액. 0 이면 fully refunded.
+ *  - [refundedAt]                : PaymentAttempt 가 기록한 마지막 환불 처리 시각 (서버 기준).
  *  - [providerPaymentKey]        : PG 측 결제 키. 운영 도구가 환불 추적에 사용한다.
  */
 data class RefundTicketResponse(
@@ -93,6 +100,8 @@ data class RefundTicketResponse(
     val paymentAttemptId: Long,
     val provider: PaymentProvider,
     val amount: Long,
+    val refundedAmount: Long,
+    val remainingRefundableAmount: Long,
     val refundedAt: String,
     val providerPaymentKey: String?,
 )

@@ -76,6 +76,13 @@ class PaymentAttempt(
 
     @Column(name = "refund_reason", length = 500)
     var refundReason: String? = null,
+
+    /**
+     * PR117 — 누적 환불 금액. default 0 (DB) / 0 (생성 시). 부분 환불 호출마다 누적되며,
+     * 누적 금액이 [amount] 에 도달하면 [markFullyRefunded] 가 호출되어 fully refunded 상태로 전이.
+     */
+    @Column(name = "refunded_amount", nullable = false)
+    var refundedAmount: Long = 0,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -108,14 +115,46 @@ class PaymentAttempt(
     }
 
     /**
-     * 환불 완료 처리. status 전이는 따로 두지 않고 (PaymentStatus.PAID 유지) [refundedAt] 으로
-     * 환불 시점을 기록한다 — PaymentAttempt 는 "이 시도가 결제까지 갔는가" 의 단일 사실을
-     * 보존하고, 환불 자체는 Ticket 의 REFUNDED 가 권위 있는 상태가 된다.
+     * 환불 완료 처리 (전액). PR117 부터 [refundedAmount] 도 [amount] 로 설정 — fully refunded
+     * 표현이 (status=PAID 유지, refundedAt!=null, refundedAmount==amount) 의 3-tuple 로 일관된다.
      *
-     * 한 PaymentAttempt 에 두 번 호출되지 않도록 호출자가 [refundedAt] null 체크 (멱등 보장).
+     * 한 PaymentAttempt 에 두 번 호출되지 않도록 호출자가 [refundedAt] null 체크 + remaining
+     * refundable amount 검증 (PR117: cumulative partial → full transition 도 이 메서드로 진입).
      */
     fun markRefunded(reason: String, at: LocalDateTime = LocalDateTime.now()) {
+        markFullyRefunded(reason, at)
+    }
+
+    /**
+     * PR117 — 부분 환불 누적. status 를 PARTIALLY_REFUNDED 로 전환하고 [refundedAmount] 에
+     * [deltaAmount] 를 더한다. [refundedAt] 은 매번 갱신되고, [refundReason] 도 마지막 사유로
+     * 덮어쓴다 — 운영자가 마지막 환불 사유를 즉시 볼 수 있게.
+     *
+     * 호출자가 [deltaAmount] 범위 (1..[remainingRefundableAmount]) 를 검증해야 한다. 본 메서드는
+     * 음수/0 또는 remaining 초과를 막지 않는다.
+     */
+    fun markPartiallyRefunded(deltaAmount: Long, reason: String, at: LocalDateTime = LocalDateTime.now()) {
+        this.refundedAmount += deltaAmount
         this.refundedAt = at
         this.refundReason = reason.take(500)
+        this.status = PaymentStatus.PARTIALLY_REFUNDED
     }
+
+    /**
+     * PR117 — 전액 환불 (또는 부분 환불 누적 합이 [amount] 에 도달한 경우의 cascade) 처리.
+     *  - [refundedAmount] 를 [amount] 로 set (이전 값에 더하지 않고 덮어씀 — fully refunded 표현).
+     *  - status 는 PAID 로 유지 (기존 PR42 정책 — Ticket.REFUNDED 가 권위 있는 상태).
+     *  - [refundedAt] / [refundReason] 갱신.
+     */
+    fun markFullyRefunded(reason: String, at: LocalDateTime = LocalDateTime.now()) {
+        this.refundedAmount = this.amount
+        this.refundedAt = at
+        this.refundReason = reason.take(500)
+        this.status = PaymentStatus.PAID
+    }
+
+    /**
+     * PR117 — 남은 환불 가능 금액. 음수가 될 수 없다 (계산 상 확인용).
+     */
+    fun remainingRefundableAmount(): Long = (amount - refundedAmount).coerceAtLeast(0)
 }

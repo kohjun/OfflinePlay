@@ -325,6 +325,15 @@ class PaidParticipationCancelRequiresRefundException : ContENIDOException(
 class PaymentNotRefundableException(detail: String = "현재 상태에서는 환불할 수 없습니다.") :
     ContENIDOException(HttpStatus.CONFLICT, detail)
 
+/**
+ * PR117 — 부분 환불 요청 금액이 허용 범위를 벗어남.
+ *
+ * 정책: 1 <= amount <= remainingRefundableAmount. 0/음수/남은 환불 가능 금액 초과 시 400.
+ */
+class InvalidRefundAmountException(
+    detail: String = "환불 금액이 올바르지 않습니다.",
+) : ContENIDOException(HttpStatus.BAD_REQUEST, detail)
+
 class RefundFailedException(
     val code: String,
     detail: String,

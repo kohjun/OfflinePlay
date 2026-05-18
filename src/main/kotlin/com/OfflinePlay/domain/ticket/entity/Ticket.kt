@@ -80,4 +80,14 @@ class Ticket(
     fun refund() {
         status = TicketStatus.REFUNDED
     }
+
+    /**
+     * PR117 — 부분 환불 진행 중 표시. PaymentAttempt.refundedAmount 가 amount 미만일 때 호출.
+     * 누적 환불액이 결제 금액에 도달하면 [refund] 로 전이된다 (별도 호출).
+     *
+     * 호출자가 USED/CANCELED/REFUNDED 가드를 미리 검증해야 한다 (PaymentService).
+     */
+    fun markPartiallyRefunded() {
+        status = TicketStatus.PARTIALLY_REFUNDED
+    }
 }

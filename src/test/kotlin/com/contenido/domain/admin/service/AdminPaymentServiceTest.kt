@@ -47,6 +47,8 @@ class AdminPaymentServiceTest {
             paymentAttemptId = 555L,
             provider = PaymentProvider.TOSS,
             amount = 30_000L,
+            refundedAmount = 30_000L,
+            remainingRefundableAmount = 0L,
             refundedAt = "2026-05-18T12:00:00",
             providerPaymentKey = "toss_paid_key",
         )

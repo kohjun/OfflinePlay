@@ -21,4 +21,14 @@ package com.contenido.domain.payment.entity
  */
 enum class PaymentStatus {
     READY, PAID, FAILED, CANCELED, REFUNDED,
+    /**
+     * PR117 — 부분 환불 진행 중. PaymentAttempt.refundedAmount 가 amount 미만이며
+     * 추가 부분 환불이 가능하다. 누적 환불액이 amount 에 도달하면 status 는 PAID 로 복귀하고
+     * (`refundedAt` + `refundedAmount = amount` 로 fully refunded 표현) Ticket.status 는
+     * REFUNDED 로 cascade.
+     *
+     * webhook payload 입력 값으로는 사용되지 않는다 — 부분 환불은 사용자/owner/ADMIN 요청
+     * 흐름(`refundPaymentByTicket`) 에서만 발생.
+     */
+    PARTIALLY_REFUNDED,
 }

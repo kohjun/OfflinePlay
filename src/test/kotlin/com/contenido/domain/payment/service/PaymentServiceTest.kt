@@ -1020,6 +1020,273 @@ class PaymentServiceTest {
         assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
     }
 
+    // ── PR117 — refundPaymentByTicket 부분 환불 ─────────────────────────────────
+
+    @Test
+    fun `refundPaymentByTicket 부분 환불 성공 → PARTIALLY_REFUNDED + refundedAmount 누적 + 정원·participation 변화 없음`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-part1", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.APPROVED)
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        val refundReq = slot<PaymentGatewayRefundRequest>()
+        every { paymentGateway.refund(capture(refundReq)) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+
+        val response = service.refundPaymentByTicket(
+            actorId = 2L, ticketId = 999L,
+            request = RefundTicketRequest(reason = "일부 보상", amount = 10_000L),
+        )
+
+        // 응답 / 엔티티 상태
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.PARTIALLY_REFUNDED)
+        assertThat(response.amount).isEqualTo(30_000L)
+        assertThat(response.refundedAmount).isEqualTo(10_000L)
+        assertThat(response.remainingRefundableAmount).isEqualTo(20_000L)
+        assertThat(ticket.status).isEqualTo(TicketStatus.PARTIALLY_REFUNDED)
+        assertThat(attempt.refundedAmount).isEqualTo(10_000L)
+        assertThat(attempt.status).isEqualTo(PaymentStatus.PARTIALLY_REFUNDED)
+        assertThat(attempt.refundedAt).isNotNull
+        // gateway 에 deltaAmount 만 전달
+        assertThat(refundReq.captured.amount).isEqualTo(10_000L)
+        // 부분 환불은 participation / capacity 무변경
+        assertThat(event.currentParticipants).isEqualTo(5)
+        // participation 조회 자체가 일어나지 않아야 한다 (full cascade 의 책임)
+        verify(exactly = 0) { eventParticipationRepository.findByEventAndParticipant(any(), any()) }
+        // buyer 에게 partial 알림 발송
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = listOf(2L),
+                type = com.contenido.domain.notification.entity.NotificationType.REFUND_COMPLETED,
+                title = "부분 환불이 처리되었어요",
+                message = any(),
+                targetType = "tickets",
+                targetId = 999L,
+            )
+        }
+        // participation row 변경 없음 (위 조회를 안 했으니 자명하지만 명시)
+        assertThat(participation.status).isEqualTo(ParticipationStatus.APPROVED)
+    }
+
+    @Test
+    fun `refundPaymentByTicket 부분 환불 후 남은 금액 전체 환불 → REFUNDED + 정원 감소 + participation CANCELED`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        // 1차 부분 환불이 이미 끝난 상태로 세팅 (refundedAmount=10_000, PARTIALLY_REFUNDED).
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PARTIALLY_REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-part2", amount = 30_000L, status = PaymentStatus.PARTIALLY_REFUNDED,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+            ReflectionTestUtils.setField(this, "refundedAmount", 10_000L)
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now().minusMinutes(10))
+            ReflectionTestUtils.setField(this, "refundReason", "1차 보상")
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.APPROVED)
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        val refundReq = slot<PaymentGatewayRefundRequest>()
+        every { paymentGateway.refund(capture(refundReq)) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(participation)
+
+        // amount 생략 → 남은 20_000 전체 환불 = full cascade
+        val response = service.refundPaymentByTicket(
+            actorId = 2L, ticketId = 999L,
+            request = RefundTicketRequest(reason = "전액 보상"),
+        )
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(response.refundedAmount).isEqualTo(30_000L)
+        assertThat(response.remainingRefundableAmount).isEqualTo(0L)
+        // gateway 에는 잔여 20_000 만 전달 (이미 환불한 10_000 은 제외)
+        assertThat(refundReq.captured.amount).isEqualTo(20_000L)
+        assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(attempt.refundedAmount).isEqualTo(30_000L)
+        // full cascade — 정원 감소 + participation CANCELED
+        assertThat(event.currentParticipants).isEqualTo(4)
+        assertThat(participation.status).isEqualTo(ParticipationStatus.CANCELED)
+        // 알림 — full refund 카피
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = listOf(2L),
+                type = com.contenido.domain.notification.entity.NotificationType.REFUND_COMPLETED,
+                title = "환불이 완료되었어요",
+                message = any(),
+                targetType = "tickets",
+                targetId = 999L,
+            )
+        }
+    }
+
+    @Test
+    fun `refundPaymentByTicket 부분 환불 amount=0 은 InvalidRefundAmountException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-part0", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        assertThrows<com.contenido.global.exception.InvalidRefundAmountException> {
+            service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(amount = 0L))
+        }
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
+    @Test
+    fun `refundPaymentByTicket 부분 환불 amount=-1 은 InvalidRefundAmountException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-partneg", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        assertThrows<com.contenido.global.exception.InvalidRefundAmountException> {
+            service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(amount = -1L))
+        }
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
+    @Test
+    fun `refundPaymentByTicket 부분 환불 amount 가 remaining 초과면 InvalidRefundAmountException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PARTIALLY_REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-partover", amount = 30_000L, status = PaymentStatus.PARTIALLY_REFUNDED,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "refundedAmount", 20_000L)
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now())
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        // remaining 은 10_000, 15_000 요청 → 초과 차단
+        assertThrows<com.contenido.global.exception.InvalidRefundAmountException> {
+            service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(amount = 15_000L))
+        }
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
+    @Test
+    fun `refundPaymentByTicket amount null 은 기존 전액 환불 동작 회귀`() {
+        // PR117 default 동작 — amount 미지정 시 남은 환불 가능 금액 전부 = 전액 환불 cascade.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-null", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        val refundReq = slot<PaymentGatewayRefundRequest>()
+        every { paymentGateway.refund(capture(refundReq)) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+
+        val response = service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(response.refundedAmount).isEqualTo(30_000L)
+        assertThat(response.remainingRefundableAmount).isEqualTo(0L)
+        assertThat(refundReq.captured.amount).isEqualTo(30_000L) // 전액
+        assertThat(event.currentParticipants).isEqualTo(4) // cascade
+    }
+
+    @Test
+    fun `refundPaymentByTicket 부분 환불 후 PARTIALLY_REFUNDED 티켓에 추가 부분 환불 가능`() {
+        // 두 번 partial — refundedAmount 가 누적되고 ticket 은 PARTIALLY_REFUNDED 유지.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PARTIALLY_REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-part3", amount = 30_000L, status = PaymentStatus.PARTIALLY_REFUNDED,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "refundedAmount", 10_000L)
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now().minusMinutes(5))
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+
+        val response = service.refundPaymentByTicket(
+            actorId = 2L, ticketId = 999L,
+            request = RefundTicketRequest(reason = "2차 보상", amount = 5_000L),
+        )
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.PARTIALLY_REFUNDED)
+        assertThat(response.refundedAmount).isEqualTo(15_000L)
+        assertThat(response.remainingRefundableAmount).isEqualTo(15_000L)
+        assertThat(ticket.status).isEqualTo(TicketStatus.PARTIALLY_REFUNDED)
+        assertThat(attempt.status).isEqualTo(PaymentStatus.PARTIALLY_REFUNDED)
+        // capacity / participation 무변경
+        assertThat(event.currentParticipants).isEqualTo(5)
+        verify(exactly = 0) { eventParticipationRepository.findByEventAndParticipant(any(), any()) }
+    }
+
     // ── PR106 — forceRefundByAdmin (ADMIN 강제 환불) ─────────────────────────────
 
     @Test
