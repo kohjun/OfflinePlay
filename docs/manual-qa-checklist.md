@@ -311,6 +311,19 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 **Backend 멱등 / 가드 회귀**
 - [ ] `.\gradlew.bat test` green (특히 PaymentService refund 관련)
 
+**PR122 — 사용자 환불 audit log**
+- [ ] 📋 buyer 본인이 전액 환불 (amount 미지정 or amount=remaining) → `moderation_audit_logs` 에 `action=PAYMENT_REFUNDED` row 1건 + `actor_id` = buyer + `target_type` NULL + `after_value` JSON 에 `ticketId/paymentAttemptId/eventId/refundAmount/refundedAmount/remainingRefundableAmount/ticketStatus="REFUNDED"/paymentStatus="PAID"/fullRefund=true` + `before_value` JSON 에 `ticketStatusBefore="PAID"/paymentStatusBefore="PAID"/refundedAmountBefore=0/remainingRefundableAmountBefore=결제 금액`
+- [ ] 📋 buyer 본인이 부분 환불 (amount=N < remaining) → `moderation_audit_logs` 에 `action=PAYMENT_PARTIALLY_REFUNDED` row 1건 + 동일 actor/target 정책 + `after_value.fullRefund=false` + `ticketStatus="PARTIALLY_REFUNDED"` / `paymentStatus="PARTIALLY_REFUNDED"`
+- [ ] 📋 부분 환불 2회 → 누적 도달 시 마지막 호출만 `PAYMENT_REFUNDED` (`fullRefund=true`), 그 전 호출은 `PAYMENT_PARTIALLY_REFUNDED`. 총 row 수 = 호출 횟수
+- [ ] 📋 PG gateway 거부 (devtools mock 또는 실제 4xx) → audit row 생성 안 됨 (refund 트랜잭션 rollback)
+- [ ] 📋 amount 범위 위반 (0 / -1 / >remaining) → `InvalidRefundAmountException` (400), audit row 미생성, gateway 미호출
+- [ ] 📋 채널 owner 또는 ADMIN 이 일반 환불 (`/tickets/{id}/refund`) 호출 → audit `actor_id` 는 호출자 (owner or admin), action 은 PAYMENT_(PARTIALLY_)REFUNDED — `TICKET_FORCED_REFUNDED` 가 아니라 일반 환불 액션
+- [ ] 📋 ADMIN 강제 환불 (`/admin/tickets/{id}/forced-refund`) 호출 → audit row 는 여전히 `TICKET_FORCED_REFUNDED` 1건만. `PAYMENT_REFUNDED` 중복 row 미생성 (PaymentService 가 forced refund 흐름에서 audit 안 함)
+- [ ] 📋 webhook `refund.completed` 처리 → audit row 미생성 (PG-driven, actor 없음)
+- [ ] 🖱 `/admin?tab=audit-logs` 진입 → 액션 select / quick filter 영역 + action Badge 에 "부분 환불" (warning tone) / "환불 완료" (success tone) 라벨 노출
+- [ ] 🖱 select 에서 "부분 환불" 또는 "환불 완료" 옵션을 골라 필터 적용 → 해당 액션 row 만 노출
+- [ ] 🖱 row 상세 펼침 → before/after JSON pretty-print 정상. `forcedRefundContext` panel 은 표시되지 않음 (PR122 범위 밖)
+
 **PR120 — 부분 환불 회귀 매트릭스** (사이클 클로저 게이트, 각 행 1회 spot-check)
 
 | 시나리오 | 입력 | 기대 결과 | 회귀 가드 |

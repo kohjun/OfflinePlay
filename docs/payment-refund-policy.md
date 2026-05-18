@@ -701,4 +701,52 @@ REFUNDED + refundedAmount=30000  (participation → CANCELED, currentParticipant
 - **부분 forced refund** — ADMIN 의 `/admin/tickets/{id}/forced-refund` 는 여전히 남은 금액 전액만 환불. 부분 금액 forced refund 가 필요해지면 별도 endpoint 또는 옵션 도입.
 - **환불 정산 reconciliation batch** — 부분 환불은 일별 PG cancel 합산이 더 복잡해진다. 별도 batch PR 필요.
 - **부분 환불 webhook** — PG 가 부분 cancel webhook 을 보내는 흐름은 본 PR 에서 처리하지 않음 (webhook 은 여전히 전액 refund 만 처리, `PaymentStatus.PARTIALLY_REFUNDED` webhook 입력은 무시).
-- **partial refund 이력 audit** — 본 PR 은 audit log 변경 없음. ADMIN 강제 환불의 `TICKET_FORCED_REFUNDED` audit 는 그대로. 일반 사용자 부분 환불은 audit row 를 만들지 않는다 (PR42 정책 그대로 — 일반 환불은 audit 비대상).
+- ~~**partial refund 이력 audit**~~ — **PR122 에서 도입.** 일반 사용자/owner/ADMIN 의 `refundPaymentByTicket` 성공 시 `PAYMENT_REFUNDED` / `PAYMENT_PARTIALLY_REFUNDED` audit row 가 생성된다. §15 참고.
+
+## 15. PR122 — 사용자 환불 audit (User Refund Audit)
+
+PR42~PR117 까지 일반 사용자/owner/ADMIN 의 환불 흐름 (`refundPaymentByTicket`) 은 audit log 를 만들지 않았다 — ADMIN 강제 환불 (`forceRefundByAdmin`) 만 `TICKET_FORCED_REFUNDED` 1건을 기록했다. PR122 부터 일반 환불 흐름도 audit 를 남겨 부분 환불의 운영 추적성을 보강한다.
+
+### 15.1 정책 요약
+
+- **트리거**: `refundPaymentByTicket` 의 PG cancel 성공 + DB 상태 전이 완료 직후. 같은 `@Transactional` 트랜잭션 안에서 audit 기록 — audit 실패 시 환불도 rollback (admin forced refund 와 동일).
+- **action 결정**:
+  - `fullRefund=true` (누적 환불액이 결제 금액에 도달) → `PAYMENT_REFUNDED`
+  - `fullRefund=false` (누적 환불액 < 결제 금액) → `PAYMENT_PARTIALLY_REFUNDED`
+- **actor**: `refundPaymentByTicket` 의 `actorId` 인자. 즉 buyer 본인 / 채널 owner / ADMIN 중 누가 호출했든 그 actor 가 audit 의 actor 가 된다.
+- **target**: `targetType=null`, `targetId=null`. `ReportTargetType` 에 TICKET 이 없으므로 admin forced refund 와 동일한 패턴.
+- **before / after JSON**:
+  - `beforeValue`: `ticketStatusBefore` / `paymentStatusBefore` / `refundedAmountBefore` / `remainingRefundableAmountBefore`
+  - `afterValue`: `ticketId` / `paymentAttemptId` / `eventId` / `refundAmount` (이번 호출 금액) / `refundedAmount` (누적) / `remainingRefundableAmount` / `ticketStatus` / `paymentStatus` / `fullRefund` (boolean)
+- **`reason`**: `refundPaymentByTicket` 가 입력 처리한 값 (빈 값이면 `USER_REQUEST` default).
+
+### 15.2 ADMIN forced refund 와의 차이
+
+같은 도메인 (환불) 에서 두 audit action 이 공존하는 이유:
+
+| 항목 | `PAYMENT_REFUNDED` / `PAYMENT_PARTIALLY_REFUNDED` (PR122) | `TICKET_FORCED_REFUNDED` (PR106) |
+|---|---|---|
+| **진입점** | `POST /tickets/{id}/refund` | `POST /admin/tickets/{id}/forced-refund` |
+| **actor** | buyer / owner / ADMIN | ADMIN only |
+| **deadline 가드** | 이벤트 시작 전 (PR43) | 우회 |
+| **USED 가드** | `TicketAlreadyUsedException` | 우회 (USED 도 환불 가능) |
+| **금액** | optional `amount` (부분/전액) | 항상 remaining 전체 (한 번에 cascade) |
+| **audit reason 의미** | 사용자 입력 사유 (선택) | 운영 사유 (필수, 1~500자) |
+| **기록 책임** | `PaymentService.refundPaymentByTicket` (PR122) | `AdminPaymentService.forceRefund` (PR106) |
+
+**ADMIN 이 일반 경로 `/tickets/{id}/refund` 로 환불할 때는 PR122 의 `PAYMENT_REFUNDED` / `PAYMENT_PARTIALLY_REFUNDED` 가 기록된다** — actor 는 ADMIN 이지만 운영 우회 (deadline / USED) 가 없으므로 `forceRefundByAdmin` 흐름과는 명확히 구분. forced refund 가 필요한 케이스 (USED / 시작 후) 는 여전히 `/admin/tickets/{id}/forced-refund` 사용.
+
+PR122 는 `forceRefundByAdmin` 의 audit 정책을 변경하지 않는다. forced refund 호출은 `TICKET_FORCED_REFUNDED` 1건만 기록하고, `PaymentService` 가 `PAYMENT_REFUNDED` 를 중복 기록하지 않도록 분리 (테스트로 가드).
+
+### 15.3 webhook / 운영자 활동 통계 / detail enrichment
+
+- **webhook** (`refund.completed`): audit 미기록. PG-driven 이고 명시적 actor 가 없어 PR42 정책 그대로.
+- **`AdminModerationStatsService.getActorStats`** (PR93/PR109): 본 PR 에서 `paymentRefundedCount` 등 별도 카운트 필드를 추가하지 않는다. 새 액션은 `totalActionCount` 에만 합산되어 표시 — 별도 breakdown 이 필요하면 후속 PR.
+- **detail enrichment** (PR115 `ForcedRefundContextResponse`): 본 PR 에서 `PAYMENT_REFUNDED` / `PAYMENT_PARTIALLY_REFUNDED` row 에 대한 buyer/event lookup panel 은 만들지 않는다. forced refund 의 enrichment 만 유지 — 사용자 환불도 보강하려면 후속 PR.
+
+### 15.4 의도적 제외 (PR122 범위 밖)
+
+- **운영자 actor stats 의 환불 카운트** — `forcedRefundCount` 처럼 별도 컬럼 신설은 미진행. 후속 PR 후보.
+- **PAYMENT_REFUNDED / PAYMENT_PARTIALLY_REFUNDED detail enrichment** — frontend panel 미신설.
+- **CSV export 의 신규 컬럼** — CSV 행 shape 무변경 (audit 원본 10 컬럼 그대로, 새 action 도 같은 컬럼 구조로 직렬화).
+- **webhook 환불 audit** — `refund.completed` webhook 처리 흐름은 audit 미기록 그대로.

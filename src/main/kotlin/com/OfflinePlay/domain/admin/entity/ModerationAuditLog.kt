@@ -54,6 +54,22 @@ enum class ModerationAuditAction {
      * 사유(필수, 500자) 가 그대로 들어간다.
      */
     TICKET_FORCED_REFUNDED,
+
+    /**
+     * PR122 — 일반 사용자/owner/ADMIN 의 부분 환불 (`refundPaymentByTicket` 성공 + 누적 < amount).
+     * actor 는 환불 요청 actorId. targetType=null + afterValue JSON 에 ticketId/paymentAttemptId/
+     * eventId/refundAmount/refundedAmount/remainingRefundableAmount/ticketStatus/paymentStatus/
+     * fullRefund=false 동봉. ADMIN forced refund (`forceRefundByAdmin`) 는 본 액션을 만들지 않고
+     * 기존 [TICKET_FORCED_REFUNDED] 를 그대로 사용한다.
+     */
+    PAYMENT_PARTIALLY_REFUNDED,
+
+    /**
+     * PR122 — 일반 사용자/owner/ADMIN 의 전액 환불 (`refundPaymentByTicket` 성공 + 누적 == amount).
+     * 부분 환불 누적이 결제 금액에 도달해 cascade 가 발동한 경우도 본 액션. ADMIN forced refund
+     * (`forceRefundByAdmin`) 는 본 액션을 만들지 않고 기존 [TICKET_FORCED_REFUNDED] 만 기록한다.
+     */
+    PAYMENT_REFUNDED,
 }
 
 @Entity

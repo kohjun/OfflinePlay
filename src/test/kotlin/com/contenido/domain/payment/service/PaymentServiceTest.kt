@@ -70,6 +70,7 @@ class PaymentServiceTest {
     @MockK lateinit var paymentGateway: PaymentGateway
     @MockK lateinit var eventParticipationRepository: EventParticipationRepository
     @MockK lateinit var notificationService: com.contenido.domain.notification.service.NotificationService
+    @MockK lateinit var moderationAuditLogService: com.contenido.domain.admin.service.ModerationAuditLogService
 
     private lateinit var service: PaymentService
 
@@ -84,9 +85,14 @@ class PaymentServiceTest {
             paymentGateway,
             eventParticipationRepository,
             notificationService,
+            moderationAuditLogService,
         )
         // PR81 — refund cascade 가 buyer 에게 REFUND_COMPLETED 알림을 보낸다. 기본 stub.
         every { notificationService.notify(any(), any(), any(), any(), any(), any()) } just Runs
+        // PR122 — 일반 사용자 환불 audit. record() 는 ModerationAuditLog 를 반환하지만 호출자가 무시.
+        every {
+            moderationAuditLogService.record(any(), any(), any(), any(), any(), any(), any())
+        } returns io.mockk.mockk(relaxed = true)
     }
 
     // ── preparePayment ───────────────────────────────────────────────────────────
@@ -1468,6 +1474,249 @@ class PaymentServiceTest {
         // capacity / participation 무변경
         assertThat(event.currentParticipants).isEqualTo(5)
         verify(exactly = 0) { eventParticipationRepository.findByEventAndParticipant(any(), any()) }
+    }
+
+    // ── PR122 — 일반 사용자 환불 audit 기록 ──────────────────────────────────
+
+    @Test
+    fun `PR122 — 부분 환불 성공 시 PAYMENT_PARTIALLY_REFUNDED audit 1건 actor=buyer + afterValue JSON`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-audit1", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        val actionSlot = slot<com.contenido.domain.admin.entity.ModerationAuditAction>()
+        val actorSlot = slot<Long>()
+        val afterValueSlot = slot<Any>()
+        val beforeValueSlot = slot<Any>()
+        every {
+            moderationAuditLogService.record(
+                actorId = capture(actorSlot),
+                action = capture(actionSlot),
+                targetType = any(),
+                targetId = any(),
+                beforeValue = capture(beforeValueSlot),
+                afterValue = capture(afterValueSlot),
+                reason = any(),
+            )
+        } returns io.mockk.mockk(relaxed = true)
+
+        service.refundPaymentByTicket(
+            actorId = 2L, ticketId = 999L,
+            request = RefundTicketRequest(reason = "부분 환불", amount = 10_000L),
+        )
+
+        verify(exactly = 1) {
+            moderationAuditLogService.record(any(), any(), any(), any(), any(), any(), any())
+        }
+        assertThat(actionSlot.captured)
+            .isEqualTo(com.contenido.domain.admin.entity.ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED)
+        assertThat(actorSlot.captured).isEqualTo(2L) // buyer
+        @Suppress("UNCHECKED_CAST")
+        val after = afterValueSlot.captured as Map<String, Any?>
+        assertThat(after["ticketId"]).isEqualTo(999L)
+        assertThat(after["paymentAttemptId"]).isEqualTo(555L)
+        assertThat(after["eventId"]).isEqualTo(100L)
+        assertThat(after["refundAmount"]).isEqualTo(10_000L)
+        assertThat(after["refundedAmount"]).isEqualTo(10_000L)
+        assertThat(after["remainingRefundableAmount"]).isEqualTo(20_000L)
+        assertThat(after["ticketStatus"]).isEqualTo("PARTIALLY_REFUNDED")
+        assertThat(after["paymentStatus"]).isEqualTo("PARTIALLY_REFUNDED")
+        assertThat(after["fullRefund"]).isEqualTo(false)
+        @Suppress("UNCHECKED_CAST")
+        val before = beforeValueSlot.captured as Map<String, Any?>
+        assertThat(before["ticketStatusBefore"]).isEqualTo("PAID")
+        assertThat(before["paymentStatusBefore"]).isEqualTo("PAID")
+        assertThat(before["refundedAmountBefore"]).isEqualTo(0L)
+        assertThat(before["remainingRefundableAmountBefore"]).isEqualTo(30_000L)
+    }
+
+    @Test
+    fun `PR122 — 전액 환불 성공 시 PAYMENT_REFUNDED audit 1건 actor=buyer + fullRefund=true`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-audit2", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+        val actionSlot = slot<com.contenido.domain.admin.entity.ModerationAuditAction>()
+        val afterValueSlot = slot<Any>()
+        every {
+            moderationAuditLogService.record(any(), capture(actionSlot), any(), any(), any(), capture(afterValueSlot), any())
+        } returns io.mockk.mockk(relaxed = true)
+
+        // amount 미지정 → 전액 환불
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(reason = "전액 환불"))
+
+        assertThat(actionSlot.captured)
+            .isEqualTo(com.contenido.domain.admin.entity.ModerationAuditAction.PAYMENT_REFUNDED)
+        @Suppress("UNCHECKED_CAST")
+        val after = afterValueSlot.captured as Map<String, Any?>
+        assertThat(after["fullRefund"]).isEqualTo(true)
+        assertThat(after["refundAmount"]).isEqualTo(30_000L)
+        assertThat(after["refundedAmount"]).isEqualTo(30_000L)
+        assertThat(after["remainingRefundableAmount"]).isEqualTo(0L)
+        assertThat(after["ticketStatus"]).isEqualTo("REFUNDED")
+        // paymentStatus 는 markFullyRefunded 가 PAID 로 set (PR42 기존 모델)
+        assertThat(after["paymentStatus"]).isEqualTo("PAID")
+    }
+
+    @Test
+    fun `PR122 — 부분 환불 후 최종 full 도달 시 마지막 호출은 PAYMENT_REFUNDED audit`() {
+        // 1차 partial = PAYMENT_PARTIALLY_REFUNDED, 2차에서 remaining 전체 환불 = PAYMENT_REFUNDED.
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-audit3", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.APPROVED)
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(participation)
+        val actionCaptures = mutableListOf<com.contenido.domain.admin.entity.ModerationAuditAction>()
+        every {
+            moderationAuditLogService.record(any(), capture(actionCaptures), any(), any(), any(), any(), any())
+        } returns io.mockk.mockk(relaxed = true)
+
+        // 1차 — 10_000 부분 환불
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(amount = 10_000L))
+        // 2차 — 잔여 20_000 (amount 생략) 전체 환불 = cascade
+        service.refundPaymentByTicket(2L, 999L, RefundTicketRequest())
+
+        assertThat(actionCaptures).containsExactly(
+            com.contenido.domain.admin.entity.ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            com.contenido.domain.admin.entity.ModerationAuditAction.PAYMENT_REFUNDED,
+        )
+    }
+
+    @Test
+    fun `PR122 — PG failure 시 audit 미기록 (rollback)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L, currentParticipants = 5)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-audit4", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Failure(
+            provider = PaymentProvider.TOSS, code = "GATEWAY_FAIL", message = "PG rejected",
+        )
+
+        assertThrows<RefundFailedException> {
+            service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(amount = 5_000L))
+        }
+        verify(exactly = 0) {
+            moderationAuditLogService.record(any(), any(), any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `PR122 — InvalidRefundAmountException 시 audit 미기록`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(id = 100L, channel = createChannel(owner = owner), fee = 30_000L)
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-audit5", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        assertThrows<com.contenido.global.exception.InvalidRefundAmountException> {
+            service.refundPaymentByTicket(2L, 999L, RefundTicketRequest(amount = 0L))
+        }
+        verify(exactly = 0) {
+            moderationAuditLogService.record(any(), any(), any(), any(), any(), any(), any())
+        }
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
+    @Test
+    fun `PR122 — forceRefundByAdmin 호출 시 PaymentService 가 PAYMENT_REFUNDED audit 을 기록하지 않음`() {
+        // AdminPaymentService 가 별도로 TICKET_FORCED_REFUNDED audit 을 기록 — 본 service 는 audit 안 함.
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 5,
+            startAt = LocalDateTime.now().minusHours(1),
+            endAt = LocalDateTime.now().plusHours(1),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.USED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-audit6", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+        }
+
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns Optional.empty()
+
+        service.forceRefundByAdmin(adminUserId = 99L, ticketId = 999L, reason = "운영 환불")
+
+        verify(exactly = 0) {
+            moderationAuditLogService.record(any(), any(), any(), any(), any(), any(), any())
+        }
     }
 
     // ── PR106 — forceRefundByAdmin (ADMIN 강제 환불) ─────────────────────────────

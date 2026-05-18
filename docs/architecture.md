@@ -85,7 +85,7 @@ PR87 에서 controller / service 가 책임별로 분리됐다. 외부 endpoint 
 
 | 서비스 | 책임 |
 |---|---|
-| `ModerationAuditLogService` | hide/unhide/ban/appeal 등 운영 액션을 1 row 기록. hide 트랜잭션에 동참 — 실패하면 hide 도 rollback. PR106 부터 결제 도메인의 `TICKET_FORCED_REFUNDED` 도 같은 테이블에 기록한다 (`targetType=null`, afterValue JSON 에 ticketId/paymentAttemptId 동봉). |
+| `ModerationAuditLogService` | hide/unhide/ban/appeal 등 운영 액션을 1 row 기록. hide 트랜잭션에 동참 — 실패하면 hide 도 rollback. PR106 부터 결제 도메인의 `TICKET_FORCED_REFUNDED` 도 같은 테이블에 기록한다 (`targetType=null`, afterValue JSON 에 ticketId/paymentAttemptId 동봉). **PR122** 부터 일반 사용자 환불 (`refundPaymentByTicket`) 도 `PAYMENT_REFUNDED` / `PAYMENT_PARTIALLY_REFUNDED` 액션으로 기록 — actor 는 호출자 (buyer/owner/ADMIN), forced refund 와 분리. |
 | `ModerationAuditLogRetentionService` | retention dry-run preview (한도/cutoff/oldest/newest 계산), 만료 row count |
 | `ModerationAuditLogArchiveService` | 만료 row 를 `moderation_audit_log_archive` 로 이동. 한 번에 최대 `ARCHIVE_LIMIT=1000`. preview/execute 사이 stale 가드 (expectedCutoffAt + expectedCandidateCount). 운영 confirmText `ARCHIVE` 안전 가드. archive 자체 액션을 `AUDIT_LOGS_ARCHIVED` 로 1 row 기록. |
 | `AuditLogRetentionSchedulerService` | scheduler 설정(`audit_log_retention_scheduler_settings`, single row id=1) 읽기/쓰기 + tick 진입점 (`runIfEnabled`). cron 사전 검증 + commit 후 runtime reschedule. |
@@ -203,7 +203,7 @@ client (PaymentPage)
 
 confirm 멱등: 이미 PAID 인 attempt 에 다시 confirm 이 들어와도 gateway 재호출 없이 기존 응답 반환.
 
-### 5.2 환불 (PR42 + PR81~82 보정 + PR117 부분 환불)
+### 5.2 환불 (PR42 + PR81~82 보정 + PR117 부분 환불 + PR122 audit)
 
 ```
 POST /tickets/{ticketId}/refund   ← buyer / 채널 owner / ADMIN (PR42)
@@ -214,12 +214,14 @@ POST /tickets/{ticketId}/refund   ← buyer / 채널 owner / ADMIN (PR42)
    │     ├─ PaymentAttempt: refundedAmount = amount, refundedAt, status=PAID 유지
    │     ├─ Event.currentParticipants --
    │     ├─ EventParticipation: APPROVED → CANCELED
-   │     └─ Notification(REFUND_COMPLETED, title="환불이 완료되었어요") → buyer
+   │     ├─ Notification(REFUND_COMPLETED, title="환불이 완료되었어요") → buyer
+   │     └─ Audit(PAYMENT_REFUNDED, actor=호출자, before/after JSON, reason) — PR122
    └─ amount < remainingRefundableAmount  (partial — PR117)
          ├─ Ticket: PAID → PARTIALLY_REFUNDED  (또는 그대로 PARTIALLY_REFUNDED)
          ├─ PaymentAttempt: refundedAmount += amount, refundedAt, status=PARTIALLY_REFUNDED
          ├─ (정원 / participation 변경 없음)
-         └─ Notification(REFUND_COMPLETED, title="부분 환불이 처리되었어요") → buyer
+         ├─ Notification(REFUND_COMPLETED, title="부분 환불이 처리되었어요") → buyer
+         └─ Audit(PAYMENT_PARTIALLY_REFUNDED, actor=호출자, before/after JSON, reason) — PR122
 ```
 
 거부 조건 요약 (PR42 §11.3, PR43 시간 가드, PR117 금액 가드):
@@ -230,7 +232,7 @@ POST /tickets/{ticketId}/refund   ← buyer / 채널 owner / ADMIN (PR42)
 - PG gateway 실패 → `RefundFailedException` 502
 - **PR117** — `amount < 1` 또는 `amount > remainingRefundableAmount` → `InvalidRefundAmountException` 400
 
-webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRefundedWebhook`). 멱등 가드: `attempt.refundedAt != null` 이면 skip. webhook 은 부분 환불 입력을 처리하지 않는다 (`PARTIALLY_REFUNDED` webhook 은 무시).
+webhook `refund.completed` 도 같은 보정을 수행 (`PaymentService.handleRefundedWebhook`). 멱등 가드: `attempt.refundedAt != null` 이면 skip. webhook 은 부분 환불 입력을 처리하지 않는다 (`PARTIALLY_REFUNDED` webhook 은 무시). PR122 의 audit 도 webhook 흐름에서는 만들지 않는다 — PG-driven 이고 명시적 actor 가 없어서.
 
 자세한 부분 환불 정책 (cascade 조건 / PG 호출 / 알림 카피 / 상태 전이): [docs/payment-refund-policy.md §14](payment-refund-policy.md).
 
@@ -472,6 +474,7 @@ POST /api/v1/reports                     ← reporter
 - `THRESHOLD_UPDATED`
 - `AUDIT_LOGS_ARCHIVED` (PR65 — archive job 자체의 기록)
 - `TICKET_FORCED_REFUNDED` (PR106 — ADMIN 강제 전액 환불. `targetType=null`, `afterValue` JSON 에 ticketId/paymentAttemptId/ticketStatus/amount 동봉, `reason` 은 운영 사유. PR109 부터 `AdminModerationStatsService.getActorStats` 응답의 `forcedRefundCount` 로도 집계되어 운영자 활동 카드에 별도 표시. **PR115** 부터 단건 detail (`GET /admin/moderation/audit-logs/{id}`) 응답에 `forcedRefundContext` 가 채워진다 — `afterValue` 의 ticketId 로 ticket → buyer / event / channel 을 조회 시점 lookup. 원본 audit row 의 `beforeValue`/`afterValue` 는 손대지 않고, lookup 실패 시 `contextAvailable=false` 로 fallback. list / CSV export / archive 응답은 enrichment 제외 — N+1 회피 + CSV 호환 유지)
+- `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` (PR122 — 일반 사용자/owner/ADMIN 의 `POST /tickets/{id}/refund` 성공. actor 는 호출자 (buyer / channel owner / ADMIN). `targetType=null`. `beforeValue` JSON 에 ticketStatusBefore / paymentStatusBefore / refundedAmountBefore / remainingRefundableAmountBefore 동봉. `afterValue` JSON 에 ticketId / paymentAttemptId / eventId / refundAmount / refundedAmount / remainingRefundableAmount / ticketStatus / paymentStatus / fullRefund 동봉. fullRefund=true 면 `PAYMENT_REFUNDED` (누적이 결제 금액에 도달한 cascade), false 면 `PAYMENT_PARTIALLY_REFUNDED`. ADMIN forced refund 는 본 액션을 만들지 않고 `TICKET_FORCED_REFUNDED` 만 기록 — `PaymentService.refundPaymentByTicket` 와 `forceRefundByAdmin` 가 audit 기록을 분리 책임. webhook `refund.completed` 도 본 액션을 만들지 않음 (PG-driven). enrichment panel / actor stats breakdown 은 본 PR 범위 밖)
 
 조회 / 검색: `AdminAuditController` + `ModerationAuditLogSpecs`. CSV export 1000 행 한도 (`ModerationAuditLogService.EXPORT_LIMIT`).
 
@@ -613,5 +616,9 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR116 — Release bundle 문서 PR115 사이클로 refresh
 - PR117 — Partial refund backend foundation: V11 `payment_attempts.refunded_amount` 컬럼 + `TicketStatus.PARTIALLY_REFUNDED` / `PaymentStatus.PARTIALLY_REFUNDED` enum + `PaymentAttempt` 헬퍼 (`remainingRefundableAmount` / `markPartiallyRefunded` / `markFullyRefunded`) + `RefundTicketRequest.amount` optional + 부분 환불 cascade (참가/정원 무변경, 누적 도달 시 full cascade) + `InvalidRefundAmountException` (400) + admin forced refund 도 PARTIALLY_REFUNDED 티켓의 남은 금액 cascade 지원
 - PR118 — Partial refund frontend UX: `TicketDetailPage` inline refund form (전액/부분 라디오 + amount input + 사유) + `TICKET_STATUS_LABEL` "부분 환불됨" (warning tone) + MyPage `isTerminalTicket` 가드 유지 (PARTIALLY_REFUNDED 는 active) + 4xx 친화 카피 (1원 미만 / remaining 초과 / 동시 환불 race)
+- PR119 — Partial refund 정책 / 구조 문서: payment-refund-policy §14 / architecture §5.2·§10·§11 / manual-qa §14
+- PR120 — Partial refund regression hardening: `validatePrepareable` active statuses 에 PARTIALLY_REFUNDED 추가 (재결제 차단) + PaymentServiceTest 5 신규 케이스 + manual-qa §14 회귀 매트릭스 11 행
+- PR121 — Release bundle 문서 PR117~PR120 사이클로 refresh
+- PR122 — 일반 사용자 환불 audit: `PaymentService.refundPaymentByTicket` 성공 시 `PAYMENT_REFUNDED` (cascade) / `PAYMENT_PARTIALLY_REFUNDED` (partial) audit row 기록 (actor=호출자, beforeValue/afterValue JSON). `forceRefundByAdmin` 는 기존 `TICKET_FORCED_REFUNDED` 만 유지 (중복 audit 없음). frontend `ModerationAuditAction` union + label/tone/options 확장 (warning/success). PaymentServiceTest 6 신규 케이스 (partial / full / cascade / PG failure / invalid amount / forced refund no-audit)
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.

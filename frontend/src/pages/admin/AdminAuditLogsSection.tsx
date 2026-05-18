@@ -30,6 +30,8 @@ const AUDIT_ACTION_LABEL: Record<ModerationAuditAction, string> = {
   REPORT_DISMISSED: '신고 기각',
   AUDIT_LOGS_ARCHIVED: '감사 로그 아카이브',
   TICKET_FORCED_REFUNDED: '강제 환불',
+  PAYMENT_PARTIALLY_REFUNDED: '부분 환불',
+  PAYMENT_REFUNDED: '환불 완료',
 }
 
 const AUDIT_ACTION_TONE: Record<ModerationAuditAction, 'danger' | 'warning' | 'success' | 'neutral' | 'primary'> = {
@@ -44,6 +46,9 @@ const AUDIT_ACTION_TONE: Record<ModerationAuditAction, 'danger' | 'warning' | 's
   REPORT_DISMISSED: 'neutral',
   AUDIT_LOGS_ARCHIVED: 'neutral',
   TICKET_FORCED_REFUNDED: 'warning',
+  // PR122 — 일반 사용자 환불. 부분 환불은 진행 중 의미라 warning, 전액 환불은 종료 상태라 success.
+  PAYMENT_PARTIALLY_REFUNDED: 'warning',
+  PAYMENT_REFUNDED: 'success',
 }
 
 const TARGET_TYPE_LABEL: Record<ReportTargetType, string> = {
@@ -65,6 +70,8 @@ const AUDIT_ACTION_OPTIONS: ModerationAuditAction[] = [
   'REPORT_DISMISSED',
   'THRESHOLD_UPDATED',
   'TICKET_FORCED_REFUNDED',
+  'PAYMENT_PARTIALLY_REFUNDED',
+  'PAYMENT_REFUNDED',
   'AUDIT_LOGS_ARCHIVED',
 ]
 

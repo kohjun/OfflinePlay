@@ -158,6 +158,17 @@ export type ModerationAuditAction =
    * afterValue JSON 에 ticketId / paymentAttemptId / ticketStatus / amount 동봉.
    */
   | 'TICKET_FORCED_REFUNDED'
+  /**
+   * PR122 — 일반 사용자/owner/ADMIN 의 부분 환불 (`refundPaymentByTicket` 성공, 누적 < amount).
+   * afterValue JSON 에 ticketId/paymentAttemptId/eventId/refundAmount/refundedAmount/
+   * remainingRefundableAmount/ticketStatus/paymentStatus/fullRefund=false 동봉.
+   */
+  | 'PAYMENT_PARTIALLY_REFUNDED'
+  /**
+   * PR122 — 일반 사용자/owner/ADMIN 의 전액 환불 (`refundPaymentByTicket` cascade).
+   * 부분 환불 누적이 결제 금액에 도달해 cascade 가 발동한 경우 포함.
+   */
+  | 'PAYMENT_REFUNDED'
 
 export interface ModerationAuditLog {
   id: number

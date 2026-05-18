@@ -1,5 +1,7 @@
 package com.contenido.domain.payment.service
 
+import com.contenido.domain.admin.entity.ModerationAuditAction
+import com.contenido.domain.admin.service.ModerationAuditLogService
 import com.contenido.domain.event.entity.Event
 import com.contenido.domain.event.entity.EventParticipation
 import com.contenido.domain.event.entity.EventStatus
@@ -88,6 +90,12 @@ class PaymentService(
     private val paymentGateway: PaymentGateway,
     private val eventParticipationRepository: EventParticipationRepository,
     private val notificationService: NotificationService,
+    /**
+     * PR122 — 일반 사용자/owner/ADMIN 환불 성공 시 audit log 기록용. `forceRefundByAdmin` 는 본 service 가
+     * audit 을 기록하지 않고 호출자(AdminPaymentService) 가 `TICKET_FORCED_REFUNDED` 를 기록한다 —
+     * 중복 audit 방지. webhook 흐름도 본 service 가 audit 을 만들지 않는다 (PG-driven, actor 없음).
+     */
+    private val moderationAuditLogService: ModerationAuditLogService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -315,6 +323,12 @@ class PaymentService(
         }
         val willBeFullyRefunded = refundAmount == remaining
 
+        // PR122 — audit 기록용 before snapshot. cascade 후 ticket/attempt 가 바뀌므로 호출 전에 저장.
+        val beforeTicketStatus = ticket.status
+        val beforePaymentStatus = attempt.status
+        val beforeRefundedAmount = attempt.refundedAmount
+        val beforeRemainingAmount = remaining
+
         val reason = request.reason?.trim().orEmpty().ifBlank { "USER_REQUEST" }
         val result = paymentGateway.refund(
             PaymentGatewayRefundRequest(
@@ -332,6 +346,20 @@ class PaymentService(
                 } else {
                     applyPartialRefund(attempt, ticket, refundAmount, reason)
                 }
+                // PR122 — 일반 사용자/owner/ADMIN 환불 audit 기록. 같은 트랜잭션이라 audit 실패 시
+                // 환불도 rollback (admin forced refund 와 동일한 정책).
+                recordUserRefundAudit(
+                    actorId = actorId,
+                    ticket = ticket,
+                    attempt = attempt,
+                    refundAmount = refundAmount,
+                    fullRefund = willBeFullyRefunded,
+                    beforeTicketStatus = beforeTicketStatus,
+                    beforePaymentStatus = beforePaymentStatus,
+                    beforeRefundedAmount = beforeRefundedAmount,
+                    beforeRemainingAmount = beforeRemainingAmount,
+                    reason = reason,
+                )
                 attempt.toRefundResponse(ticket)
             }
             is PaymentGatewayRefundResult.Failure -> {
@@ -342,6 +370,60 @@ class PaymentService(
                 throw RefundFailedException(result.code, result.message)
             }
         }
+    }
+
+    /**
+     * PR122 — 일반 사용자/owner/ADMIN 환불 audit log 1건 기록.
+     *
+     *  - action :
+     *    - fullRefund=true  → [ModerationAuditAction.PAYMENT_REFUNDED] (cascade)
+     *    - fullRefund=false → [ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED]
+     *  - targetType / targetId = null (ReportTargetType 에 TICKET 없음 — admin forced refund 와 동일).
+     *  - beforeValue JSON : 환불 직전 상태 (cascade 영향을 받기 전 snapshot).
+     *  - afterValue JSON  : 환불 후 결과 + 이번 호출의 refundAmount + fullRefund 플래그.
+     *  - reason : `refundPaymentByTicket` 가 service 진입 시 trim + USER_REQUEST default 처리된 값.
+     *
+     * ADMIN forced refund (`forceRefundByAdmin`) 는 본 메서드를 호출하지 않는다 — 호출자(AdminPaymentService)
+     * 가 별도로 [ModerationAuditAction.TICKET_FORCED_REFUNDED] audit 1건만 기록 (PR106).
+     */
+    private fun recordUserRefundAudit(
+        actorId: Long,
+        ticket: Ticket,
+        attempt: PaymentAttempt,
+        refundAmount: Long,
+        fullRefund: Boolean,
+        beforeTicketStatus: TicketStatus,
+        beforePaymentStatus: PaymentStatus,
+        beforeRefundedAmount: Long,
+        beforeRemainingAmount: Long,
+        reason: String,
+    ) {
+        val action = if (fullRefund) ModerationAuditAction.PAYMENT_REFUNDED
+        else ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED
+        moderationAuditLogService.record(
+            actorId = actorId,
+            action = action,
+            targetType = null,
+            targetId = null,
+            beforeValue = mapOf(
+                "ticketStatusBefore" to beforeTicketStatus.name,
+                "paymentStatusBefore" to beforePaymentStatus.name,
+                "refundedAmountBefore" to beforeRefundedAmount,
+                "remainingRefundableAmountBefore" to beforeRemainingAmount,
+            ),
+            afterValue = mapOf(
+                "ticketId" to ticket.id,
+                "paymentAttemptId" to attempt.id,
+                "eventId" to attempt.event.id,
+                "refundAmount" to refundAmount,
+                "refundedAmount" to attempt.refundedAmount,
+                "remainingRefundableAmount" to attempt.remainingRefundableAmount(),
+                "ticketStatus" to ticket.status.name,
+                "paymentStatus" to attempt.status.name,
+                "fullRefund" to fullRefund,
+            ),
+            reason = reason,
+        )
     }
 
     private fun canRequestRefund(actor: User, ticket: Ticket): Boolean {
