@@ -9,26 +9,34 @@ import type { AdminForcedRefundResponse, PaymentProvider } from '../../types'
  *
  * 현재 도구 1종:
  *  - **강제 환불** — USED / 시작 후 PAID 티켓을 전액 환불. 일반 환불 경로의 deadline/USED 가드를
- *    우회한다. 운영자가 ticketId + 사유(필수) 입력 → confirm → backend POST.
+ *    우회한다. 운영자가 ticketId + 사유(필수) + "REFUND" 확인 문구 입력 → confirm → backend POST.
  *
  * 입력 정책:
  *  - ticketId: 숫자 + 양수
  *  - reason: 1~500자 (backend 도 동일 가드)
- *  - 두 필드 모두 채워야 버튼 활성
+ *  - confirmText: 정확히 "REFUND" (대소문자 구분, 앞뒤 공백 trim) — PR112
+ *  - 세 필드 모두 통과해야 버튼 활성
  *
  * 결과 표시:
- *  - 마지막 처리 결과를 카드 하단에 표시. 처리 후 form 은 리셋하지 않는다 — 운영자가 같은
- *    티켓에 대해 status 등을 다시 확인할 수 있게.
+ *  - 마지막 처리 결과를 카드 하단에 표시. 성공 후 form 세 필드는 모두 비운다 (PR112) — 같은 ticket
+ *    에 대한 우발적 재실행을 차단. 결과 카드만 남겨 운영자가 ticketId/금액/시각 등을 다시 확인.
+ *  - 실패 시 form state 는 모두 유지 — 운영자가 원인 수정 후 재시도 가능.
  *
  * PR111 — UX 보강:
  *  - 정책(전액만 / USED 가능 / buyer 알림 미노출) 을 sidebar 노트 + textarea help 로 가시화하고
  *    textarea 와 `aria-describedby` 로 연결.
  *  - confirm 카피를 행위 명세 (전액 / 가드 우회 / audit 기록 / 알림 미노출) 중심으로 강화.
- *    "REFUND" 입력 확인 같은 추가 잠금은 후속 PR 후보로 남김.
  *  - 결과 카드를 labeled grid + `Badge` 로 재배치 + 통화 / 시각 / provider 라벨 매핑.
  *  - 4xx / 5xx 별 사용자 친화 카피 (backend message 는 toast `message` 로 보존).
  *  - input/textarea 에 `id` + `htmlFor`, 결과 카드에 `role="status"` + `aria-live="polite"`.
+ *
+ * PR112 — 텍스트 확인 잠금:
+ *  - reason 아래에 "REFUND" 확인 문구 입력 필드 추가. 정확히 일치할 때만 실행 버튼 활성.
+ *  - confirm dialog 는 PR111 의 본문을 그대로 유지 (텍스트 확인이 들어왔으므로 dialog 추가 강화 X).
+ *  - confirmText 는 클라이언트 잠금 — API payload 는 PR106 의 `{ reason }` 그대로.
  */
+const CONFIRM_PHRASE = 'REFUND'
+
 const PROVIDER_LABEL: Record<PaymentProvider, string> = {
   NONE: 'Mock (테스트)',
   TOSS: '토스페이먼츠',
@@ -49,6 +57,7 @@ export function AdminPaymentToolsSection() {
   const { showToast } = useToast()
   const [ticketIdInput, setTicketIdInput] = useState('')
   const [reason, setReason] = useState('')
+  const [confirmText, setConfirmText] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [lastResult, setLastResult] = useState<AdminForcedRefundResponse | null>(null)
 
@@ -56,7 +65,10 @@ export function AdminPaymentToolsSection() {
   const ticketIdValid = ticketIdInput.trim().length > 0 && Number.isInteger(ticketIdNum) && ticketIdNum > 0
   const reasonTrimmed = reason.trim()
   const reasonValid = reasonTrimmed.length >= 1 && reasonTrimmed.length <= 500
-  const canSubmit = ticketIdValid && reasonValid && !submitting
+  const confirmTextTrimmed = confirmText.trim()
+  const confirmValid = confirmTextTrimmed === CONFIRM_PHRASE
+  const confirmInvalid = confirmText.length > 0 && !confirmValid
+  const canSubmit = ticketIdValid && reasonValid && confirmValid && !submitting
 
   async function handleSubmit() {
     if (!canSubmit) return
@@ -77,6 +89,9 @@ export function AdminPaymentToolsSection() {
     try {
       const result = await forceRefundTicket(ticketIdNum, reasonTrimmed)
       setLastResult(result)
+      setTicketIdInput('')
+      setReason('')
+      setConfirmText('')
       showToast({ title: '강제 환불 처리 완료', tone: 'success' })
     } catch (error) {
       const status = (error as { status?: number } | null)?.status
@@ -146,6 +161,25 @@ export function AdminPaymentToolsSection() {
           </span>
           <span id="admin-forced-refund-reason-count" className="muted">
             {reasonTrimmed.length} / 500
+          </span>
+        </label>
+        <label className="form-field" htmlFor="admin-forced-refund-confirm">
+          <span>확인 문구</span>
+          <input
+            id="admin-forced-refund-confirm"
+            type="text"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            disabled={submitting}
+            aria-describedby="admin-forced-refund-confirm-help"
+            aria-invalid={confirmInvalid || undefined}
+            placeholder={CONFIRM_PHRASE}
+          />
+          <span id="admin-forced-refund-confirm-help" className="muted">
+            강제 환불을 실행하려면 <code>{CONFIRM_PHRASE}</code> 를 정확히 입력하세요 (대소문자 구분).
           </span>
         </label>
         <div className="admin-actions">

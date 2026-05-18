@@ -287,6 +287,12 @@
   resize: vertical;
 }
 
+/* PR112 — confirm 문구 미일치 시 시각 피드백. submit 버튼이 disabled 라 행동은 막혀 있지만
+   운영자가 빠르게 문제를 알아챌 수 있게 border 만 강조. */
+.form-field input[aria-invalid='true'] {
+  border-color: var(--danger, #d04949);
+}
+
 .ct-forced-refund-notice {
   display: grid;
   gap: 4px;

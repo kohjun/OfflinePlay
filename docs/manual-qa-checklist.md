@@ -516,12 +516,18 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] 🖱 `/admin?tab=payments` 진입 → "운영 결제 도구" 섹션이 노출되고 ticketId 입력 + 사유 textarea + "강제 환불 실행" 버튼이 보임
 - [ ] 🖱 ticketId 가 비어 있거나 0 이하 / 사유가 비어 있음 → "강제 환불 실행" 버튼 disabled
 - [ ] 🖱 사유 500자 초과 시 input 자체가 자르거나 (`maxLength=500`) 글자 수 카운터에 도달
+- [ ] 🖱 PR112 — reason 아래에 "확인 문구" 입력 필드 + help "강제 환불을 실행하려면 `REFUND` 를 정확히 입력하세요 (대소문자 구분)." 노출. ticketId / reason 유효해도 확인 문구 미입력이면 실행 버튼 disabled
+- [ ] 🖱 PR112 — 소문자 `refund`, 앞뒤 공백만 있는 `  ` 등 정확히 일치하지 않는 입력 → 버튼 여전히 disabled + 확인 입력에 `aria-invalid="true"` 및 빨간 border 강조 (devtools accessibility tree 에서 invalid 표시 확인)
+- [ ] 🖱 PR112 — 정확히 `REFUND` 입력 + ticketId / reason 모두 valid → 실행 버튼 enabled + `aria-invalid` 제거
+- [ ] 🖱 PR112 — 정확히 `REFUND` 앞뒤로 공백이 있어도 (`  REFUND ` 등) trim 후 일치하면 활성 (붙여넣기 편의)
 - [ ] 🖱 PR111 — 섹션 상단에 안내 bullet 3종 노출: "전액 환불만 가능 (부분 환불 미구현)" / "USED·시작 이후 티켓도 처리됨 — 일반 환불 가드 우회" / "처리 내역은 감사 로그에 기록됨"
 - [ ] 🖱 PR111 — reason textarea 하단 help 텍스트 "운영 사유는 감사 로그(audit log)에 기록되고 사용자 알림에는 노출되지 않습니다." 노출 + textarea 에 `aria-describedby` 로 연결 (devtools accessibility tree 에서 describedby 확인 가능)
 - [ ] 🖱 PR111 — ticketId input 에 `id` + label `htmlFor` 연결, reason textarea 에도 동일 (devtools accessibility tree 에서 label 이름이 input 에 노출됨)
 - [ ] 🖱 유효한 입력 후 버튼 클릭 → confirm dialog 본문에 "전액 환불만 가능" / "USED·시작 이후 처리" / "감사 로그 기록" / "알림에 사유 미노출" 4 항목이 한 줄씩 모두 표시
 - [ ] 🖱 confirm 취소 → 아무 요청도 발생하지 않음
 - [ ] 🖱 confirm 확인 → backend POST 호출 후 "강제 환불 처리 완료" success toast + "마지막 처리 결과" 카드에 ticketStatus=REFUNDED, 금액, PG, 처리 시각, 사유 노출
+- [ ] 🖱 PR112 — 성공 후 ticketId / reason / 확인 문구 세 필드 모두 비어 있는 상태로 리셋 (결과 카드만 유지). 다음 강제 환불은 모든 필드 재입력 + REFUND 재입력 필요
+- [ ] 🖱 PR112 — 실패 (409 / 404 / 403 / 502 / 기타) 토스트 노출 후 세 필드 모두 유지 — 운영자가 원인 수정 (예: ticketId 정정) 후 동일 reason / 확인 문구로 재시도 가능
 - [ ] 🖱 PR111 — 결과 카드의 라벨/값 grid 표시: "티켓 ID #N", "환불 금액 ₩12,345" (통화 포맷), "결제 수단 토스페이먼츠 / PortOne / Mock (테스트)" (provider 라벨 매핑), "결제 시도 ID #N", "처리 시각 YYYY-MM-DD HH:mm" (ko-KR 로컬), "PG 결제 키" 6칸 노출. providerPaymentKey 가 null 이면 "—" 표시
 - [ ] 🖱 PR111 — 결과 카드 상단 우측에 ticketStatus Badge (REFUNDED 일 때 success tone, 그 외 neutral)
 - [ ] 🖱 PR111 — 결과 카드 `role="status"` + `aria-live="polite"` (devtools accessibility tree 에서 status role 확인)
@@ -546,6 +552,7 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - [ ] 📋 일반 사용자 환불 (`POST /tickets/{id}/refund`) 의 deadline / USED 가드는 그대로 동작 — buyer 가 같은 USED 티켓을 일반 경로로 환불 시도 시 `TicketAlreadyUsedException` 409 (회귀 가드)
 - [ ] 📋 PG gateway 가 Failure 응답을 보낸 경우 (devtools 로 mock) → 502 "PG 환불 처리에 실패했습니다." + ticket 상태는 보존 (PAID/USED 그대로, audit 기록 없음)
 - [ ] 📋 새 마이그레이션 없음 (V10 까지만 존재). `ModerationAuditAction.TICKET_FORCED_REFUNDED` enum 추가만 코드 변경.
+- [ ] 📋 PR112 — request payload (Network 탭) 는 `{ "reason": "..." }` 만 포함. `confirmText` 가 backend 로 전송되지 않음 (클라이언트 잠금)
 
 **기대 결과**: ADMIN 이 일반 환불 경로로 막혀 있던 케이스를 명시적 사유 기록과 함께 한 곳에서 처리할 수 있다. 환불 cascade, buyer 알림, audit 기록이 모두 동일 트랜잭션에서 일관되게 적용된다.
 
