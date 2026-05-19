@@ -667,6 +667,26 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 raw JSON 을 직접 읽지 않고도 일반 사용자 환불 audit row 의 buyer / event / channel / 세 금액 / 환불 유형 / 상태를 한 panel 에서 확인. PR115 의 강제 환불 panel 과 동일한 UX 패턴 — 두 panel 은 상호 배타적이라 한 row 가 둘 다 표시되지 않는다.
 
+### 26. 사용자 환불 audit quick filter chip (PR128)
+**목적**: PR113 의 "강제 환불" quick filter chip 패턴을 PR122 의 `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` 액션에도 확장. 운영자가 select dropdown 을 거치지 않고 한 번의 클릭으로 부분/전액 환불 audit row 만 필터링할 수 있는지 검증. backend / API / DB 변경 없음 — 기존 audit list endpoint 의 `action` 쿼리 파라미터를 그대로 사용.
+
+**사전 조건**: `refundPaymentByTicket` 로 부분 환불 1건 + 전액 환불(일반) 1건 + ADMIN 강제 환불 1건 처리해 세 액션의 audit row 가 각각 누적된 상태.
+
+- [ ] 🖱 PR128 — `/admin?tab=audit-logs` 진입 → "빠른 필터" 라벨 뒤에 `강제 환불` / `부분 환불` / `환불 완료` 3개 chip 노출 (이 순서)
+- [ ] 🖱 PR128 — "부분 환불" chip 클릭 → chip 이 active style (primary fill) + 액션 select 가 "부분 환불" 로 자동 갱신 + 목록이 `PAYMENT_PARTIALLY_REFUNDED` row 만 표시 + 현재 페이지가 1 페이지로 reset
+- [ ] 🖱 PR128 — "환불 완료" chip 클릭 → chip active + 액션 select "환불 완료" + 목록이 `PAYMENT_REFUNDED` row 만 표시 + 페이지 reset
+- [ ] 🖱 PR128 — "강제 환불" chip 은 PR113 동작 그대로 — 클릭 시 `TICKET_FORCED_REFUNDED` 만 필터링. 세 chip 은 상호 배타 (한 번에 하나만 active, 다른 chip 클릭 시 직전 chip 자동 해제)
+- [ ] 🖱 PR128 — active chip 재클릭 → 필터 해제 (`action=''` 복귀, 전체 로그 표시)
+- [ ] 🖱 PR128 — 액션 select dropdown 에서 "부분 환불" 선택 → "부분 환불" chip active style 동기화 (select → chip 방향). "환불 완료" / "강제 환불" 도 동일
+- [ ] 🖱 PR128 — "필터 초기화" 버튼 클릭 → 모든 chip inactive + select "전체" 로 복귀 (양방향 reset)
+- [ ] 🖱 PR128 — chip active 상태에서 row "상세" 클릭 → PR126 의 `PaymentRefundContextPanel` 정상 노출 (chip 필터와 detail enrichment 가 독립적으로 동작)
+- [ ] 🖱 PR128 — `aria-pressed` 속성이 세 chip 모두에 적용 (devtools accessibility tree 에서 toggle button 으로 인식). title tooltip 에 action 값 + 재클릭 해제 안내
+- [ ] 🖱 PR128 — archive 탭 (`tab=archived`) 으로 전환 → chip 들은 그대로 보이고 같은 액션 필터가 archive 응답에도 적용됨 (archive list endpoint 도 동일 `action` 파라미터 지원)
+- [ ] 📋 PR128 — 모바일 420px 폭에서 chip 들이 줄바꿈으로 자연스럽게 wrap (CSS `.ct-audit-quick-filters` 의 `flex-wrap: wrap` 동작)
+- [ ] 📋 PR128 — backend / API / DB 변경 없음. 새 마이그레이션 없음. PR126 의 paymentRefundContext detail enrichment 와 독립
+
+**기대 결과**: 운영자가 한 번의 클릭으로 부분 환불 / 환불 완료 / 강제 환불 세 종류 audit 흐름을 빠르게 분리해 확인. PR113 + PR128 의 chip row 가 audit-logs 화면의 진입 동선을 단축한다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

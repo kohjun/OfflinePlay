@@ -521,6 +521,36 @@ export function AdminAuditLogsSection() {
         >
           강제 환불
         </button>
+        <button
+          type="button"
+          className={`chip${auditFilters.action === 'PAYMENT_PARTIALLY_REFUNDED' ? ' is-active' : ''}`}
+          onClick={() => {
+            setAuditFilters((prev) => ({
+              ...prev,
+              action: prev.action === 'PAYMENT_PARTIALLY_REFUNDED' ? '' : 'PAYMENT_PARTIALLY_REFUNDED',
+            }))
+            setAuditPage(0); setArchivedPage(0)
+          }}
+          aria-pressed={auditFilters.action === 'PAYMENT_PARTIALLY_REFUNDED'}
+          title="action=PAYMENT_PARTIALLY_REFUNDED 만 필터링 (재클릭 해제)"
+        >
+          부분 환불
+        </button>
+        <button
+          type="button"
+          className={`chip${auditFilters.action === 'PAYMENT_REFUNDED' ? ' is-active' : ''}`}
+          onClick={() => {
+            setAuditFilters((prev) => ({
+              ...prev,
+              action: prev.action === 'PAYMENT_REFUNDED' ? '' : 'PAYMENT_REFUNDED',
+            }))
+            setAuditPage(0); setArchivedPage(0)
+          }}
+          aria-pressed={auditFilters.action === 'PAYMENT_REFUNDED'}
+          title="action=PAYMENT_REFUNDED 만 필터링 (재클릭 해제)"
+        >
+          환불 완료
+        </button>
       </div>
 
       <div className="ct-audit-filters">
