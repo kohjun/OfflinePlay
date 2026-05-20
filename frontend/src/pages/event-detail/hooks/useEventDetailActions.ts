@@ -71,8 +71,14 @@ export function useEventDetailActions({
       setComments((items) => [created, ...items])
       setCommentDraft('')
     } catch (error) {
+      // PR140 — `EventRoomAccessDeniedException` (403) 메시지 매핑. 다른 4xx/5xx 는 기본 카피.
+      const status = (error as { status?: number } | null)?.status
+      const title =
+        status === 403
+          ? '참가가 확정된 후 입장할 수 있어요'
+          : '댓글 등록 실패'
       showToast({
-        title: '댓글 등록 실패',
+        title,
         message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
         tone: 'danger',
       })

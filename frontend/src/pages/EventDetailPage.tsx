@@ -299,6 +299,11 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         comments={comments}
         commentDraft={commentDraft}
         submittingComment={submittingComment}
+        canAccessRoom={
+          isOwner ||
+          user?.role === 'ADMIN' ||
+          participation?.status === 'APPROVED'
+        }
         onDraftChange={setCommentDraft}
         onSubmit={handleSubmitComment}
       />

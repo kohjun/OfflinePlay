@@ -370,6 +370,15 @@ class ReviewBeforeEventEndedException : ContENIDOException(
     HttpStatus.FORBIDDEN, "후기는 이벤트가 끝난 뒤에 작성할 수 있습니다."
 )
 
+/**
+ * PR140 — 이벤트 룸(`TargetType.EVENT` 댓글) 작성 권한 없음.
+ * APPROVED 참가자 / 채널 owner / ADMIN 만 작성 가능 — 그 외는 본 예외.
+ * 운영 의미: "이벤트 룸" 은 참가 확정자와 운영자만의 비공개 대화 공간.
+ */
+class EventRoomAccessDeniedException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "참가 확정자와 운영자만 이벤트 룸에 글을 쓸 수 있습니다."
+)
+
 /** 같은 이벤트에 이미 후기를 작성한 사용자가 다시 POST 한 경우. UI 는 PATCH 로 유도. */
 class ReviewAlreadyExistsException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 후기를 작성한 이벤트입니다."

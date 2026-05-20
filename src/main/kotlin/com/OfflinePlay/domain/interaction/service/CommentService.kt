@@ -1,5 +1,7 @@
 package com.contenido.domain.interaction.service
 
+import com.contenido.domain.event.entity.ParticipationStatus
+import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
 import com.contenido.domain.interaction.dto.CommentResponse
 import com.contenido.domain.interaction.dto.CreateCommentRequest
@@ -11,6 +13,7 @@ import com.contenido.domain.notification.entity.NotificationType
 import com.contenido.domain.notification.service.NotificationService
 import com.contenido.domain.post.repository.PostRepository
 import com.contenido.domain.user.entity.User
+import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.*
 import com.contenido.global.util.HtmlSanitizer
@@ -27,6 +30,11 @@ class CommentService(
     private val userRepository: UserRepository,
     private val postRepository: PostRepository,
     private val eventRepository: EventRepository,
+    /**
+     * PR140 — 이벤트 룸 작성 권한 검사. `TargetType.EVENT` 댓글은 APPROVED 참가자 / 채널 owner /
+     * ADMIN 만 작성 가능 — 그 외는 [EventRoomAccessDeniedException].
+     */
+    private val eventParticipationRepository: EventParticipationRepository,
     private val notificationService: NotificationService,
 ) {
 
@@ -38,6 +46,11 @@ class CommentService(
         request: CreateCommentRequest,
     ): CommentResponse {
         val user = findActiveUser(userId)
+
+        // PR140 — EVENT 룸 권한 가드. POST/COMMENT 는 기존 정책 그대로 (누구나 작성).
+        if (targetType == TargetType.EVENT) {
+            requireEventRoomMember(user, targetId)
+        }
 
         val parentComment = request.parentCommentId?.let {
             commentRepository.findById(it).orElseThrow { CommentNotFoundException() }
@@ -142,6 +155,27 @@ class CommentService(
         val user = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
         if (user.isDeleted) throw DeletedUserException()
         return user
+    }
+
+    /**
+     * PR140 — 이벤트 룸 작성 권한:
+     *  - ADMIN
+     *  - 채널 owner (이벤트 운영자)
+     *  - APPROVED participation (참가 확정자)
+     *
+     * 셋 중 하나라도 만족하면 통과. 그 외는 [EventRoomAccessDeniedException].
+     * event 가 존재하지 않으면 일반 [EventNotFoundException] — 정보 누설을 최소화하려면 동일
+     * 메시지로 합칠 수도 있으나 운영 디버그를 위해 분리한 채로 유지.
+     */
+    private fun requireEventRoomMember(user: User, eventId: Long) {
+        if (user.role == UserRole.ADMIN) return
+        val event = eventRepository.findById(eventId).orElseThrow { EventNotFoundException() }
+        if (event.channel.owner.id == user.id) return
+        val participation = eventParticipationRepository
+            .findByEventAndParticipant(event, user)
+            .orElse(null)
+        if (participation?.status == ParticipationStatus.APPROVED) return
+        throw EventRoomAccessDeniedException()
     }
 
     private fun Comment.toResponse(replies: List<CommentResponse>) = CommentResponse(
