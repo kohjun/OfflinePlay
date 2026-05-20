@@ -866,10 +866,170 @@ class ModerationAuditLogServiceTest {
         val lines = csv.split("\r\n")
 
         assertThat(lines[0]).isEqualTo(ModerationAuditLogService.CSV_HEADER)
-        // id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue
+        // PR63 prefix 10 컬럼 + PR131 refund-derived 10 컬럼 (non-refund row → 모두 빈 값).
         assertThat(lines[1]).isEqualTo(
-            "42,2026-05-17T08:30:15,99,admin,TARGET_HIDDEN,REVIEW,50,정책 위반,,\"{\"\"hidden\"\":true}\""
+            "42,2026-05-17T08:30:15,99,admin,TARGET_HIDDEN,REVIEW,50,정책 위반,,\"{\"\"hidden\"\":true}\"," +
+                ",,,,,,,,,"
         )
+    }
+
+    // ── PR131 CSV refund-derived columns ─────────────────────────────────────
+
+    @Test
+    fun `exportToCsv - PR131 헤더는 PR63 prefix 10 컬럼 + refund 컬럼 10 개 (총 20)`() {
+        // append-only invariant: PR63 prefix 가 그대로 첫 10 컬럼이고 그 뒤에 refund 컬럼만 추가.
+        assertThat(ModerationAuditLogService.CSV_HEADER).startsWith(
+            "id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue,",
+        )
+        assertThat(ModerationAuditLogService.CSV_HEADER).endsWith(
+            "refundKind,ticketId,paymentAttemptId,eventId,refundAmount,refundedAmount," +
+                "remainingRefundableAmount,ticketStatus,paymentStatus,fullRefund",
+        )
+        assertThat(ModerationAuditLogService.CSV_HEADER.count { it == ',' }).isEqualTo(19) // 20 컬럼 → 19 콤마
+    }
+
+    @Test
+    fun `exportToCsv - TICKET_FORCED_REFUNDED row → refundKind=FORCED + amount→refundAmount`() {
+        val actor = createUser(99L, nickname = "admin")
+        val afterJson = """{"ticketId":123,"paymentAttemptId":456,"amount":25000,"ticketStatus":"REFUNDED"}"""
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.TICKET_FORCED_REFUNDED,
+            beforeValue = null,
+            afterValue = afterJson,
+            reason = null,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 1L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportToCsv()
+        val cols = csv.split("\r\n")[1].split(",")
+
+        // 마지막 10 컬럼 만 검사: refundKind, ticketId, paymentAttemptId, eventId, refundAmount,
+        //                       refundedAmount, remainingRefundableAmount, ticketStatus, paymentStatus, fullRefund
+        val refundCols = cols.takeLast(10)
+        assertThat(refundCols).containsExactly(
+            "FORCED", "123", "456", "", "25000", "", "", "REFUNDED", "", "",
+        )
+    }
+
+    @Test
+    fun `exportToCsv - PAYMENT_PARTIALLY_REFUNDED row → refundKind=PARTIAL + 9 JSON 필드 매핑`() {
+        val actor = createUser(99L)
+        val afterJson = """
+            {"ticketId":123,"paymentAttemptId":456,"eventId":50,
+             "refundAmount":5000,"refundedAmount":5000,"remainingRefundableAmount":20000,
+             "ticketStatus":"PARTIALLY_REFUNDED","paymentStatus":"PARTIALLY_REFUNDED","fullRefund":false}
+        """.trimIndent()
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            beforeValue = null,
+            afterValue = afterJson,
+            reason = null,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 2L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportToCsv()
+        val refundCols = csv.split("\r\n")[1].split(",").takeLast(10)
+        assertThat(refundCols).containsExactly(
+            "PARTIAL", "123", "456", "50",
+            "5000", "5000", "20000",
+            "PARTIALLY_REFUNDED", "PARTIALLY_REFUNDED", "false",
+        )
+    }
+
+    @Test
+    fun `exportToCsv - PAYMENT_REFUNDED row → refundKind=FULL + fullRefund=true`() {
+        val actor = createUser(99L)
+        val afterJson = """
+            {"ticketId":123,"paymentAttemptId":456,"eventId":50,
+             "refundAmount":25000,"refundedAmount":25000,"remainingRefundableAmount":0,
+             "ticketStatus":"REFUNDED","paymentStatus":"REFUNDED","fullRefund":true}
+        """.trimIndent()
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.PAYMENT_REFUNDED,
+            beforeValue = null,
+            afterValue = afterJson,
+            reason = null,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 3L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportToCsv()
+        val refundCols = csv.split("\r\n")[1].split(",").takeLast(10)
+        assertThat(refundCols).containsExactly(
+            "FULL", "123", "456", "50",
+            "25000", "25000", "0",
+            "REFUNDED", "REFUNDED", "true",
+        )
+    }
+
+    @Test
+    fun `exportToCsv - non-refund action 의 10 새 컬럼은 모두 빈 값`() {
+        val actor = createUser(99L)
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.TARGET_HIDDEN,
+            beforeValue = null,
+            afterValue = """{"hidden":true}""",
+            reason = null,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 4L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportToCsv()
+        val refundCols = csv.split("\r\n")[1].split(",").takeLast(10)
+        assertThat(refundCols).containsExactly("", "", "", "", "", "", "", "", "", "")
+    }
+
+    @Test
+    fun `exportToCsv - PAYMENT_REFUNDED + malformed JSON → export 성공 + refundKind=FULL + 나머지 빈 값`() {
+        val actor = createUser(99L)
+        val log = ModerationAuditLog(
+            actor = actor,
+            action = ModerationAuditAction.PAYMENT_REFUNDED,
+            beforeValue = null,
+            afterValue = "not-json{",
+            reason = null,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 5L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportToCsv() // 절대 throw 하면 안 됨
+        val refundCols = csv.split("\r\n")[1].split(",").takeLast(10)
+        // refundKind 는 action 기반이라 FULL, JSON 파생 9 컬럼은 빈 값.
+        assertThat(refundCols).containsExactly("FULL", "", "", "", "", "", "", "", "", "")
+    }
+
+    @Test
+    fun `csvRefundDerivedColumns 단위 - null afterValue + refund action → refundKind 만 채워지고 나머지 빈 값`() {
+        val cols = service.csvRefundDerivedColumns(
+            ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, afterValue = null,
+        )
+        assertThat(cols).containsExactly("PARTIAL", "", "", "", "", "", "", "", "", "")
     }
 
     @Test

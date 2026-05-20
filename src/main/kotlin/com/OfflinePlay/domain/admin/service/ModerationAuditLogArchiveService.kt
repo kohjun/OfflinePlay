@@ -53,9 +53,17 @@ class ModerationAuditLogArchiveService(
         /** PR67 — archive 조회용 export CSV 행 한도. PR63 active export 와 동일 한도. */
         const val EXPORT_LIMIT: Int = 1000
 
-        /** PR67 — archive CSV 헤더. originalId 가 첫 컬럼 — 활성 export 와 일관된 컬럼 순서. */
+        /**
+         * PR67 — archive CSV 헤더. originalId 가 첫 컬럼 — 활성 export 와 일관된 컬럼 순서.
+         *
+         * PR131 — 환불 분석용 파생 컬럼 10 개 append-only (active export 와 동일 컬럼 정의).
+         * 기존 prefix 11 컬럼은 위치 / 이름 그대로. archive CSV 도 lookup enrichment 미적용
+         * (`afterValue` JSON 파생값만) — N+1 회피.
+         */
         const val CSV_HEADER: String =
-            "originalId,originalCreatedAt,archivedAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue"
+            "originalId,originalCreatedAt,archivedAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue," +
+                "refundKind,ticketId,paymentAttemptId,eventId,refundAmount,refundedAmount," +
+                "remainingRefundableAmount,ticketStatus,paymentStatus,fullRefund"
 
         private const val CSV_LINE_TERMINATOR = "\r\n"
 
@@ -299,6 +307,10 @@ class ModerationAuditLogArchiveService(
             sb.append(moderationAuditLogService.csvEscape(log.reason)).append(',')
             sb.append(moderationAuditLogService.csvEscape(log.beforeValue)).append(',')
             sb.append(moderationAuditLogService.csvEscape(log.afterValue))
+            // PR131 — active export 와 동일 helper 재사용 (코드 / 정책 단일 원천).
+            moderationAuditLogService
+                .csvRefundDerivedColumns(log.action, log.afterValue)
+                .forEach { sb.append(',').append(it) }
             sb.append(CSV_LINE_TERMINATOR)
         }
         return sb.toString()

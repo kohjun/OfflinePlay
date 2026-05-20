@@ -312,6 +312,10 @@ class ModerationAuditLogArchiveServiceTest {
                 "\"" + v.replace("\"", "\"\"") + "\""
             else v
         }
+        // PR131 — archive CSV 가 active CSV 와 동일 helper 로 refund 파생 컬럼 10 개를 만든다.
+        // mockk(relaxed=true) 의 default 는 `emptyList()` 라 row 의 컬럼 수가 어긋난다.
+        every { moderationAuditLogService.csvRefundDerivedColumns(any(), any()) } returns
+            List(10) { "" }
     }
 
     @Test
@@ -573,6 +577,52 @@ class ModerationAuditLogArchiveServiceTest {
         val csv = service.exportArchivedToCsv()
 
         assertThat(csv).contains(",\"스팸, 광고\",")
+    }
+
+    @Test
+    fun `exportArchivedToCsv - PR131 헤더는 PR67 prefix 11 컬럼 + refund 컬럼 10 개`() {
+        // active CSV 와 같은 refund-derived 컬럼 정의를 archive CSV 도 그대로 갖는다.
+        assertThat(ModerationAuditLogArchiveService.CSV_HEADER).startsWith(
+            "originalId,originalCreatedAt,archivedAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue,",
+        )
+        assertThat(ModerationAuditLogArchiveService.CSV_HEADER).endsWith(
+            "refundKind,ticketId,paymentAttemptId,eventId,refundAmount,refundedAmount," +
+                "remainingRefundableAmount,ticketStatus,paymentStatus,fullRefund",
+        )
+        assertThat(ModerationAuditLogArchiveService.CSV_HEADER.count { it == ',' }).isEqualTo(20) // 21 컬럼 → 20 콤마
+    }
+
+    @Test
+    fun `exportArchivedToCsv - PR131 refund row 는 active helper 가 만든 10 컬럼이 그대로 append`() {
+        stubAuditServiceHelpers()
+        // 실제 active helper 동작을 흉내 — refund row 가 들어오면 10 개 값 반환.
+        every {
+            moderationAuditLogService.csvRefundDerivedColumns(
+                ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, any(),
+            )
+        } returns listOf(
+            "PARTIAL", "123", "456", "50", "5000", "5000", "20000",
+            "PARTIALLY_REFUNDED", "PARTIALLY_REFUNDED", "false",
+        )
+        val row = buildRefundArchive(
+            42L, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            """{"ticketId":123}""",
+        ).apply {
+            ReflectionTestUtils.setField(this, "originalCreatedAt", LocalDateTime.of(2024, 1, 1, 0, 0))
+            ReflectionTestUtils.setField(this, "archivedAt", LocalDateTime.of(2025, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(listOf(row), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportArchivedToCsv()
+        val refundCols = csv.split("\r\n")[1].split(",").takeLast(10)
+        assertThat(refundCols).containsExactly(
+            "PARTIAL", "123", "456", "50", "5000", "5000", "20000",
+            "PARTIALLY_REFUNDED", "PARTIALLY_REFUNDED", "false",
+        )
     }
 
     @Test

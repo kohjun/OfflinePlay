@@ -63,9 +63,22 @@ class ModerationAuditLogService(
         /** PR63 CSV 행의 createdAt 직렬화 형식. ISO_LOCAL_DATE_TIME 이면 Excel 도 잘 인식. */
         private val CSV_DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE_TIME
 
-        /** PR63 CSV 헤더 (RFC 4180). 컬럼 순서 변경 시 운영자 외부 도구가 깨질 수 있으니 신중. */
+        /**
+         * PR63 CSV 헤더 (RFC 4180). 컬럼 순서 변경 시 운영자 외부 도구가 깨질 수 있으니 신중.
+         *
+         * PR131 — 환불 분석용 파생 컬럼 10 개 append-only 추가. 기존 prefix 10 컬럼 (`id` ~
+         * `afterValue`) 는 절대 위치 / 이름이 그대로다. 새 컬럼들은 afterValue JSON 파생값만
+         * 노출 — buyer / event title 등 lookup 결과는 포함하지 않는다 (CSV 는 N+1 lookup 금지).
+         *  - `refundKind` : `FORCED` / `PARTIAL` / `FULL` / 빈 값.
+         *  - `ticketId / paymentAttemptId / eventId / refundAmount / refundedAmount /
+         *    remainingRefundableAmount / ticketStatus / paymentStatus / fullRefund` :
+         *    forced refund 의 경우 `amount` 가 `refundAmount` 로, user refund 는 PR122 JSON
+         *    필드 그대로. non-refund row 또는 malformed JSON 은 새 컬럼 전부 빈 값.
+         */
         const val CSV_HEADER =
-            "id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue"
+            "id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue," +
+                "refundKind,ticketId,paymentAttemptId,eventId,refundAmount,refundedAmount," +
+                "remainingRefundableAmount,ticketStatus,paymentStatus,fullRefund"
 
         /** RFC 4180 line terminator. */
         private const val CSV_LINE_TERMINATOR = "\r\n"
@@ -184,9 +197,68 @@ class ModerationAuditLogService(
             sb.append(csvEscape(log.reason)).append(',')
             sb.append(csvEscape(log.beforeValue)).append(',')
             sb.append(csvEscape(log.afterValue))
+            csvRefundDerivedColumns(log.action, log.afterValue).forEach { sb.append(',').append(it) }
             sb.append(CSV_LINE_TERMINATOR)
         }
         return sb.toString()
+    }
+
+    /**
+     * PR131 — refund audit row 의 afterValue JSON 에서 CSV 파생 컬럼 10 개 생성. 정책:
+     *
+     *  - non-refund action 또는 afterValue null / blank / 비 object / 파싱 실패 → 10 columns
+     *    모두 빈 문자열. 본 helper 는 절대 throw 하지 않는다 — export 실패 가드 (PR63 invariant).
+     *  - `TICKET_FORCED_REFUNDED` (PR106 schema) : `refundKind=FORCED`, `ticketId` / `paymentAttemptId`
+     *    / `amount` (→ `refundAmount` 컬럼) / `ticketStatus`. user-refund 전용 컬럼 (`eventId`,
+     *    `refundedAmount`, `remainingRefundableAmount`, `paymentStatus`, `fullRefund`) 은 빈 값.
+     *  - `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` (PR122 schema) : action 에서 `PARTIAL`
+     *    / `FULL` 결정 (afterValue 의 `fullRefund` 는 보조 컬럼). PR122 JSON 의 9 키 (`ticketId`,
+     *    `paymentAttemptId`, `eventId`, `refundAmount`, `refundedAmount`, `remainingRefundableAmount`,
+     *    `ticketStatus`, `paymentStatus`, `fullRefund`) 그대로 매핑.
+     *  - lookup (TicketRepository 등) 호출 **금지** — CSV 는 N+1 부담을 절대 안 진다.
+     *
+     * 반환은 길이 10 의 already-CSV-safe 문자열 리스트. 호출자가 `,` join 한다.
+     */
+    internal fun csvRefundDerivedColumns(action: ModerationAuditAction, afterValue: String?): List<String> {
+        val empty = List(10) { "" }
+        val refundKind = when (action) {
+            ModerationAuditAction.TICKET_FORCED_REFUNDED -> "FORCED"
+            ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED -> "PARTIAL"
+            ModerationAuditAction.PAYMENT_REFUNDED -> "FULL"
+            else -> return empty
+        }
+        if (afterValue.isNullOrBlank()) return listOf(refundKind, "", "", "", "", "", "", "", "", "")
+        val node: JsonNode = try {
+            objectMapper.readTree(afterValue)
+        } catch (e: Exception) {
+            return listOf(refundKind, "", "", "", "", "", "", "", "", "")
+        }
+        if (!node.isObject) return listOf(refundKind, "", "", "", "", "", "", "", "", "")
+
+        val ticketId = node.get("ticketId")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+        val paymentAttemptId =
+            node.get("paymentAttemptId")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+        val eventId = node.get("eventId")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+        // forced refund 의 `amount` 와 user refund 의 `refundAmount` 둘 다 같은 컬럼으로.
+        val refundAmount = when (action) {
+            ModerationAuditAction.TICKET_FORCED_REFUNDED ->
+                node.get("amount")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+            else ->
+                node.get("refundAmount")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+        }
+        val refundedAmount =
+            node.get("refundedAmount")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+        val remainingRefundableAmount =
+            node.get("remainingRefundableAmount")?.takeIf { it.canConvertToLong() }?.asLong()?.toString().orEmpty()
+        val ticketStatus = csvEscape(node.get("ticketStatus")?.takeIf { it.isTextual }?.asText())
+        val paymentStatus = csvEscape(node.get("paymentStatus")?.takeIf { it.isTextual }?.asText())
+        val fullRefund = node.get("fullRefund")?.takeIf { it.isBoolean }?.asBoolean()?.toString().orEmpty()
+
+        return listOf(
+            refundKind, ticketId, paymentAttemptId, eventId,
+            refundAmount, refundedAmount, remainingRefundableAmount,
+            ticketStatus, paymentStatus, fullRefund,
+        )
     }
 
     /**
