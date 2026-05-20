@@ -1,49 +1,56 @@
-# Local Release Bundle — PR130 to PR132
+# Local Release Bundle — PR134 to PR136
 
-본 문서는 origin/main 대비 **로컬 main 이 앞서 있는 3 커밋** 을 push 하기 전에 한 번 훑는 ship-readiness 노트다.
+본 문서는 origin/main 대비 **로컬 main 이 앞서 있는 6 커밋** 을 push 하기 전에 한 번 훑는 ship-readiness 노트다.
 
 | 항목 | 값 |
 |---|---|
 | Base | `origin/main` |
-| Head | `<PR132 docs commit>` (본 문서 commit) |
-| Ahead | **3 commits** (예상) |
+| Head | `<PR136 docs commit>` (본 문서 commit) |
+| Ahead | **6 commits** (예상) |
 | First ahead | `0e41e23 feat(admin): enrich archived audit details` (PR130) |
 | 작성 시점 | 2026-05-19 |
 
-직전 push (PR128 + PR129) 가 origin 에 반영된 위에 얹은 **환불 audit 가독성 확장 사이클**. PR130 은 PR115 / PR126 의 detail enrichment 를 archive 탭에도 동일하게 적용해 "옛 환불 사고" 도 raw JSON 없이 한 panel 에서 본다. PR131 은 active / archive CSV 모두에 환불 분석용 10 파생 컬럼을 append-only 추가해 외부 도구 (Excel / Sheets) 한 줄로 환불 종류 / 세 금액 / 상태가 보이게 한다. PR132 가 본 문서 + manual QA + architecture 의 enrichment 정책 정리.
+직전 push (PR128 + PR129) 가 origin 에 반영된 위에 얹은 사이클은 두 묶음 — **(a) PR130~PR132 환불 audit 가독성 정리 + PR133 회귀 가드** (archive detail enrichment / CSV refund columns / docs / regression hardening) 와 **(b) PR134~PR136 부분 강제 환불 도입** (backend + UI + docs). 본 release-notes 는 (a) 가 같은 묶음에 묶여 있다는 가정으로 작성. 검증 / 운영 주의사항은 두 묶음을 한 번에 다룬다.
 
-backend / frontend 변경의 결과로 새 endpoint / 마이그레이션 / audit 기록 로직 / 환불 정책 / list API JSON shape 는 모두 무변경 — 응답 DTO 의 optional 추가 + CSV 헤더 append-only + 한 helper internal 노출이 전부다.
+**(a) PR130~PR133** — Archive detail / CSV 환불 컬럼이 더해져 환불 audit 의 가독성 정책이 6 응답 경로 (active/archive × detail/list/CSV) 모두 일관되게 정리됐다. PR133 이 회귀 가드를 한 번 더 잠갔다.
+
+**(b) PR134~PR136** — ADMIN 강제 환불 (`/admin/tickets/{id}/forced-refund`) 이 optional `amount` 를 받아 부분 강제 환불을 지원한다. PR106 의 전액 동작은 `amount=null` 시 그대로 유지 — 운영자가 노쇼 보상의 일부만 돌려주는 케이스도 단일 도구에서 처리 가능. PR117 `applyPartialRefund` 헬퍼 재사용으로 코드 / 정책 단일 원천.
+
+backend / migration / 일반 사용자 환불 정책 / 일반 환불 UI / archive enrichment / CSV 컬럼 정의는 본 묶음에서 변경 없음. PR134 의 audit afterValue 4 필드 추가는 PR106 의 기존 4 필드와 호환되어 PR115 / PR130 / PR131 enrichment / CSV 가 그대로 작동.
 
 ---
 
 ## 1. 커밋 묶음 요약
 
-### Refund audit enrichment expansion (archive + CSV) + docs
+### Archive audit gradeability + partial forced refund
 
 | commit | PR | 요약 |
 |---|---|---|
-| `0e41e23` | PR130 | **Archive audit detail enrichment**. `ArchivedModerationAuditLogResponse` 에 `forcedRefundContext` / `paymentRefundContext` optional 필드 추가. `ModerationAuditLogArchiveService.getArchived` 가 active detail (PR115/PR126) 과 같은 정책으로 enrichment — `TICKET_FORCED_REFUNDED` → forcedRefundContext, `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` → paymentRefundContext. `ModerationAuditLogService.buildForcedRefundContext` / `buildPaymentRefundContext` 의 가시성을 `internal` 로 노출해 archive service 가 같은 helper 재사용 (코드 중복 회피). `listArchived` / `exportArchivedToCsv` 는 enrichment 미적용 (N+1 회피 + CSV 호환). frontend `ArchivedModerationAuditLog` type 에 두 optional context 추가 + `AdminAuditLogsSection` archive 탭 detail 에서 기존 `ForcedRefundContextPanel` / `PaymentRefundContextPanel` 재사용 + "읽기 전용" Badge 유지. 6 신규 MockK 케이스 (forced detail / partial detail / full detail / non-refund both-null / contextAvailable=false fallback / list endpoint 무 lookup). |
-| `5f3bc32` | PR131 | **Audit CSV refund-derived columns**. active export (`exportToCsv`) + archive export (`exportArchivedToCsv`) 양쪽 헤더에 환불 분석 10 파생 컬럼 append-only 추가 — `refundKind` (`FORCED` / `PARTIAL` / `FULL` / 빈 값), `ticketId`, `paymentAttemptId`, `eventId`, `refundAmount` (forced 의 `amount` + user 의 `refundAmount` 통합), `refundedAmount`, `remainingRefundableAmount`, `ticketStatus`, `paymentStatus`, `fullRefund`. 단일 helper `ModerationAuditLogService.csvRefundDerivedColumns(action, afterValue)` 가 active / archive 모두에서 호출 — afterValue JSON 파생값만 사용하고 **lookup 호출 없음** (CSV 는 절대 N+1 부담 안 진다). malformed JSON / null afterValue → export 절대 throw 안 함 + 새 컬럼 빈 값으로 떨어짐. 기존 prefix (active 10 / archive 11) 컬럼은 위치 / 값 / 의미 그대로 — 외부 도구 호환 유지. 6 active + 2 archive 신규 MockK 케이스 (헤더 invariant / forced / partial / full / non-refund all-blank / malformed JSON / archive helper 호출). |
-| `(this PR)` | PR132 | **Refund audit enrichment 정책 문서화**. `architecture.md` 에 "Refund Audit Enrichment 정책 (PR115 / PR126 / PR130 / PR131 통합)" 섹션 추가 — active detail / archive detail / list / CSV 6 응답 경로별 enrichment 종류 / DB lookup 유무 / 비용 특성을 한 표로 정리. raw audit row 무변경 + lookup 실패가 detail / export 자체를 깨지 않음 (best-effort) 정책을 한 곳에 명시. `manual-qa-checklist.md` §28 CSV 컬럼 QA 11 항목 + 본 release-notes 갱신. docs only. |
+| `0e41e23` | PR130 | **Archive audit detail enrichment**. `ArchivedModerationAuditLogResponse` 에 `forcedRefundContext` / `paymentRefundContext` optional 필드 + `getArchived` 가 active detail 과 같은 정책으로 enrichment. archive list / CSV 응답은 미적용 (N+1 회피). frontend `ArchivedModerationAuditLog` type 확장 + archive 탭 detail 에서 기존 panel 재사용. 6 신규 MockK 케이스. |
+| `5f3bc32` | PR131 | **Audit CSV refund-derived columns**. active / archive CSV 모두에 환불 분석용 10 파생 컬럼 append-only — `refundKind` / `ticketId` / `paymentAttemptId` / `eventId` / `refundAmount` / `refundedAmount` / `remainingRefundableAmount` / `ticketStatus` / `paymentStatus` / `fullRefund`. 단일 helper `csvRefundDerivedColumns` 가 두 서비스 공유 — afterValue JSON 파생값만, lookup 호출 없음. 6 active + 2 archive 신규 케이스. |
+| `165593d` | PR132 | **Refund audit enrichment 정책 문서화**. architecture.md 6-row enrichment 표 (active/archive × detail/list/CSV) + manual-qa §28 + release-notes 갱신. docs only. |
+| `e16be9e` | PR133 | **Refund audit enrichment 회귀 가드**. 5 신규 MockK 케이스 — active CSV 모든 row 가 정확히 20 컬럼 (action 무관), archive CSV 모든 row 가 21 컬럼, FORCED malformed JSON export 성공, ticket lookup 이 throw 해도 detail 200, archive mutual exclusion. production 코드 변경 없음. |
+| `41a50ae` | PR134 | **Partial admin forced refund backend**. `AdminForcedRefundRequest.amount: Long?` optional + `PaymentService.forceRefundByAdmin(amount = null)` 시그니처 확장. amount null → PR106 동작 그대로, 지정 시 `1 <= amount <= remaining` 검증 → `applyPartialRefund` (PR117 헬퍼 재사용) 또는 `markRefundedInternal`. audit afterValue JSON 에 4 필드 (`refundAmount / refundedAmount / remainingRefundableAmount / fullRefund`) 추가 — 기존 4 필드는 호환을 위해 유지. `AdminForcedRefundResponse` 에 3 필드 추가 (response 의 누적/잔여/유형). action 은 PR106 그대로 `TICKET_FORCED_REFUNDED` 1건만. 5 신규 PaymentServiceTest + 2 신규 AdminPaymentServiceTest 케이스. |
+| `3681282` | PR135 | **Partial admin forced refund UI**. `AdminPaymentToolsSection` 에 "환불 방식" 라디오 fieldset (전액 / 금액 지정) + PARTIAL 선택 시 amount input + confirm dialog 의 선택한 방식 / 금액 / cascade 명시 + result card 에 누적 환불액 / 남은 환불 가능액 + 환불 유형 Badge. 400 → "환불 금액을 확인해주세요." error mapping. `forceRefundTicket(ticketId, reason, amount?)` API 함수 — undefined 이면 body 에서 amount 키 제외해 PR106 호출 경로 유지. 일반 사용자 refund UI 변경 없음. 11 manual-qa 항목. |
+| `(this PR)` | PR136 | **Partial forced refund 정책 문서화**. payment-refund-policy.md §16 신설 (요청/응답 변경 + USED 부분 환불 + audit afterValue 확장 + 의도적 제외) + architecture.md PR134/135 entries + release-notes 본 갱신. Known follow-ups 에서 "부분 forced refund" 제거. docs only. |
 
-**본 사이클의 결과**: 환불 audit 의 운영 가독성이 세 layer (detail / list / CSV) × 두 store (active / archive) 6 경로 모두 일관된 정책으로 정리됐다. detail 은 깊은 enrichment, list 는 비용 회피 (N+1 없음), CSV 는 JSON 파생 컬럼만 — 같은 정책이 active / archive 모두에 적용된다. 운영자가 환불 처리량 분석, 옛 환불 사고 조사, 외부 도구 export 세 시나리오 모두 한 화면 / 한 파일에서 처리 가능.
+**본 사이클의 결과**: 환불 audit 가독성 (PR130~PR133) 과 환불 운영 도구 확장 (PR134~PR136) 두 축이 같이 정리됐다. 운영자가 (a) detail / CSV 어디에서나 환불 row 의 buyer/event/금액/상태를 한눈에 보고, (b) 노쇼 부분 보상 같은 케이스를 별도 우회 없이 단일 운영 도구로 처리. 두 묶음 모두 backend 의 `applyPartialRefund` / `markRefundedInternal` / `csvRefundDerivedColumns` / `buildForcedRefundContext` 같은 기존 헬퍼를 재사용 — 신규 헬퍼 추가는 최소화.
 
 ---
 
-## 2. PR130 + PR131 운영 가치 — enrichment 6 경로 정리
+## 2. PR134 운영 가치 — 부분 강제 환불 가능
 
-| 응답 경로 | enrichment | DB lookup | 도입 PR | 비용 특성 |
-|---|---|---|---|---|
-| `GET /admin/moderation/audit-logs/{id}` | buyer/event/channel + 세 금액 + 상태 | ✅ | PR115 / PR126 | row 1 개 / 호출 |
-| `GET /admin/moderation/audit-logs/archive/{originalId}` | 동일 | ✅ | **PR130** | 동일 |
-| `GET /admin/moderation/audit-logs?page=...` | 없음 | ❌ | PR62 | row N 개 / page |
-| `GET /admin/moderation/audit-logs/archive?page=...` | 없음 | ❌ | PR67 | 동일 |
-| `GET /admin/moderation/audit-logs/export` (CSV) | afterValue JSON 파생 10 컬럼 | ❌ | **PR131** | 최대 1000 행, lookup 없음 |
-| `GET /admin/moderation/audit-logs/archive/export` (CSV) | 동일 | ❌ | **PR131** | 동일 |
+PR106 부터 PR133 까지 ADMIN 강제 환불은 항상 남은 금액 전액. 노쇼 보상의 일부만 돌려주는 케이스는 운영자가 어쩔 수 없이 전액 환불 → 부분만큼 buyer 에게 별도 송금하는 우회로 처리해야 했다.
 
-PR130 이전엔 archive tab detail 이 raw JSON 만 — 운영자가 "이 archived row 의 buyer 가 누구냐" 알아내려면 ticketId 만 보고 다른 화면을 따로 켰다. PR130 이후 active 와 동일한 panel 이 그대로 archive 에서도 노출.
+PR134 이후:
 
-PR131 이전엔 환불 분석을 CSV 한 줄로 정렬 / 필터하려면 `afterValue` JSON 을 수동 파싱해야 했다 (Excel 의 텍스트 함수로 추출). PR131 이후 운영자가 `refundKind` / `refundAmount` / `fullRefund` 같은 컬럼을 그대로 정렬 / 필터 / 피벗 가능. 단 buyer 닉네임 / event 제목 등 lookup 결과는 CSV 에 포함하지 않음 — CSV 는 1000 행을 처리하므로 N+1 부담을 절대 안 진다. 그 정보가 필요하면 detail endpoint 호출 (PR115/PR126/PR130).
+| 케이스 | UI 흐름 | backend 호출 | cascade |
+|---|---|---|---|
+| 전액 강제 환불 (PR106 회귀) | "환불 방식: 남은 환불 가능액 전액" 선택 | `forceRefundByAdmin(amount=null)` | full — ticket REFUNDED + participation CANCELED + 정원 -1 |
+| 부분 강제 환불 (PR134 신규) | "금액 지정" 선택 + 환불 금액 입력 | `forceRefundByAdmin(amount=10000)` | partial — ticket PARTIALLY_REFUNDED + 참가/정원 무영향 |
+| 부분 누적 + 전액 마무리 | partial 후 다시 도구 진입 → 전액 선택 | `forceRefundByAdmin(amount=null)` 또는 `amount=remaining` | full cascade |
+
+세 케이스 모두 `TICKET_FORCED_REFUNDED` audit row 1건만 기록 — partial / full 구분은 `afterValue.fullRefund` 플래그로 표시. action 단위 분류 (PR109 actor stats / PR128 quick filter chip) 는 변경 없이 그대로 작동.
 
 ---
 
@@ -67,12 +74,12 @@ push 직전 `git status -sb` 로 위 파일들이 staged 영역에 들어가 있
 
 ```
 git -C C:/WOYA status -sb
-## main...origin/main [ahead 3]
+## main...origin/main [ahead 6]
  M .claude/settings.local.json
  M build/resources/main/application.yml
 ```
 
-PR132 (본 release-notes 갱신) 까지 포함하면 3 ahead. 위 외에 staged 변화가 있으면 push 보류하고 원인 확인.
+PR136 (본 release-notes 갱신) 까지 포함하면 6 ahead. 위 외에 staged 변화가 있으면 push 보류하고 원인 확인.
 
 ---
 
@@ -80,19 +87,26 @@ PR132 (본 release-notes 갱신) 까지 포함하면 3 ahead. 위 외에 staged 
 
 | 시점 | 검증 | 결과 |
 |---|---|---|
-| PR130 (`0e41e23`) | backend 좁은 `--tests *ModerationAuditLog*` | green (50s) — 신규 6 archive 케이스 (forced detail / partial detail / full detail / non-refund both-null / contextAvailable=false fallback / list endpoint 무 lookup) + 기존 PR115 / PR126 active 8 케이스 회귀 통과 |
-| PR130 (`0e41e23`) | backend full `gradle test` | green (46s, BUILD SUCCESSFUL) — `internal fun` 가시성 변경에 controller / 다른 service 회귀 없음 |
-| PR130 (`0e41e23`) | frontend `npm run build` | green (101 modules, 981ms — `tsc -b` + Vite 통과). `ArchivedModerationAuditLog` 타입 확장 + 두 panel archive 탭 재사용에 회귀 없음 |
-| PR131 (`5f3bc32`) | backend 좁은 `--tests *ModerationAuditLog*` | green (50s) — 신규 6 active + 2 archive CSV 케이스 (헤더 invariant / forced / partial / full / non-refund all-blank / malformed JSON 가드 / archive helper 호출) + 기존 PR63 / PR67 CSV 회귀 (assertEquals 행 케이스가 trailing 10 컬럼 포함하도록 갱신) |
-| PR131 (`5f3bc32`) | backend full `gradle test` | green (50s, BUILD SUCCESSFUL) — CSV 헤더 길이 변경에 controller `Content-Disposition` / `X-Export-Limit` 회귀 없음 |
-| PR131 (`5f3bc32`) | frontend `npm run build` | **생략** — CSV 는 blob 다운로드라 frontend 변경 없음 |
-| PR132 (본 문서) | docs-only | build/test 생략 |
+| PR130 (`0e41e23`) | backend 좁은 `--tests *ModerationAuditLog*` | green (50s) — archive enrichment 6 신규 케이스 + PR115/PR126 회귀 |
+| PR130 (`0e41e23`) | backend full `gradle test` | green (46s) — `internal fun` 가시성 변경 회귀 없음 |
+| PR130 (`0e41e23`) | frontend `npm run build` | green (981ms) |
+| PR131 (`5f3bc32`) | backend 좁은 `--tests *ModerationAuditLog*` | green — CSV refund 컬럼 6 active + 2 archive 신규 케이스 + PR63/PR67 회귀 |
+| PR131 (`5f3bc32`) | backend full `gradle test` | green (50s) — CSV 헤더 길이 변경에 controller 회귀 없음 |
+| PR132 (`165593d`) | docs-only | build/test 생략 |
+| PR133 (`e16be9e`) | backend `--tests *ModerationAuditLog*` (rerun-tasks) | green — 컬럼 수 invariant + FORCED malformed JSON + lookup-throw + 상호 배타 |
+| PR133 (`e16be9e`) | backend full `gradle test` | green (41s) |
+| PR133 (`e16be9e`) | frontend `npm run build` | green (789ms) |
+| PR134 (`41a50ae`) | backend `--tests *PaymentServiceTest*` | green (1m 54s) — partial / full / amount over / amount 0 / USED partial 5 신규 케이스 + PR106 회귀 |
+| PR134 (`41a50ae`) | backend `--tests *AdminPaymentServiceTest*` | green (3m 2s, kotlin daemon stop/restart 필요했음) — afterValue 4 신규 키 + response 3 신규 필드 |
+| PR134 (`41a50ae`) | backend full `gradle test` | green (1m 48s) |
+| PR135 (`3681282`) | frontend `npm run build` | green (761ms) — 새 fieldset / 라디오 / amount input / Badge 토큰 정상 |
+| PR136 (본 문서) | docs-only | build/test 생략 |
 
-**마지막 frontend `npm run build` green**: PR130 (`0e41e23`).
+**마지막 frontend `npm run build` green**: PR135 (`3681282`).
 
-**마지막 전체 backend `gradle test` green**: PR131 (`5f3bc32`).
+**마지막 전체 backend `gradle test` green**: PR134 (`41a50ae`).
 
-push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 cold-start 로 다시 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록 참고).
+push 직후 CI 가 cold-start 로 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 다시 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록 참고).
 
 ---
 
@@ -100,40 +114,36 @@ push 직후 CI 가 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run bu
 
 ### Flyway 마이그레이션 — 없음
 
-PR130 ~ PR131 모두 **새 V 마이그레이션 없음**. enum / 테이블 추가 없음. 전체 마이그레이션 범위는 V1~V11 그대로 (PR117 V11 이 마지막).
+PR130 ~ PR136 모두 **새 V 마이그레이션 없음**. enum / 테이블 / 컬럼 변경 없음. 전체 마이그레이션 범위는 V1~V11 그대로 (PR117 V11 이 마지막).
 
-### Detail endpoint response shape — archive 측 2 필드 추가 (PR130)
+### `forceRefundByAdmin` 시그니처 변경 (PR134)
 
-`GET /admin/moderation/audit-logs/archive/{originalId}` 응답에 `forcedRefundContext` / `paymentRefundContext` 두 optional 필드가 추가된다. active detail (PR115/PR126) 과 동일 정책 / 동일 helper / 동일 shape. 다음 보장:
+`PaymentService.forceRefundByAdmin(adminUserId, ticketId, reason, amount = null)` 가 default 인자라 옛 호출 사이트는 컴파일이 깨지지 않는다. AdminPaymentService 가 직접 호출하므로 외부 호출자는 없으며 (test 만), 본 묶음에서 모두 함께 갱신됐다.
 
-- **endpoint / path / params / 권한 무변경** — URL, query parameter, ADMIN 권한 가드, response wrapper 모두 그대로.
-- **`TICKET_FORCED_REFUNDED` row** → `forcedRefundContext` 만 채워짐, `paymentRefundContext = null`.
-- **`PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` row** → `paymentRefundContext` 만 채워짐, `forcedRefundContext = null` — 상호 배타.
-- **`listArchived` / `exportArchivedToCsv` 응답은 enrichment 미적용** — N+1 회피 + CSV 호환.
-- **이전 frontend 호환** — 두 필드는 optional 로 직렬화, 못 받아도 깨지지 않음.
+### `/admin/tickets/{id}/forced-refund` request body (PR134)
 
-### CSV export header — 10 컬럼 append (PR131)
+옛 body `{ "reason": "..." }` 는 여전히 유효 — `amount` 가 없으면 backend 가 PR106 동작 그대로. 새 body 는 `{ "reason": "...", "amount": 10000 }`. frontend 가 `amount=undefined` 이면 body 에서 키를 제외해 호환성 유지 (curl 으로 호출하던 외부 운영 스크립트도 깨지지 않음).
 
-active CSV 와 archive CSV 양쪽 헤더에 동일한 10 컬럼이 끝에 추가된다. 다음 보장:
+### `AdminForcedRefundResponse` shape 변경 (PR134)
 
-- **prefix 컬럼 위치 / 이름 / 값 무변경** — active 의 첫 10 컬럼 (`id` ~ `afterValue`), archive 의 첫 11 컬럼 (`originalId` ~ `afterValue`) 은 PR63 / PR67 정의 그대로.
-- **append-only** — 운영자의 외부 도구가 prefix 컬럼만 보고 있다면 PR131 이후에도 같은 컬럼이 같은 위치에 있다.
-- **lookup 호출 없음** — CSV path 는 ticket / buyer / event / channel repository 를 호출하지 않음. 대용량 export (최대 1000 행) 도 N+1 부담 없음.
-- **best-effort 파싱** — malformed JSON / null afterValue / 비-object root / 정수 변환 실패 모두 → export 가 throw 하지 않고 새 10 컬럼만 빈 값으로 떨어진다. `refundKind` 는 action 기반이라 JSON 이 깨져도 채워진다.
-- **`refundAmount` 컬럼의 통합 의미** — forced refund 의 `amount` 와 user refund 의 `refundAmount` 둘 다 같은 컬럼으로 들어간다 — "이 audit row 가 만든 환불 금액" 의미가 일관.
+세 optional 필드 (`refundedAmount` / `remainingRefundableAmount` / `fullRefund`) 가 추가. 옛 frontend bundle 은 새 필드를 무시 (TypeScript optional) — 깨지지 않는다.
 
-### Audit recording 정책 — PR122 그대로
+### audit afterValue JSON 변경 (PR134)
 
-PR130 + PR131 모두 audit row 자체는 손대지 않는다. 다음 보장:
+`TICKET_FORCED_REFUNDED` row 의 `afterValue` 가 PR134 부터 8 키로 확장:
 
-- `refundPaymentByTicket` 의 success 분기에서만 audit 기록 (actor=호출자) — PR122 그대로.
-- `forceRefundByAdmin` 흐름은 `TICKET_FORCED_REFUNDED` 1건만 (AdminPaymentService 책임), 중복 audit 없음.
-- webhook `refund.completed` 흐름은 audit 미기록 (PG-driven, actor 부재).
-- audit 실패 시 환불 트랜잭션 rollback (`@Transactional` propagation join).
+- 기존 4 키 (`ticketId / paymentAttemptId / ticketStatus / amount`) 는 위치 / 의미 그대로
+- 신규 4 키 (`refundAmount / refundedAmount / remainingRefundableAmount / fullRefund`) 추가
 
-### Enrichment 실패는 detail / export 자체를 깨지 않음
+PR115 `ForcedRefundContextResponse` enrichment 는 기존 4 키만 사용해 panel 을 그렸기 때문에 신규 키가 추가돼도 그대로 작동. PR131 CSV `csvRefundDerivedColumns` 가 forced refund 에 대해 `refundedAmount / remainingRefundableAmount / fullRefund` 컬럼을 채우도록 이미 helper 가 만들어져 있어 PR134 이후 forced refund row 의 CSV 컬럼이 더 풍부해진다 (helper 변경 없이 자동).
 
-PR130 의 archive detail enrichment, PR131 의 CSV refund-derived columns 둘 다 **best-effort + throw 금지** 정책. detail endpoint 는 lookup 실패 시 200 + `contextAvailable=false` + fallback 카피, CSV export 는 malformed JSON 시 새 10 컬럼만 빈 값. 두 경우 모두 endpoint / export 자체는 정상 응답.
+### 일반 사용자 환불 정책 (PR42 / PR117 / PR122) — 무변경
+
+`POST /tickets/{id}/refund` 의 동작 / 가드 / audit 정책은 본 묶음에서 변경되지 않는다. 부분 환불 / 전액 환불 / cascade / `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit 기록 모두 PR133 이전과 동일.
+
+### archive / CSV / 운영 콘솔 — 무변경
+
+PR130 / PR131 의 archive detail / CSV 컬럼은 본 묶음에서 더 손대지 않는다. PR134 의 audit afterValue 확장은 PR131 CSV helper 와 자동 호환.
 
 ---
 
@@ -143,13 +153,14 @@ PR130 의 archive detail enrichment, PR131 의 CSV refund-derived columns 둘 �
 
 | 영역 | 상태 |
 |---|---|
-| **부분 forced refund** | ADMIN `/admin/tickets/{id}/forced-refund` 는 PR117 부터 PARTIALLY_REFUNDED 티켓도 받지만 항상 한 번에 remaining 전체를 환불 (cascade). 부분 금액 강제 환불은 별도 endpoint 또는 옵션 도입 필요. |
 | **CSV 의 buyer / event title / channel lookup 컬럼** | PR131 은 afterValue JSON 파생값만 노출 — buyer 닉네임 / event 제목 / 채널 이름은 detail endpoint (PR115/PR126/PR130) 에서만. CSV 한 줄로 닉네임까지 보고 싶다면 N+1 lookup 또는 join-loaded query 가 필요한 별도 PR. |
-| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED/PARTIALLY_REFUNDED 카운트 일치 batch 없음. 환불 audit 의 모든 가독성 layer (detail / list / CSV × active / archive) 가 정리된 지금 정합성 batch 의 가치가 가장 커졌다. |
+| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED/PARTIALLY_REFUNDED 카운트 일치 batch 없음. 부분 강제 환불까지 도입한 지금 정합성 batch 의 가치가 가장 커졌다. |
 | **환불 실패 큐 / 자동 재시도** | `refund.failed` webhook 처리는 단순 skip. |
 | **PortOne / 다른 PG 어댑터** | interface 만 열려 있고 구현체는 Toss + Mock 만. |
 | **정원 race condition lock** | confirm 시점 재검증만. READY 다수 동시 confirm 시 초과 가능. |
 | **부분 환불 동시 race** | 별도 lock 없음. 후순위 호출이 400 으로 거부될 뿐 — race 빈도 낮아 의도적으로 lock 도입 보류. |
+| **partial forced refund 의 별도 audit action** | PR134 는 `TICKET_FORCED_REFUNDED` 1 action 으로 유지. partial / full 구분은 `afterValue.fullRefund` 플래그. |
+| **forced refund 의 별도 알림 카피** | partial forced refund 의 buyer 알림은 PR117 `applyPartialRefund` 알림 ("부분 환불이 처리되었어요") 그대로 재사용. 운영 vs 일반 환불의 알림 카피 분리는 후속 PR. |
 | **Kafka outbox** | 도입 설계만 (`kafka-outbox-plan.md`). 알림은 직접 SSE push. |
 | **Push / Email channel preference** | preference 는 NotificationType 차원만. 채널별 선택 불가. |
 | **Preference 변경 audit / 이력** | PR104 의 `updatedAt` 은 lightweight signal — 변경 이력 / actor / 전·후 값 미저장. 별도 history 테이블 도입은 후속 PR. |
@@ -158,10 +169,9 @@ PR130 의 archive detail enrichment, PR131 의 CSV refund-derived columns 둘 �
 | **COMMENT cascade 자동 hide** | comment cascade 미구현 — 운영자 수동 처리. |
 | **실시간 잔여 자리 SSE 채널 / QR 회전 / 푸시** | 잔여 자리는 SSE refetch 기반 + highlight (PR91). QR 30초 회전 / push 알림 / 시스템 밝기는 미구현. |
 
-직전 사이클의 release notes 에 있던 다음 항목들은 본 사이클에서 채워졌으므로 제거됐다:
+직전 사이클의 release notes 에 있던 다음 항목은 본 사이클에서 채워졌으므로 제거됐다:
 
-- **"Archive audit detail enrichment"** → PR130 으로 구현. `ArchivedModerationAuditLogResponse` 에 두 optional context 추가 + 같은 helper 재사용 + frontend panel 재사용.
-- **"CSV export 에 enrichment 컬럼"** → PR131 으로 부분 구현 — afterValue JSON 파생 10 컬럼은 CSV 에 있음. buyer/event title 같은 lookup 결과는 여전히 detail endpoint 의 책임 (위 표 참고).
+- **"부분 forced refund"** → PR134 + PR135 으로 구현. `AdminForcedRefundRequest.amount` optional + 부분/전액 라디오 + cascade 분기 + audit afterValue 확장. PR106 의 전액 동작은 amount=null 시 그대로 유지.
 
 ---
 
@@ -175,31 +185,22 @@ PR130 의 archive detail enrichment, PR131 의 CSV refund-derived columns 둘 �
 
 ### 결제·환불·재신청 (회귀 가드)
 
-- §13 결제 플로우 / §14 환불 플로우 / §15 결제·환불·재신청 정합성 / §16 재신청 — PR130 / PR131 모두 audit 기록 / 환불 실행 / 결제 로직 무변경
-- §22 ADMIN 강제 환불 — 회귀
+- §13 결제 플로우 / §14 환불 플로우 / §15 결제·환불·재신청 정합성 / §16 재신청 — 본 묶음은 일반 환불 정책 무변경
+- §22 ADMIN 강제 환불 (PR106) — 회귀. PR134 의 amount=null 경로가 PR106 동작과 동일해야 함
 
 ### 운영 콘솔 — 본 묶음의 핵심
 
-- §12 / §19 — 기존 Admin 콘솔 + 운영자 활동 요약 — 회귀
-- §23 / §24 — actor 별 환불 카운트 — 회귀
-- §25 — active 사용자 환불 detail enrichment (PR126) — 회귀
-- §26 — 사용자 환불 quick filter chip (PR128) — 회귀
-- **§27 — Archive audit 상세 enrichment (PR130)** — 본 사이클 신규 11 항목:
-  - archive forced refund row → 강제 환불 상세 panel
-  - archive 부분 / 전액 환불 row → 환불 상세 panel
-  - ticket 삭제 / malformed JSON → fallback 카피
-  - non-refund row → panel 비노출
-  - 두 context 상호 배타
-  - archive list / CSV 응답은 enrichment 미적용
-  - raw JSON pretty-print 유지
-  - active detail 동작 무변경
-- **§28 — CSV export 환불 파생 컬럼 (PR131)** — 본 사이클 신규 11 항목:
-  - active / archive CSV 헤더에 동일한 10 컬럼 append-only
-  - `refundKind` 가 action 기반 (FORCED / PARTIAL / FULL)
-  - forced 의 `amount` 와 user 의 `refundAmount` 가 같은 컬럼으로 통합
-  - non-refund row → 새 10 컬럼 빈 값
-  - malformed JSON → export 성공 + `refundKind` 만 채워짐
-  - CSV path 는 lookup 절대 안 함 (N+1 회피)
+- §12 / §19 / §23 / §24 / §25 / §26 / §27 / §28 — 기존 환불 audit / actor stats / detail enrichment / quick filter / archive enrichment / CSV columns — 회귀
+- **§29 — 부분 강제 환불 (PR134 / PR135)** — 본 사이클의 신규 11 항목:
+  - 환불 방식 라디오 (전액 default + PARTIAL 토글)
+  - 부분 환불 amount 1 / 0 / 비움 / over remaining 각 케이스
+  - confirm dialog 의 방식 / 금액 / cascade 명시
+  - result card 의 누적 / 잔여 / 환불 유형 Badge
+  - USED ticket 부분 강제 환불
+  - partial → full forced refund cascade chain
+  - 400 error mapping
+  - audit afterValue 의 8 키 확인 (기존 4 + 신규 4)
+  - 일반 환불 (`POST /tickets/{id}/refund`) 무변경 회귀
 
 ### 알림 (PR104 영향, 본 묶음 무변경)
 
@@ -224,23 +225,23 @@ cd C:/WOYA/frontend && npm run build
 # git -C C:/WOYA push origin main
 ```
 
-`./gradlew.bat test` 가 cold-start 일 때 `PermissionIntegrationTest` 등 Spring context 초기화에서 flaky 가 보일 수 있다. 같은 명령 재실행으로 회복되면 본 묶음의 변경과 무관하다고 본다 (PR74 stabilize 시리즈 기록).
+`./gradlew.bat test` 가 cold-start 일 때 kotlin daemon 의 caches-jvm lock 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat test` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 기록).
 
-본 묶음은 새 migration 이 없다 (V11 까지 그대로). 응답 DTO 의 optional 추가 + CSV 헤더 append-only 라 이전 frontend bundle / 외부 도구 모두 호환된다.
+본 묶음은 새 migration 이 없다 (V11 까지 그대로). DTO optional 필드 추가 + audit JSON 키 추가 + CSV 헤더 무변경 (PR131 이미 추가된 컬럼만 자동 채움) 라 이전 frontend bundle / 외부 도구 모두 호환된다.
 
 ---
 
 ## 9. 다음 사이클 (push 이후 추천)
 
-본 묶음으로 환불 audit 가독성의 6 응답 경로가 모두 정리됐다. 다음 사이클의 후보:
+본 묶음으로 부분 강제 환불 사이클이 닫혔다. 다음 사이클의 후보:
 
-1. **PR134 옵션 A — 환불 reconciliation batch**: PG 측 일별 cancel 데이터를 받아 카운트 일치 검증. 큰 backend PR. 환불 audit 의 detail / list / CSV layer 가 모두 정리된 지금 정합성 batch 의 가치가 가장 커졌다.
-2. **PR134 옵션 B — 부분 forced refund**: ADMIN 의 `/admin/tickets/{id}/forced-refund` 에 optional `amount` 추가. 운영자가 노쇼 보상의 일부만 돌려주는 케이스. backend + frontend + audit amount 의미 재정의.
-3. **PR134 옵션 C — CSV 에 buyer / event title lookup 컬럼**: 외부 도구가 한 CSV 로 닉네임까지 보고 싶을 때. join-loaded query 또는 batch lookup 으로 N+1 회피 필요. 큰 backend PR.
-4. **PR134 옵션 D — 환불 실패 큐 / 자동 재시도**: `refund.failed` webhook 의 deadletter + 운영자 retry 도구. backend + frontend + 알림.
+1. **PR138 옵션 A — 환불 reconciliation batch**: PG 측 일별 cancel 데이터를 받아 카운트 일치 검증. 큰 backend PR — 부분 강제 환불까지 도입한 지금 정합성 batch 의 가치가 가장 커졌다.
+2. **PR138 옵션 B — CSV 에 buyer / event title lookup 컬럼**: 외부 도구가 한 CSV 로 닉네임까지 보고 싶을 때. join-loaded query 또는 batch lookup 으로 N+1 회피 필요. 큰 backend PR.
+3. **PR138 옵션 C — 환불 실패 큐 / 자동 재시도**: `refund.failed` webhook 의 deadletter + 운영자 retry 도구. backend + frontend + 알림.
+4. **PR138 옵션 D — Forced refund 의 별도 buyer 알림 카피**: 운영 vs 일반 환불의 알림 메시지 분리. 작은 frontend / backend 묶음.
 
-옵션 A 는 안정성. 옵션 B 는 ADMIN 운영 도구 확장. 옵션 C 는 외부 도구 호환 확장 (lookup join 필요). 옵션 D 는 환불 실패의 신뢰성.
+옵션 A 는 안정성. 옵션 B 는 외부 도구 호환 확장. 옵션 C 는 환불 실패의 신뢰성. 옵션 D 는 buyer-facing 카피 polish.
 
 ---
 
-본 문서는 push **이전** 의 self-audit 용. push 후에는 본 문서를 그대로 두고 (또는 별도 `release-notes/PR130-PR132.md` 로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.
+본 문서는 push **이전** 의 self-audit 용. push 후에는 본 문서를 그대로 두고 (또는 별도 `release-notes/PR130-PR136.md` 로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.

@@ -698,7 +698,7 @@ REFUNDED + refundedAmount=30000  (participation → CANCELED, currentParticipant
 
 ### 14.6 의도적 제외 (PR117/PR118 범위 밖)
 
-- **부분 forced refund** — ADMIN 의 `/admin/tickets/{id}/forced-refund` 는 여전히 남은 금액 전액만 환불. 부분 금액 forced refund 가 필요해지면 별도 endpoint 또는 옵션 도입.
+- ~~**부분 forced refund**~~ — **PR134 에서 도입.** §16 참고. ADMIN 의 `/admin/tickets/{id}/forced-refund` 가 optional `amount` 를 받아 부분 강제 환불 지원.
 - **환불 정산 reconciliation batch** — 부분 환불은 일별 PG cancel 합산이 더 복잡해진다. 별도 batch PR 필요.
 - **부분 환불 webhook** — PG 가 부분 cancel webhook 을 보내는 흐름은 본 PR 에서 처리하지 않음 (webhook 은 여전히 전액 refund 만 처리, `PaymentStatus.PARTIALLY_REFUNDED` webhook 입력은 무시).
 - ~~**partial refund 이력 audit**~~ — **PR122 에서 도입.** 일반 사용자/owner/ADMIN 의 `refundPaymentByTicket` 성공 시 `PAYMENT_REFUNDED` / `PAYMENT_PARTIALLY_REFUNDED` audit row 가 생성된다. §15 참고.
@@ -750,3 +750,71 @@ PR122 는 `forceRefundByAdmin` 의 audit 정책을 변경하지 않는다. force
 - **PAYMENT_REFUNDED / PAYMENT_PARTIALLY_REFUNDED detail enrichment** — frontend panel 미신설.
 - **CSV export 의 신규 컬럼** — CSV 행 shape 무변경 (audit 원본 10 컬럼 그대로, 새 action 도 같은 컬럼 구조로 직렬화).
 - **webhook 환불 audit** — `refund.completed` webhook 처리 흐름은 audit 미기록 그대로.
+
+## 16. PR134 — ADMIN 부분 강제 환불 (Partial Forced Refund)
+
+PR106 부터 PR133 까지 ADMIN 강제 환불 (`forceRefundByAdmin`) 은 항상 남은 환불 가능 금액 (`remainingRefundableAmount`) 전액을 한 번에 환불해 `REFUNDED` 로 cascade 했다 — "이 티켓의 환불을 마저 끝낸다" 의미. **노쇼 부분 보상** (예: 30,000 원 결제 티켓 중 10,000 원만 보상) 케이스는 별도 도구가 없어 운영자가 어쩔 수 없이 전액 환불 → 부분만큼 buyer 에게 별도 송금하는 우회로 처리했다.
+
+PR134 부터 `forceRefundByAdmin` 이 optional `amount` 파라미터를 받아 부분 강제 환불을 지원한다. 일반 사용자 환불 (`refundPaymentByTicket`, PR117) 과 같은 검증 / cascade / 알림 정책을 그대로 재사용 — PaymentService 의 `applyPartialRefund` 헬퍼를 forced refund 경로도 호출한다.
+
+### 16.1 요청 / 응답 변경
+
+`POST /api/v1/admin/tickets/{ticketId}/forced-refund` body:
+
+```json
+{
+  "reason": "노쇼 일부 보상",
+  "amount": 10000
+}
+```
+
+- `amount` : optional Long. **null/미지정 → PR106 동작 그대로** (remaining 전액 환불, full cascade).
+- `1 <= amount <= remainingRefundableAmount` 일 때만 허용. 범위 위반은 `400 InvalidRefundAmountException` (일반 환불과 같은 메시지).
+- `amount == remainingRefundableAmount` → full cascade (PR106 와 동일 결과). buyer 알림도 동일 메시지.
+- `amount < remainingRefundableAmount` → partial cascade (PR117 `applyPartialRefund` 호출):
+  - `ticket.status = PARTIALLY_REFUNDED`
+  - `PaymentAttempt.refundedAmount += amount`
+  - `participation` 무영향 (CANCELED 로 가지 않음)
+  - `event.currentParticipants` 무영향
+  - buyer 에게 "부분 환불이 처리되었어요" 알림
+
+`AdminForcedRefundResponse` 에 세 필드 추가:
+
+- `refundedAmount` : 누적 환불 금액 (이번 호출 포함)
+- `remainingRefundableAmount` : 남은 환불 가능 금액. 0 이면 fully refunded
+- `fullRefund` : 이번 호출이 cascade 를 발동시켰는지 (true 면 ticket REFUNDED)
+
+기존 필드 (`ticketId / ticketStatus / paymentAttemptId / provider / amount / refundedAt / providerPaymentKey / refundReason`) 는 의미 / 위치 그대로.
+
+### 16.2 USED 티켓 부분 강제 환불
+
+PR106 의 USED 강제 환불 정책은 그대로 유지 — `forceRefundByAdmin` 는 deadline 검사 없이 USED 티켓도 받는다. PR134 부터 `amount` 지정 부분 환불도 USED 티켓에 동작한다. 부분 환불이 적용되면 `ticket.markPartiallyRefunded()` 가 호출되어 status 가 `PARTIALLY_REFUNDED` 로 전이한다 (`USED` 상태에서 직접 `PARTIALLY_REFUNDED` 로 가는 경로). 이는 의도된 동작 — 부분 환불의 운영 의미가 USED 여부와 무관하게 "이 결제의 일부 금액을 돌려준다" 이므로 attempt / ticket 모두 PARTIALLY_REFUNDED 로 통합된 상태 표시.
+
+### 16.3 audit afterValue 확장
+
+`TICKET_FORCED_REFUNDED` audit row 의 `afterValue` JSON 에 4 필드 추가 (PR134):
+
+```json
+{
+  "ticketId": 999,
+  "paymentAttemptId": 555,
+  "ticketStatus": "PARTIALLY_REFUNDED",
+  "amount": 30000,
+  "refundAmount": 10000,
+  "refundedAmount": 10000,
+  "remainingRefundableAmount": 20000,
+  "fullRefund": false
+}
+```
+
+- **PR106 기존 4 필드** (`ticketId / paymentAttemptId / ticketStatus / amount`) 는 호환을 위해 그대로 — PR115 의 `ForcedRefundContextResponse` enrichment, PR131 의 CSV 파생 컬럼 (`refundKind` / `ticketId` / `paymentAttemptId` / `refundAmount` / `ticketStatus`) 이 동일한 이름으로 읽는다.
+- **PR134 추가 4 필드** (`refundAmount / refundedAmount / remainingRefundableAmount / fullRefund`) 는 PR126 `paymentRefundContext` 와 같은 의미. PR131 CSV 의 `refundedAmount / remainingRefundableAmount / fullRefund` 컬럼이 forced refund row 에서도 채워지도록 변경. `refundKind` 컬럼은 여전히 `FORCED` (action 기반).
+- action 은 PR106 그대로 `TICKET_FORCED_REFUNDED` 1건만 — partial vs full 을 별도 액션으로 분리하지 않는다.
+- audit 기록 책임은 `AdminPaymentService.forceRefund` 그대로. `PaymentService` 는 audit 을 만들지 않는다 (PR122 와 동일한 중복 방지 정책).
+
+### 16.4 의도적 제외 (PR134 범위 밖)
+
+- **partial forced refund 의 별도 audit action** — `PAYMENT_PARTIALLY_REFUNDED` 와 구분하기 위해 별도 액션을 만들지 않는다. forced refund 흐름은 endpoint 가 다르므로 action 단위 분류 (`TICKET_FORCED_REFUNDED`) 그대로 유지하고, partial / full 의미는 audit `afterValue` 의 `fullRefund` 플래그로 구분.
+- **buyer 알림 카피 분리** — 부분 환불은 PR117 의 `applyPartialRefund` 알림 ("부분 환불이 처리되었어요") 을 그대로 재사용. 강제 환불 vs 일반 환불의 알림 카피 분리는 별도 후속 PR.
+- **CSV 의 신규 컬럼** — PR131 의 10 컬럼은 forced refund 의 새 `afterValue` 필드 (`refundedAmount / remainingRefundableAmount / fullRefund`) 도 자동 채움 (helper 가 action 무관하게 JSON 필드를 본다). 새 컬럼은 추가하지 않는다.
+- **환불 정산 reconciliation batch** — 부분 강제 환불이 들어와 일별 PG cancel 합산이 더 복잡해진다. 별도 batch PR 필요.
