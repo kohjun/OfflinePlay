@@ -1032,6 +1032,108 @@ class ModerationAuditLogServiceTest {
         assertThat(cols).containsExactly("PARTIAL", "", "", "", "", "", "", "", "", "")
     }
 
+    // ── PR133 regression hardening ───────────────────────────────────────────
+
+    @Test
+    fun `exportToCsv - PR133 모든 row 가 정확히 20 컬럼 (action 무관)`() {
+        // CSV invariant: row 당 컬럼 수가 헤더 컬럼 수 (20) 와 일치. action 별 분기로 컬럼 수가
+        // 바뀌면 외부 도구가 깨진다. 본 테스트는 afterValue 를 null 또는 inner-comma 없는 값으로
+        // 두어 quote-wrap 처리를 피하고 raw 콤마 카운트로 컬럼 수를 검증한다.
+        val actor = createUser(99L)
+        val rows = listOf(
+            // non-refund — afterValue null 이라 빈 필드
+            ModerationAuditLog(
+                actor = actor, action = ModerationAuditAction.TARGET_HIDDEN,
+                beforeValue = null, afterValue = null, reason = null,
+            ).apply {
+                ReflectionTestUtils.setField(this, "id", 1L)
+                ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+            },
+            // forced + null afterValue → refundKind=FORCED, 나머지 9 컬럼 빈 값
+            ModerationAuditLog(
+                actor = actor, action = ModerationAuditAction.TICKET_FORCED_REFUNDED,
+                beforeValue = null, afterValue = null, reason = null,
+            ).apply {
+                ReflectionTestUtils.setField(this, "id", 2L)
+                ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 2, 0, 0))
+            },
+            // partial + null afterValue → refundKind=PARTIAL, 나머지 9 컬럼 빈 값
+            ModerationAuditLog(
+                actor = actor, action = ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+                beforeValue = null, afterValue = null, reason = null,
+            ).apply {
+                ReflectionTestUtils.setField(this, "id", 3L)
+                ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 3, 0, 0))
+            },
+            // full + null afterValue → refundKind=FULL, 나머지 9 컬럼 빈 값
+            ModerationAuditLog(
+                actor = actor, action = ModerationAuditAction.PAYMENT_REFUNDED,
+                beforeValue = null, afterValue = null, reason = null,
+            ).apply {
+                ReflectionTestUtils.setField(this, "id", 4L)
+                ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 4, 0, 0))
+            },
+            // malformed JSON (refund action 이지만 inner-comma 없음)
+            ModerationAuditLog(
+                actor = actor, action = ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+                beforeValue = null, afterValue = "not-json{", reason = null,
+            ).apply {
+                ReflectionTestUtils.setField(this, "id", 5L)
+                ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 5, 0, 0))
+            },
+        )
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(rows, Pageable.ofSize(1000), rows.size.toLong())
+
+        val csv = service.exportToCsv()
+        val dataLines = csv.split("\r\n").drop(1).filter { it.isNotEmpty() }
+        assertThat(dataLines).hasSize(5)
+        // 본 테스트 데이터 row 들은 inner-comma 가 없으므로 raw 콤마 카운트로 컬럼 수 검증 가능.
+        val headerCommas = ModerationAuditLogService.CSV_HEADER.count { it == ',' }
+        dataLines.forEach { line ->
+            assertThat(line.count { it == ',' }).isEqualTo(headerCommas)
+        }
+    }
+
+    @Test
+    fun `exportToCsv - PR133 TICKET_FORCED_REFUNDED + malformed JSON → refundKind=FORCED + 나머지 빈 값 (export 성공)`() {
+        val actor = createUser(99L)
+        val log = ModerationAuditLog(
+            actor = actor, action = ModerationAuditAction.TICKET_FORCED_REFUNDED,
+            beforeValue = null, afterValue = "not-json{", reason = null,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", 1L)
+            ReflectionTestUtils.setField(this, "createdAt", LocalDateTime.of(2026, 1, 1, 0, 0))
+        }
+        every {
+            moderationAuditLogRepository.findAll(any<Specification<ModerationAuditLog>>(), any<Pageable>())
+        } returns PageImpl(listOf(log), Pageable.ofSize(1000), 1)
+
+        val csv = service.exportToCsv()
+        val refundCols = csv.split("\r\n")[1].split(",").takeLast(10)
+        assertThat(refundCols).containsExactly("FORCED", "", "", "", "", "", "", "", "", "")
+    }
+
+    @Test
+    fun `get - PR133 PAYMENT_PARTIALLY_REFUNDED + ticket lookup 이 RuntimeException throw 해도 detail 200 + contextAvailable false`() {
+        val actor = createUser(99L)
+        val afterJson = """{"ticketId":123,"refundAmount":5000,"fullRefund":false}"""
+        val log = buildPaymentRefundLog(actor, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, afterJson)
+        every { moderationAuditLogRepository.findById(2L) } returns Optional.of(log)
+        every { ticketRepository.findById(123L) } throws RuntimeException("DB unreachable")
+
+        val result = service.get(2L) // throw 하면 안 됨
+
+        val ctx = result.paymentRefundContext!!
+        assertThat(ctx.contextAvailable).isFalse()
+        // JSON 파싱은 성공했으므로 JSON 값은 보존, lookup 실패는 swallow.
+        assertThat(ctx.ticketId).isEqualTo(123L)
+        assertThat(ctx.refundAmount).isEqualTo(5000L)
+        assertThat(ctx.fullRefund).isFalse()
+        assertThat(ctx.buyerId).isNull()
+    }
+
     @Test
     fun `exportToCsv - comma 포함 reason 은 quote wrap`() {
         val actor = createUser(99L)

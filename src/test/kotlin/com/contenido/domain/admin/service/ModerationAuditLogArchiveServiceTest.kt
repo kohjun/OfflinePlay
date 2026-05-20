@@ -626,6 +626,81 @@ class ModerationAuditLogArchiveServiceTest {
     }
 
     @Test
+    fun `exportArchivedToCsv - PR133 모든 row 가 정확히 21 컬럼 (action 무관)`() {
+        stubAuditServiceHelpers()
+        // 서로 다른 action 으로 3 row — non-refund / forced / partial. 모두 같은 컬럼 수여야 한다.
+        every {
+            moderationAuditLogService.csvRefundDerivedColumns(
+                ModerationAuditAction.TICKET_FORCED_REFUNDED, any(),
+            )
+        } returns listOf("FORCED", "1", "2", "", "1000", "", "", "REFUNDED", "", "")
+        every {
+            moderationAuditLogService.csvRefundDerivedColumns(
+                ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, any(),
+            )
+        } returns listOf("PARTIAL", "3", "4", "5", "500", "500", "1500", "PARTIALLY_REFUNDED", "PARTIALLY_REFUNDED", "false")
+        // non-refund 는 stub 의 default (10 개 빈 값) 그대로.
+        val rows = listOf(
+            buildArchive(originalId = 1L, snapshot = "admin"),
+            buildRefundArchive(2L, ModerationAuditAction.TICKET_FORCED_REFUNDED, """{"ticketId":1}"""),
+            buildRefundArchive(3L, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, """{"ticketId":3}"""),
+        )
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(rows, Pageable.ofSize(1000), rows.size.toLong())
+
+        val csv = service.exportArchivedToCsv()
+        val dataLines = csv.split("\r\n").drop(1).filter { it.isNotEmpty() }
+        val headerCommas = ModerationAuditLogArchiveService.CSV_HEADER.count { it == ',' }
+        assertThat(dataLines).hasSize(3)
+        dataLines.forEach { line ->
+            assertThat(line.count { it == ',' }).isEqualTo(headerCommas)
+        }
+    }
+
+    @Test
+    fun `getArchived - PR133 detail 응답에서 한 row 가 두 context 를 동시에 갖지 않음 (mutual exclusion)`() {
+        // 같은 row 가 TICKET_FORCED_REFUNDED 면 paymentRefundContext null, PAYMENT_REFUNDED 면
+        // forcedRefundContext null 임을 한 케이스에 모은다 — invariant 가드.
+        val forcedRow = buildRefundArchive(
+            100L, ModerationAuditAction.TICKET_FORCED_REFUNDED, """{"ticketId":1}""",
+        )
+        val partialRow = buildRefundArchive(
+            101L, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, """{"ticketId":2}""",
+        )
+        every { moderationAuditLogArchiveRepository.findByOriginalId(100L) } returns forcedRow
+        every { moderationAuditLogArchiveRepository.findByOriginalId(101L) } returns partialRow
+        every { moderationAuditLogService.buildForcedRefundContext(any()) } returns
+            com.contenido.domain.admin.dto.ForcedRefundAuditContextResponse(
+                ticketId = 1L, paymentAttemptId = null, amount = null, ticketStatus = null,
+                buyerId = null, buyerNickname = null, buyerEmail = null,
+                eventId = null, eventTitle = null, channelId = null, channelName = null,
+                contextAvailable = false,
+            )
+        every { moderationAuditLogService.buildPaymentRefundContext(any()) } returns
+            com.contenido.domain.admin.dto.PaymentRefundAuditContextResponse(
+                ticketId = 2L, paymentAttemptId = null, eventId = null,
+                refundAmount = null, refundedAmount = null, remainingRefundableAmount = null,
+                ticketStatus = null, paymentStatus = null, fullRefund = null,
+                buyerId = null, buyerNickname = null, buyerEmail = null,
+                eventTitle = null, channelId = null, channelName = null,
+                contextAvailable = false,
+            )
+
+        val forcedResult = service.getArchived(100L)
+        val partialResult = service.getArchived(101L)
+
+        // forced row: forcedRefundContext 만 채워짐
+        assertThat(forcedResult.forcedRefundContext).isNotNull
+        assertThat(forcedResult.paymentRefundContext).isNull()
+        // partial row: paymentRefundContext 만 채워짐
+        assertThat(partialResult.paymentRefundContext).isNotNull
+        assertThat(partialResult.forcedRefundContext).isNull()
+    }
+
+    @Test
     fun `exportArchivedToCsv - Pageable size 가 EXPORT_LIMIT 1000 으로 고정`() {
         stubAuditServiceHelpers()
         val pageableSlot = slot<Pageable>()
