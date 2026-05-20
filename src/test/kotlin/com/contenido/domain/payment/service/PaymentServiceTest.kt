@@ -1914,6 +1914,172 @@ class PaymentServiceTest {
         assertThat(attempt.refundedAmount).isEqualTo(5_000L)
     }
 
+    // ── PR137 — partial forced refund chain regression ───────────────────────
+
+    @Test
+    fun `PR137 — 두 번 partial forced refund 누적 → ticket status PARTIALLY_REFUNDED 유지`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 5,
+            startAt = LocalDateTime.now().minusHours(1),
+            endAt = LocalDateTime.now().plusHours(1),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PAID)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr137a", amount = 30_000L, status = PaymentStatus.PAID,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+        }
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+
+        service.forceRefundByAdmin(99L, 999L, "1차 보상", amount = 5_000L)
+        service.forceRefundByAdmin(99L, 999L, "2차 보상", amount = 5_000L)
+
+        // 누적 환불액 10_000, remaining 20_000, ticket 은 PARTIALLY_REFUNDED 유지.
+        assertThat(attempt.refundedAmount).isEqualTo(10_000L)
+        assertThat(attempt.remainingRefundableAmount()).isEqualTo(20_000L)
+        assertThat(ticket.status).isEqualTo(TicketStatus.PARTIALLY_REFUNDED)
+        // 참가 / 정원 무영향.
+        assertThat(event.currentParticipants).isEqualTo(5)
+    }
+
+    @Test
+    fun `PR137 — partial forced refund 후 remaining 전체 forced refund → full cascade`() {
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 5,
+            startAt = LocalDateTime.now().minusHours(1),
+            endAt = LocalDateTime.now().plusHours(1),
+        )
+        // 부분 환불이 이미 들어간 상태로 시작.
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PARTIALLY_REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr137b", amount = 30_000L, status = PaymentStatus.PARTIALLY_REFUNDED,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+            ReflectionTestUtils.setField(this, "refundedAmount", 10_000L)
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now().minusMinutes(5))
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.APPROVED)
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(participation)
+
+        // amount 미지정 → remaining 20_000 전체. cascade.
+        val response = service.forceRefundByAdmin(99L, 999L, "마무리 보상")
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(response.refundedAmount).isEqualTo(30_000L)
+        assertThat(response.remainingRefundableAmount).isEqualTo(0L)
+        assertThat(ticket.status).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(event.currentParticipants).isEqualTo(4)
+        assertThat(participation.status).isEqualTo(ParticipationStatus.CANCELED)
+    }
+
+    @Test
+    fun `PR137 — user partial refund 후 admin forced full remaining → cascade 가능`() {
+        // user 가 `/tickets/{id}/refund` 로 일부를 환불해 PARTIALLY_REFUNDED 가 된 ticket 을
+        // admin 이 `/admin/tickets/{id}/forced-refund` 로 마무리 — endpoint 가 달라도 같은
+        // attempt.remainingRefundableAmount 기반으로 정상 cascade.
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val buyer = createUser(id = 2L)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 5,
+            // admin 강제 환불은 deadline 무시 — 시작 후 시점.
+            startAt = LocalDateTime.now().minusHours(1),
+            endAt = LocalDateTime.now().plusHours(1),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PARTIALLY_REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr137c", amount = 30_000L, status = PaymentStatus.PARTIALLY_REFUNDED,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+            ReflectionTestUtils.setField(this, "refundedAmount", 8_000L)
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now().minusHours(2))
+        }
+        val participation = createParticipation(event, buyer, ParticipationStatus.APPROVED)
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+        every { paymentGateway.refund(any()) } returns PaymentGatewayRefundResult.Success(
+            provider = PaymentProvider.TOSS, providerPaymentKey = "toss_paid_key",
+        )
+        every { eventParticipationRepository.findByEventAndParticipant(event, buyer) } returns
+            Optional.of(participation)
+
+        // admin 이 remaining 22_000 을 명시적으로 지정해도 동작 동일.
+        val response = service.forceRefundByAdmin(99L, 999L, "마무리", amount = 22_000L)
+
+        assertThat(response.ticketStatus).isEqualTo(TicketStatus.REFUNDED)
+        assertThat(attempt.refundedAmount).isEqualTo(30_000L)
+        assertThat(response.remainingRefundableAmount).isEqualTo(0L)
+    }
+
+    @Test
+    fun `PR137 — user refund 가 admin forced partial refund 후 remaining 만큼만 가능 (over 차단)`() {
+        // admin 이 5_000 부분 강제 환불을 미리 해놓은 상태에서 user 가 remaining 25_000 초과를
+        // 요청하면 InvalidRefundAmountException 으로 차단되어야 한다.
+        val buyer = createUser(id = 2L)
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val event = createEvent(
+            id = 100L, channel = createChannel(owner = owner),
+            fee = 30_000L, currentParticipants = 5,
+            startAt = LocalDateTime.now().plusDays(2),
+            endAt = LocalDateTime.now().plusDays(2).plusHours(2),
+        )
+        val ticket = createTicket(id = 999L, event = event, buyer = buyer, status = TicketStatus.PARTIALLY_REFUNDED)
+        val attempt = createPaymentAttempt(
+            id = 555L, event = event, buyer = buyer,
+            idempotencyKey = "order-pr137d", amount = 30_000L, status = PaymentStatus.PARTIALLY_REFUNDED,
+        ).apply {
+            ReflectionTestUtils.setField(this, "ticket", ticket)
+            ReflectionTestUtils.setField(this, "providerPaymentKey", "toss_paid_key")
+            ReflectionTestUtils.setField(this, "provider", PaymentProvider.TOSS)
+            ReflectionTestUtils.setField(this, "refundedAmount", 5_000L)
+            ReflectionTestUtils.setField(this, "refundedAt", LocalDateTime.now().minusMinutes(5))
+        }
+        every { userRepository.findById(2L) } returns Optional.of(buyer)
+        every { ticketRepository.findById(999L) } returns Optional.of(ticket)
+        every { paymentAttemptRepository.findByTicket(ticket) } returns Optional.of(attempt)
+
+        // 25_001 초과는 차단.
+        org.junit.jupiter.api.assertThrows<com.contenido.global.exception.InvalidRefundAmountException> {
+            service.refundPaymentByTicket(
+                actorId = 2L, ticketId = 999L,
+                request = com.contenido.domain.payment.dto.RefundTicketRequest(amount = 25_001L),
+            )
+        }
+        // gateway 호출 없음 — 가드에서 끊김.
+        verify(exactly = 0) { paymentGateway.refund(any()) }
+    }
+
     // ── PR106 — forceRefundByAdmin (ADMIN 강제 환불) ─────────────────────────────
 
     @Test
