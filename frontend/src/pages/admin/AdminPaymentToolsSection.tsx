@@ -53,11 +53,15 @@ function formatRefundedAt(iso: string): string {
   return d.toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+type RefundKind = 'FULL' | 'PARTIAL'
+
 export function AdminPaymentToolsSection() {
   const { showToast } = useToast()
   const [ticketIdInput, setTicketIdInput] = useState('')
   const [reason, setReason] = useState('')
   const [confirmText, setConfirmText] = useState('')
+  const [refundKind, setRefundKind] = useState<RefundKind>('FULL')
+  const [amountInput, setAmountInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [lastResult, setLastResult] = useState<AdminForcedRefundResponse | null>(null)
 
@@ -68,15 +72,24 @@ export function AdminPaymentToolsSection() {
   const confirmTextTrimmed = confirmText.trim()
   const confirmValid = confirmTextTrimmed === CONFIRM_PHRASE
   const confirmInvalid = confirmText.length > 0 && !confirmValid
-  const canSubmit = ticketIdValid && reasonValid && confirmValid && !submitting
+  // PR134 — refundKind=PARTIAL 이면 amount 1 이상 정수 필요. FULL 이면 amount input 자체가 비활성.
+  const amountNum = Number(amountInput)
+  const amountValid =
+    refundKind === 'FULL' ||
+    (amountInput.trim().length > 0 && Number.isInteger(amountNum) && amountNum >= 1)
+  const amountInvalid = refundKind === 'PARTIAL' && amountInput.length > 0 && !amountValid
+  const canSubmit = ticketIdValid && reasonValid && confirmValid && amountValid && !submitting
 
   async function handleSubmit() {
     if (!canSubmit) return
+    const partialAmount = refundKind === 'PARTIAL' ? amountNum : undefined
     const confirmed = window.confirm(
       [
         `티켓 #${ticketIdNum} 을 강제 환불합니다.`,
         '',
-        '· 전액 환불만 가능합니다 (부분 환불 미지원).',
+        refundKind === 'FULL'
+          ? '· 환불 방식: 남은 환불 가능액 전액 (참가 취소 / 정원 복구 가능)'
+          : `· 환불 방식: 부분 환불 ${formatCurrency(amountNum)} (참가 상태 / 정원 유지)`,
         '· USED / 시작 이후 티켓도 처리됩니다.',
         '· 처리 내역은 감사 로그(audit log)에 기록됩니다.',
         '· 사용자 알림 메시지에는 운영 사유가 노출되지 않습니다.',
@@ -87,24 +100,28 @@ export function AdminPaymentToolsSection() {
     if (!confirmed) return
     setSubmitting(true)
     try {
-      const result = await forceRefundTicket(ticketIdNum, reasonTrimmed)
+      const result = await forceRefundTicket(ticketIdNum, reasonTrimmed, partialAmount)
       setLastResult(result)
       setTicketIdInput('')
       setReason('')
       setConfirmText('')
+      setRefundKind('FULL')
+      setAmountInput('')
       showToast({ title: '강제 환불 처리 완료', tone: 'success' })
     } catch (error) {
       const status = (error as { status?: number } | null)?.status
       const title =
-        status === 409
-          ? '이미 환불되었거나 환불할 수 없는 티켓입니다.'
-          : status === 404
-            ? '티켓을 찾을 수 없습니다.'
-            : status === 403
-              ? 'ADMIN 권한이 필요합니다.'
-              : status === 502
-                ? 'PG 환불 처리에 실패했습니다.'
-                : '강제 환불 실패'
+        status === 400
+          ? '환불 금액을 확인해주세요.'
+          : status === 409
+            ? '이미 환불되었거나 환불할 수 없는 티켓입니다.'
+            : status === 404
+              ? '티켓을 찾을 수 없습니다.'
+              : status === 403
+                ? 'ADMIN 권한이 필요합니다.'
+                : status === 502
+                  ? 'PG 환불 처리에 실패했습니다.'
+                  : '강제 환불 실패'
       showToast({
         title,
         message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
@@ -126,7 +143,8 @@ export function AdminPaymentToolsSection() {
         전액 환불합니다.
       </p>
       <ul className="ct-forced-refund-notice muted">
-        <li>전액 환불만 가능합니다 (부분 환불 미구현).</li>
+        <li>전액 환불은 참가 취소 / 정원 복구로 cascade 됩니다 — 일반 환불과 동일.</li>
+        <li>부분 강제 환불은 참가 상태 / 정원이 유지됩니다 (티켓은 PARTIALLY_REFUNDED).</li>
         <li>USED 티켓 / 시작 이후 PAID 티켓도 처리됩니다 — 일반 환불 가드를 우회합니다.</li>
         <li>처리 내역은 감사 로그(audit log)에 기록됩니다.</li>
       </ul>
@@ -144,6 +162,55 @@ export function AdminPaymentToolsSection() {
             placeholder="예: 12345"
           />
         </label>
+        <fieldset className="form-field" aria-describedby="admin-forced-refund-kind-help">
+          <legend>환불 방식</legend>
+          <label className="radio">
+            <input
+              type="radio"
+              name="refund-kind"
+              value="FULL"
+              checked={refundKind === 'FULL'}
+              onChange={() => { setRefundKind('FULL'); setAmountInput('') }}
+              disabled={submitting}
+            />
+            <span>남은 환불 가능액 전액</span>
+          </label>
+          <label className="radio">
+            <input
+              type="radio"
+              name="refund-kind"
+              value="PARTIAL"
+              checked={refundKind === 'PARTIAL'}
+              onChange={() => setRefundKind('PARTIAL')}
+              disabled={submitting}
+            />
+            <span>금액 지정 (부분 환불)</span>
+          </label>
+          <span id="admin-forced-refund-kind-help" className="muted">
+            전액 환불은 참가 취소 / 정원 복구로 cascade 됩니다. 부분 환불은 참가 상태와 정원이 유지됩니다.
+          </span>
+        </fieldset>
+        {refundKind === 'PARTIAL' ? (
+          <label className="form-field" htmlFor="admin-forced-refund-amount">
+            <span>환불 금액 (원)</span>
+            <input
+              id="admin-forced-refund-amount"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              disabled={submitting}
+              aria-describedby="admin-forced-refund-amount-help"
+              aria-invalid={amountInvalid || undefined}
+              placeholder="예: 5000"
+            />
+            <span id="admin-forced-refund-amount-help" className="muted">
+              1원 이상의 정수. 남은 환불 가능액을 초과하면 backend 가 400 으로 반려합니다.
+            </span>
+          </label>
+        ) : null}
         <label className="form-field" htmlFor="admin-forced-refund-reason">
           <span>환불 사유 (필수, 최대 500자)</span>
           <textarea
@@ -204,9 +271,14 @@ export function AdminPaymentToolsSection() {
         >
           <div className="ct-forced-refund-result__head">
             <strong>마지막 처리 결과</strong>
-            <Badge tone={lastResult.ticketStatus === 'REFUNDED' ? 'success' : 'neutral'}>
+            <Badge tone={lastResult.ticketStatus === 'REFUNDED' ? 'success' : 'warning'}>
               {lastResult.ticketStatus}
             </Badge>
+            {lastResult.fullRefund != null ? (
+              <Badge tone={lastResult.fullRefund ? 'success' : 'warning'}>
+                {lastResult.fullRefund ? '전액 환불' : '부분 환불'}
+              </Badge>
+            ) : null}
           </div>
           <div className="ct-forced-refund-result__grid">
             <div>
@@ -214,9 +286,21 @@ export function AdminPaymentToolsSection() {
               <strong>#{lastResult.ticketId}</strong>
             </div>
             <div>
-              <span>환불 금액</span>
+              <span>결제 총액</span>
               <strong>{formatCurrency(lastResult.amount)}</strong>
             </div>
+            {lastResult.refundedAmount != null ? (
+              <div>
+                <span>누적 환불액</span>
+                <strong>{formatCurrency(lastResult.refundedAmount)}</strong>
+              </div>
+            ) : null}
+            {lastResult.remainingRefundableAmount != null ? (
+              <div>
+                <span>남은 환불 가능액</span>
+                <strong>{formatCurrency(lastResult.remainingRefundableAmount)}</strong>
+              </div>
+            ) : null}
             <div>
               <span>결제 수단</span>
               <strong>{PROVIDER_LABEL[lastResult.provider] ?? lastResult.provider}</strong>

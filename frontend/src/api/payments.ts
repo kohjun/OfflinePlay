@@ -84,9 +84,14 @@ export function refundTicket(ticketId: number, request: RefundTicketRequest = {}
  *  - PaymentAttempt 부재 / 상태 부적합: 409 PaymentNotRefundableException
  *  - PG gateway 거절: 502 RefundFailedException
  */
-export function forceRefundTicket(ticketId: number, reason: string) {
+export function forceRefundTicket(
+  ticketId: number,
+  reason: string,
+  amount?: number,
+) {
+  // PR134 — amount 는 optional. 비우면 backend 가 remaining 전액 환불 (PR106 동작).
   return apiClient.post<AdminForcedRefundResponse>(
     `/admin/tickets/${ticketId}/forced-refund`,
-    { reason },
+    amount != null ? { reason, amount } : { reason },
   )
 }

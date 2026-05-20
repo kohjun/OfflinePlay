@@ -83,7 +83,10 @@ export interface RefundTicketResponse {
 
 /**
  * PR106 — Mirrors backend AdminForcedRefundResponse.
- * 일반 환불 응답에 운영 사유(`refundReason`)가 추가된 형태. 부분 환불은 미지원 (`amount` 는 전액).
+ * 일반 환불 응답에 운영 사유(`refundReason`)가 추가된 형태.
+ *
+ * PR134 — 부분 강제 환불 지원에 따라 누적 환불액 / 남은 환불 가능액 / fullRefund 플래그 3 필드
+ * 추가. backend 가 optional default 로 직렬화하므로 옛 응답도 호환된다.
  */
 export interface AdminForcedRefundResponse {
   ticketId: number
@@ -94,4 +97,18 @@ export interface AdminForcedRefundResponse {
   refundedAt: string
   providerPaymentKey: string | null
   refundReason: string
+  refundedAmount?: number
+  remainingRefundableAmount?: number
+  fullRefund?: boolean
+}
+
+/**
+ * PR134 — `POST /admin/tickets/{ticketId}/forced-refund` body.
+ *  - `reason` : 1~500자 운영 사유.
+ *  - `amount` : optional 부분 환불 금액. null/미지정 → remaining 전액 환불 (PR106 기존 동작).
+ *    1 <= amount <= remainingRefundableAmount 일 때만 허용 — 범위 위반은 backend 가 400.
+ */
+export interface AdminForcedRefundRequest {
+  reason: string
+  amount?: number
 }

@@ -724,6 +724,25 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 외부 도구 (Excel / Sheets) 에서 CSV 한 줄로 환불 종류 / 금액 / 상태를 곧장 확인 가능. raw JSON 을 읽지 않아도 부분 vs 전액 환불 분포, 누적 환불 금액, 남은 환불 한도 등을 컬럼 단위로 정렬 / 필터 가능. lookup 의 깊은 enrichment 는 여전히 detail endpoint 의 책임이라 CSV path 의 N+1 부담은 없다.
 
+### 29. 부분 강제 환불 (PR134 / PR135)
+**목적**: ADMIN 강제 환불이 optional amount 를 받아 부분 환불을 지원하는지 검증. amount 미지정 시 기존 PR106 동작 (remaining 전액 + full cascade) 이 그대로 유지되는지도 확인.
+
+**사전 조건**: 운영 결제 도구(`/admin?tab=payments`)에 접근 가능한 ADMIN 계정 + 부분 환불 가능한 PAID / PARTIALLY_REFUNDED / USED 티켓 1건.
+
+- [ ] 🖱 PR135 — `/admin?tab=payments` 진입 → 강제 환불 폼의 "환불 방식" fieldset 에 `남은 환불 가능액 전액` / `금액 지정 (부분 환불)` 라디오 2개 노출 (전액이 default)
+- [ ] 🖱 PR135 — 전액 선택 + ticket / reason / REFUND 입력 → 실행 → confirm dialog 가 "환불 방식: 남은 환불 가능액 전액" 명시 → 실행 → result card 의 환불 유형 Badge "전액 환불" + 남은 환불 가능액 ₩0
+- [ ] 🖱 PR135 — 부분 환불 선택 → "환불 금액 (원)" input 노출 → 5,000 입력 → confirm dialog 가 `부분 환불 ₩5,000` + `참가 상태 / 정원 유지` 명시 → 실행 → result card 의 환불 유형 Badge "부분 환불" + 누적 환불액 ₩5,000 + 남은 환불 가능액 (결제총액 - 5,000)
+- [ ] 🖱 PR135 — 부분 환불 + amount 비움 → 실행 버튼 비활성 (1 이상 정수 필요)
+- [ ] 🖱 PR135 — 부분 환불 + amount 0 입력 → 실행 버튼 비활성
+- [ ] 🖱 PR135 — 부분 환불 + amount 가 remaining 초과 → backend 가 400 InvalidRefundAmountException → toast "환불 금액을 확인해주세요."
+- [ ] 🖱 PR135 — 라디오 FULL 로 다시 토글 → amount input 자동으로 빈 값 + 비활성 흐름 복귀
+- [ ] 🖱 PR135 — USED ticket 에 부분 강제 환불 → 성공 + ticket 상태 PARTIALLY_REFUNDED 로 전이됨 (참가/정원 무영향)
+- [ ] 🖱 PR134 — partial 후 같은 ticket 에 전액 환불 다시 실행 → remaining 만큼 환불 + ticket REFUNDED cascade + 참가 CANCELED + 정원 -1
+- [ ] 📋 PR134 — audit log 단건 detail 의 raw `afterValue` JSON 에 `refundAmount` / `refundedAmount` / `remainingRefundableAmount` / `fullRefund` 4 키 포함. 기존 4 키 (`ticketId` / `paymentAttemptId` / `ticketStatus` / `amount`) 도 그대로 유지 — PR115 forced refund context panel + PR131 CSV 컬럼이 깨지지 않음
+- [ ] 📋 PR134 — 일반 환불 경로 (`POST /tickets/{id}/refund`) 의 동작 / 가드 / audit 정책은 PR133 이전과 동일 (회귀 가드)
+
+**기대 결과**: 운영자가 노쇼 보상의 일부만 돌려주는 케이스도 단일 도구에서 처리. 전액 / 부분 케이스 모두 audit + result card 가 정확한 cascade / 잔여 정보를 보여줘 운영 추적성이 유지된다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결
