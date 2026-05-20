@@ -263,7 +263,12 @@ class ModerationAuditLogService(
      *  - amount 는 backend Long. JSON 에서 정수가 아닌 경우 null.
      *  - ticketStatus 는 JSON 의 문자열 그대로 — enum 변환을 시도하지 않는다 (호환).
      */
-    private fun buildForcedRefundContext(afterValue: String?): ForcedRefundAuditContextResponse {
+    /**
+     * PR130 — visibility 가 `internal` 로 노출. [ModerationAuditLogArchiveService] 가 archive
+     * detail enrichment 에서 같은 helper 를 재사용한다 (코드 중복 방지). 외부 모듈에는 여전히
+     * 비공개 — `internal` 가 모듈 단위라 controller/외부 패키지에서는 호출 불가.
+     */
+    internal fun buildForcedRefundContext(afterValue: String?): ForcedRefundAuditContextResponse {
         val empty = ForcedRefundAuditContextResponse(
             ticketId = null, paymentAttemptId = null, amount = null, ticketStatus = null,
             buyerId = null, buyerNickname = null, buyerEmail = null,
@@ -329,7 +334,10 @@ class ModerationAuditLogService(
      *    (ticketStatus / paymentStatus), fullRefund 플래그 — 모두 PR122 audit JSON 그대로 노출.
      *    enum 변환은 시도하지 않음 (역사적 호환 대비 문자열 그대로).
      */
-    private fun buildPaymentRefundContext(afterValue: String?): PaymentRefundAuditContextResponse {
+    /**
+     * PR130 — visibility 가 `internal` 로 노출. archive detail 에서 같은 helper 재사용.
+     */
+    internal fun buildPaymentRefundContext(afterValue: String?): PaymentRefundAuditContextResponse {
         val empty = PaymentRefundAuditContextResponse(
             ticketId = null, paymentAttemptId = null, eventId = null,
             refundAmount = null, refundedAmount = null, remainingRefundableAmount = null,

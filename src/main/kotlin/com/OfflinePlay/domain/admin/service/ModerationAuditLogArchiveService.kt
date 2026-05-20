@@ -58,6 +58,17 @@ class ModerationAuditLogArchiveService(
             "originalId,originalCreatedAt,archivedAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue"
 
         private const val CSV_LINE_TERMINATOR = "\r\n"
+
+        /**
+         * PR130 — archive detail enrichment 대상 action 집합. active 의
+         * [ModerationAuditLogService] 와 동일한 정의 (`PAYMENT_PARTIALLY_REFUNDED` /
+         * `PAYMENT_REFUNDED`). 두 enum 값 모두 PR122 audit payload shape 을 공유하므로 동일
+         * helper [ModerationAuditLogService.buildPaymentRefundContext] 로 처리.
+         */
+        private val PAYMENT_REFUND_ACTIONS = setOf(
+            ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            ModerationAuditAction.PAYMENT_REFUNDED,
+        )
     }
 
     fun previewArchive(
@@ -226,11 +237,17 @@ class ModerationAuditLogArchiveService(
         return moderationAuditLogArchiveRepository.findAll(spec, pageable).map { it.toResponse() }
     }
 
-    /** PR67 — 단건 상세. archive 본인 PK 가 아니라 active 에 있던 [originalId] 기준 조회. */
+    /**
+     * PR67 — 단건 상세. archive 본인 PK 가 아니라 active 에 있던 [originalId] 기준 조회.
+     *
+     * PR130 — `TICKET_FORCED_REFUNDED` row 는 `forcedRefundContext`, `PAYMENT_PARTIALLY_REFUNDED`
+     * / `PAYMENT_REFUNDED` row 는 `paymentRefundContext` 채움. active detail 과 동일 정책 —
+     * archive list / CSV 는 enrichment 미적용 (N+1 회피 + CSV 호환).
+     */
     fun getArchived(originalId: Long): ArchivedModerationAuditLogResponse {
         val row = moderationAuditLogArchiveRepository.findByOriginalId(originalId)
             ?: throw ArchivedModerationAuditLogNotFoundException()
-        return row.toResponse()
+        return row.toResponse(enrichRefundContexts = true)
     }
 
     /**
@@ -287,7 +304,9 @@ class ModerationAuditLogArchiveService(
         return sb.toString()
     }
 
-    private fun ModerationAuditLogArchive.toResponse() = ArchivedModerationAuditLogResponse(
+    private fun ModerationAuditLogArchive.toResponse(
+        enrichRefundContexts: Boolean = false,
+    ) = ArchivedModerationAuditLogResponse(
         originalId = originalId,
         actorId = actor.id,
         actorNicknameSnapshot = actorNicknameSnapshot,
@@ -300,6 +319,12 @@ class ModerationAuditLogArchiveService(
         originalCreatedAt = originalCreatedAt,
         archivedAt = archivedAt,
         archivedBy = archivedBy.id,
+        forcedRefundContext = if (enrichRefundContexts && action == ModerationAuditAction.TICKET_FORCED_REFUNDED)
+            moderationAuditLogService.buildForcedRefundContext(afterValue)
+        else null,
+        paymentRefundContext = if (enrichRefundContexts && action in PAYMENT_REFUND_ACTIONS)
+            moderationAuditLogService.buildPaymentRefundContext(afterValue)
+        else null,
     )
 
     /**

@@ -314,6 +314,17 @@ export interface ArchivedModerationAuditLog {
   originalCreatedAt: string
   archivedAt: string
   archivedBy: number
+  /**
+   * PR130 — archive 단건 detail 응답에서만 채워짐. active [ModerationAuditLog.forcedRefundContext]
+   * 와 같은 정책: `TICKET_FORCED_REFUNDED` row + detail endpoint 에서만 enrichment.
+   * archive list / CSV 응답은 null/undefined 유지.
+   */
+  forcedRefundContext?: ForcedRefundAuditContext | null
+  /**
+   * PR130 — archive 단건 detail 응답에서만 채워짐. action 이 `PAYMENT_PARTIALLY_REFUNDED` /
+   * `PAYMENT_REFUNDED` 인 경우. forcedRefundContext 와 상호 배타.
+   */
+  paymentRefundContext?: PaymentRefundAuditContext | null
 }
 
 /**

@@ -367,6 +367,157 @@ class ModerationAuditLogArchiveServiceTest {
         assertThrows<ArchivedModerationAuditLogNotFoundException> { service.getArchived(999L) }
     }
 
+    // ── PR130 archive detail enrichment ──────────────────────────────────────
+
+    @Test
+    fun `getArchived - TICKET_FORCED_REFUNDED row 는 forcedRefundContext 채워지고 paymentRefundContext 는 null`() {
+        val afterJson = """{"ticketId":123,"paymentAttemptId":456,"amount":25000}"""
+        val ctx = com.contenido.domain.admin.dto.ForcedRefundAuditContextResponse(
+            ticketId = 123L, paymentAttemptId = 456L, amount = 25_000L, ticketStatus = "REFUNDED",
+            buyerId = 7L, buyerNickname = "buyer", buyerEmail = "b@test.com",
+            eventId = 50L, eventTitle = "ev", channelId = 30L, channelName = "ch",
+            contextAvailable = true,
+        )
+        every {
+            moderationAuditLogArchiveRepository.findByOriginalId(11L)
+        } returns buildRefundArchive(11L, ModerationAuditAction.TICKET_FORCED_REFUNDED, afterJson)
+        every { moderationAuditLogService.buildForcedRefundContext(afterJson) } returns ctx
+
+        val result = service.getArchived(11L)
+
+        assertThat(result.action).isEqualTo(ModerationAuditAction.TICKET_FORCED_REFUNDED)
+        assertThat(result.forcedRefundContext).isEqualTo(ctx)
+        assertThat(result.paymentRefundContext).isNull()
+        verify(exactly = 1) { moderationAuditLogService.buildForcedRefundContext(afterJson) }
+        verify(exactly = 0) { moderationAuditLogService.buildPaymentRefundContext(any()) }
+    }
+
+    @Test
+    fun `getArchived - PAYMENT_PARTIALLY_REFUNDED row 는 paymentRefundContext 채워지고 forcedRefundContext 는 null`() {
+        val afterJson = """{"ticketId":123,"refundAmount":5000,"fullRefund":false}"""
+        val ctx = com.contenido.domain.admin.dto.PaymentRefundAuditContextResponse(
+            ticketId = 123L, paymentAttemptId = 456L, eventId = 50L,
+            refundAmount = 5000L, refundedAmount = 5000L, remainingRefundableAmount = 20_000L,
+            ticketStatus = "PARTIALLY_REFUNDED", paymentStatus = "PARTIALLY_REFUNDED", fullRefund = false,
+            buyerId = 7L, buyerNickname = "buyer", buyerEmail = "b@test.com",
+            eventTitle = "ev", channelId = 30L, channelName = "ch",
+            contextAvailable = true,
+        )
+        every {
+            moderationAuditLogArchiveRepository.findByOriginalId(12L)
+        } returns buildRefundArchive(12L, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED, afterJson)
+        every { moderationAuditLogService.buildPaymentRefundContext(afterJson) } returns ctx
+
+        val result = service.getArchived(12L)
+
+        assertThat(result.paymentRefundContext).isEqualTo(ctx)
+        assertThat(result.forcedRefundContext).isNull()
+        verify(exactly = 1) { moderationAuditLogService.buildPaymentRefundContext(afterJson) }
+        verify(exactly = 0) { moderationAuditLogService.buildForcedRefundContext(any()) }
+    }
+
+    @Test
+    fun `getArchived - PAYMENT_REFUNDED row 도 동일하게 paymentRefundContext 채워짐`() {
+        val afterJson = """{"ticketId":123,"fullRefund":true}"""
+        val ctx = com.contenido.domain.admin.dto.PaymentRefundAuditContextResponse(
+            ticketId = 123L, paymentAttemptId = null, eventId = 50L,
+            refundAmount = null, refundedAmount = null, remainingRefundableAmount = null,
+            ticketStatus = "REFUNDED", paymentStatus = "REFUNDED", fullRefund = true,
+            buyerId = 7L, buyerNickname = "buyer", buyerEmail = null,
+            eventTitle = "ev", channelId = 30L, channelName = "ch",
+            contextAvailable = true,
+        )
+        every {
+            moderationAuditLogArchiveRepository.findByOriginalId(13L)
+        } returns buildRefundArchive(13L, ModerationAuditAction.PAYMENT_REFUNDED, afterJson)
+        every { moderationAuditLogService.buildPaymentRefundContext(afterJson) } returns ctx
+
+        val result = service.getArchived(13L)
+
+        assertThat(result.action).isEqualTo(ModerationAuditAction.PAYMENT_REFUNDED)
+        assertThat(result.paymentRefundContext!!.fullRefund).isTrue()
+        assertThat(result.forcedRefundContext).isNull()
+    }
+
+    @Test
+    fun `getArchived - non-refund action 은 두 context 모두 null + helper 호출 없음`() {
+        every {
+            moderationAuditLogArchiveRepository.findByOriginalId(14L)
+        } returns buildArchive(originalId = 14L, snapshot = "admin")
+
+        val result = service.getArchived(14L)
+
+        assertThat(result.forcedRefundContext).isNull()
+        assertThat(result.paymentRefundContext).isNull()
+        verify(exactly = 0) { moderationAuditLogService.buildForcedRefundContext(any()) }
+        verify(exactly = 0) { moderationAuditLogService.buildPaymentRefundContext(any()) }
+    }
+
+    @Test
+    fun `getArchived - TICKET_FORCED_REFUNDED + helper 가 contextAvailable=false 돌려도 detail 200`() {
+        val afterJson = "not-json{"
+        val fallback = com.contenido.domain.admin.dto.ForcedRefundAuditContextResponse(
+            ticketId = null, paymentAttemptId = null, amount = null, ticketStatus = null,
+            buyerId = null, buyerNickname = null, buyerEmail = null,
+            eventId = null, eventTitle = null, channelId = null, channelName = null,
+            contextAvailable = false,
+        )
+        every {
+            moderationAuditLogArchiveRepository.findByOriginalId(15L)
+        } returns buildRefundArchive(15L, ModerationAuditAction.TICKET_FORCED_REFUNDED, afterJson)
+        every { moderationAuditLogService.buildForcedRefundContext(afterJson) } returns fallback
+
+        val result = service.getArchived(15L)
+
+        assertThat(result.forcedRefundContext!!.contextAvailable).isFalse()
+    }
+
+    @Test
+    fun `listArchived - PAYMENT_PARTIALLY_REFUNDED row 가 있어도 list 응답은 context 둘 다 null + helper 호출 없음`() {
+        val row = buildRefundArchive(
+            42L, ModerationAuditAction.PAYMENT_PARTIALLY_REFUNDED,
+            """{"ticketId":123,"refundAmount":5000}""",
+        )
+        every {
+            moderationAuditLogArchiveRepository.findAll(
+                any<Specification<ModerationAuditLogArchive>>(), any<Pageable>(),
+            )
+        } returns PageImpl(listOf(row), Pageable.ofSize(20), 1)
+
+        val page = service.listArchived(page = 0, size = 20)
+
+        assertThat(page.content).hasSize(1)
+        assertThat(page.content[0].paymentRefundContext).isNull()
+        assertThat(page.content[0].forcedRefundContext).isNull()
+        verify(exactly = 0) { moderationAuditLogService.buildPaymentRefundContext(any()) }
+        verify(exactly = 0) { moderationAuditLogService.buildForcedRefundContext(any()) }
+    }
+
+    private fun buildRefundArchive(
+        originalId: Long,
+        action: ModerationAuditAction,
+        afterValue: String?,
+    ): ModerationAuditLogArchive {
+        val actor = createUser(id = 1L, nickname = "buyer")
+        val admin = createUser(id = 99L, nickname = "admin")
+        return ModerationAuditLogArchive(
+            originalId = originalId,
+            actor = actor,
+            actorNicknameSnapshot = "buyer",
+            action = action,
+            targetType = null,
+            targetId = null,
+            beforeValue = null,
+            afterValue = afterValue,
+            reason = "환불",
+            originalCreatedAt = LocalDateTime.of(2024, 1, 1, 0, 0),
+            archivedBy = admin,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", originalId * 10)
+            ReflectionTestUtils.setField(this, "archivedAt", LocalDateTime.of(2025, 1, 1, 0, 0))
+        }
+    }
+
     @Test
     fun `exportArchivedToCsv - 빈 결과면 헤더 1줄`() {
         stubAuditServiceHelpers()

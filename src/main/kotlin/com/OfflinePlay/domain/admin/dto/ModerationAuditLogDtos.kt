@@ -164,6 +164,10 @@ data class AuditLogArchiveResultResponse(
  *  - `originalId` 가 PK 역할 (archive row 본인 id 가 아니라 active 에 있던 id 를 노출).
  *  - `actorNicknameSnapshot` 은 archive 시점의 nickname 박혀 있음 (사용자 이름 변경 후에도 보존).
  *  - `archivedAt` / `archivedBy` 추가.
+ *
+ * PR130 — `forcedRefundContext` / `paymentRefundContext` 추가. active detail 과 같은 정책 — 단건
+ * detail 응답에서만 채워지고 list / CSV 응답은 null 유지. ticket 이 삭제되거나 JSON 이 깨지면
+ * `contextAvailable=false` 로 fallback (endpoint 는 200 유지).
  */
 data class ArchivedModerationAuditLogResponse(
     val originalId: Long,
@@ -178,6 +182,8 @@ data class ArchivedModerationAuditLogResponse(
     val originalCreatedAt: LocalDateTime,
     val archivedAt: LocalDateTime,
     val archivedBy: Long,
+    val forcedRefundContext: ForcedRefundAuditContextResponse? = null,
+    val paymentRefundContext: PaymentRefundAuditContextResponse? = null,
 )
 
 /**

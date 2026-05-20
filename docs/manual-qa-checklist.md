@@ -687,6 +687,25 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 한 번의 클릭으로 부분 환불 / 환불 완료 / 강제 환불 세 종류 audit 흐름을 빠르게 분리해 확인. PR113 + PR128 의 chip row 가 audit-logs 화면의 진입 동선을 단축한다.
 
+### 27. Archive audit 상세 enrichment (PR130)
+**목적**: PR115 / PR126 의 active audit detail enrichment 를 archive (`/admin?tab=audit-logs` archive 탭) 단건 detail 에도 동일하게 적용. archive list / CSV / archive export 응답은 enrichment 미적용 (N+1 회피 + CSV 호환) 유지를 검증.
+
+**사전 조건**: 강제 환불 1건 + 부분 환불 1건 + 전액(일반) 환불 1건 audit row 가 archive 로 이동된 상태 (PR66 manual archive 또는 PR68 scheduled archive 로 cutoff 이전 row 들이 옮겨졌다고 가정).
+
+- [ ] 🖱 PR130 — archive 탭 진입 → `TICKET_FORCED_REFUNDED` row "상세" 펼침 → "강제 환불 상세" panel (PR115) 노출 + buyer/이벤트/채널/티켓/결제 시도/환불 금액/티켓 상태 7 칸 grid. "읽기 전용" Badge 는 함께 노출 (PR67 회귀 가드)
+- [ ] 🖱 PR130 — archive 탭 → `PAYMENT_PARTIALLY_REFUNDED` row "상세" 펼침 → "환불 상세" panel (PR126) 노출 + 환불 유형 "부분 환불" + 세 금액 (이번/누적/잔여) + 두 상태 (ticket/payment)
+- [ ] 🖱 PR130 — archive 탭 → `PAYMENT_REFUNDED` row "상세" 펼침 → 동일 panel + 환불 유형 "전액 환불" + 남은 환불 한도 ₩0
+- [ ] 🖱 PR130 — archive 탭 → ticket 이 삭제된 refund row → panel 상단 fallback 카피 ("원본 감사 로그는 확인되지만 티켓 상세 정보를 찾을 수 없습니다.") + JSON 추출 값만 그대로
+- [ ] 🖱 PR130 — archive 탭 → malformed afterValue JSON row → 동일 fallback 카피 + 모든 lookup 값 "—"
+- [ ] 🖱 PR130 — archive 탭 → non-refund row ("수동 숨김" 등) 펼침 → "강제 환불 상세" / "환불 상세" panel 둘 다 비노출 (회귀 가드)
+- [ ] 🖱 PR130 — archive 탭 → `TICKET_FORCED_REFUNDED` row 펼침 → "강제 환불 상세" 만 노출, "환불 상세" 비노출 (active 와 동일 상호 배타)
+- [ ] 📋 PR130 — archive list endpoint (`GET /admin/moderation/audit-logs/archive?page=...`) 응답의 각 row 에 `forcedRefundContext = null` / `paymentRefundContext = null` (또는 누락) — 단건 detail (`/audit-logs/archive/{originalId}`) 응답에만 채워짐 (N+1 회피)
+- [ ] 📋 PR130 — archive CSV export (PR67 endpoint) 결과의 컬럼 / 행은 PR128 이전과 동일 — context enrichment 필드 미포함
+- [ ] 📋 PR130 — raw afterValue JSON pretty-print 영역은 panel 과 별개로 그대로 유지 — 원본 archive row (`beforeValue` / `afterValue` / `reason`) 는 변경되지 않음
+- [ ] 📋 PR130 — active detail (PR115 / PR126) 동작은 그대로 — 본 PR 이 active 측 동작을 변경하지 않음을 회귀 가드
+
+**기대 결과**: 운영자가 archive 보존된 환불 audit 도 active 와 같은 panel UX 로 확인 — 옛 환불 사고 조사 시 raw JSON 만 보지 않아도 된다. archive list/CSV 는 그대로 N+1 부담 없이 빠른 페이지네이션 / 외부 도구 호환 유지.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

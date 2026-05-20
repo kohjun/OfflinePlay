@@ -753,6 +753,13 @@ export function AdminAuditLogsSection() {
                     <div className="ct-audit-detail">
                       {detailLoading && !detail ? <span className="muted">상세 불러오는 중…</span> : null}
                       {detailError ? <span className="muted" role="alert">상세 조회 실패: {detailError}</span> : null}
+                      {display.action === 'TICKET_FORCED_REFUNDED' && display.forcedRefundContext ? (
+                        <ForcedRefundContextPanel context={display.forcedRefundContext} />
+                      ) : null}
+                      {(display.action === 'PAYMENT_PARTIALLY_REFUNDED' || display.action === 'PAYMENT_REFUNDED')
+                        && display.paymentRefundContext ? (
+                          <PaymentRefundContextPanel context={display.paymentRefundContext} />
+                        ) : null}
                       {display.beforeValue ? (
                         <><span className="muted">before</span><pre className="ct-audit-detail-pre">{prettyAuditValue(display.beforeValue)}</pre></>
                       ) : null}
