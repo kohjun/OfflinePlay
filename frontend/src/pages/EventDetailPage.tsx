@@ -275,6 +275,7 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         submittingReview={submittingReview}
         participation={participation}
         user={user}
+        isEventEnded={new Date(event.endAt).getTime() <= Date.now()}
         onShowForm={() => setShowReviewForm(true)}
         onHideForm={() => setShowReviewForm(false)}
         onSubmit={handleReviewSubmit}

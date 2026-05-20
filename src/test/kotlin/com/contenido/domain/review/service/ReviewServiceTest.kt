@@ -16,6 +16,7 @@ import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.EventNotFoundException
 import com.contenido.global.exception.ReviewAlreadyExistsException
+import com.contenido.global.exception.ReviewBeforeEventEndedException
 import com.contenido.global.exception.ReviewNotAllowedException
 import com.contenido.global.exception.ReviewNotFoundException
 import com.contenido.global.exception.UnauthorizedException
@@ -97,6 +98,45 @@ class ReviewServiceTest {
             service.createReview(2L, 100L, CreateReviewRequest(5, "좋아요"))
         }
         verify(exactly = 0) { reviewRepository.save(any()) }
+    }
+
+    @Test
+    fun `PR139 — createReview 이벤트 종료 전이면 ReviewBeforeEventEndedException + ticket lookup 없음`() {
+        val author = createUser(id = 2L)
+        // 시작 후 / 종료 전 — endAt 이 미래.
+        val event = createFutureEndedEvent(id = 100L, ownerId = 1L)
+        every { userRepository.findById(2L) } returns Optional.of(author)
+        every { eventRepository.findById(100L) } returns Optional.of(event)
+
+        assertThrows<ReviewBeforeEventEndedException> {
+            service.createReview(2L, 100L, CreateReviewRequest(5, "좋아요"))
+        }
+        // 종료 가드가 먼저 — USED 티켓 lookup / save 둘 다 호출되지 않아야 한다.
+        verify(exactly = 0) {
+            ticketRepository.existsByEventAndBuyerAndStatusIn(any(), any(), any())
+        }
+        verify(exactly = 0) { reviewRepository.save(any()) }
+    }
+
+    private fun createFutureEndedEvent(id: Long, ownerId: Long = 1L): Event {
+        val owner = createUser(id = ownerId, role = UserRole.CREATOR)
+        val channel = createChannel(id = 10L, owner = owner)
+        return Event(
+            channel = channel,
+            title = "진행중$id",
+            description = "desc",
+            location = "서울",
+            mainImageUrl = "https://example.com/$id.jpg",
+            startAt = LocalDateTime.now().minusHours(1),
+            endAt = LocalDateTime.now().plusHours(1), // 미래
+            maxParticipants = 10,
+            participationFee = 0L,
+            refundPolicy = "정책",
+            detailContent = "detail",
+            status = EventStatus.ONGOING,
+        ).apply {
+            ReflectionTestUtils.setField(this, "id", id)
+        }
     }
 
     @Test

@@ -362,6 +362,14 @@ class ReviewNotAllowedException : ContENIDOException(
     HttpStatus.FORBIDDEN, "체크인 완료한 참가자만 후기를 작성할 수 있습니다."
 )
 
+/**
+ * PR139 — 이벤트가 아직 끝나기 전인데 후기를 작성하려 한 경우.
+ * USED 가드와 별개 — QR 체크인을 받았더라도 행사가 끝나기 전엔 작성 불가.
+ */
+class ReviewBeforeEventEndedException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "후기는 이벤트가 끝난 뒤에 작성할 수 있습니다."
+)
+
 /** 같은 이벤트에 이미 후기를 작성한 사용자가 다시 POST 한 경우. UI 는 PATCH 로 유도. */
 class ReviewAlreadyExistsException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 후기를 작성한 이벤트입니다."

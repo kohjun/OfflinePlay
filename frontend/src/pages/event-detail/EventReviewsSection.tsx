@@ -10,6 +10,12 @@ interface EventReviewsSectionProps {
   submittingReview: boolean
   participation: MyParticipation | null
   user: User | null
+  /**
+   * PR139 — 이벤트 종료 여부. `event.endAt < now` 일 때 true. 후기는 종료 후에만 작성 가능
+   * (체크인 완료자 한정). 본 컴포넌트는 시간 비교를 직접 하지 않고 props 로 받는다 — 페이지
+   * 가 한 곳에서 계산해 일관된 시각을 보장.
+   */
+  isEventEnded: boolean
   onShowForm: () => void
   onHideForm: () => void
   onSubmit: (rating: number, content: string) => Promise<void> | void
@@ -29,12 +35,19 @@ export function EventReviewsSection({
   submittingReview,
   participation,
   user,
+  isEventEnded,
   onShowForm,
   onHideForm,
   onSubmit,
   onDelete,
   onReportReview,
 }: EventReviewsSectionProps) {
+  // PR139 — 후기 작성 자격 분기 헬퍼.
+  const hasUsedTicket = participation?.ticketStatus === 'USED'
+  const canWrite = isEventEnded && hasUsedTicket && !myReview && !showReviewForm
+  // 작성 자격은 없지만 안내 카피를 보여줘야 하는 경우 (티켓 보유자가 아직 못 쓰는 상태).
+  const shouldShowWaitCopy =
+    user != null && hasUsedTicket && !isEventEnded && !myReview && !showReviewForm
   return (
     <section className="ct-event-section ct-reviews-section">
       <div className="section-heading">
@@ -50,8 +63,8 @@ export function EventReviewsSection({
         )}
       </div>
 
-      {/* 본인이 USED 티켓 보유 (= ticketStatus === 'USED') 이고 아직 후기 미작성이면 작성 CTA. */}
-      {participation?.ticketStatus === 'USED' && !myReview && !showReviewForm ? (
+      {/* PR139 — 본인이 USED 티켓 + 이벤트 종료 + 아직 후기 미작성이면 작성 CTA. */}
+      {canWrite ? (
         <button
           type="button"
           className="button button-primary"
@@ -59,6 +72,13 @@ export function EventReviewsSection({
         >
           후기 남기기
         </button>
+      ) : null}
+
+      {/* 티켓은 있지만 이벤트가 아직 끝나지 않은 경우 — 언제 가능해지는지 카피로 알린다. */}
+      {shouldShowWaitCopy ? (
+        <p className="muted" role="status">
+          후기는 이벤트가 끝난 뒤에 작성할 수 있어요.
+        </p>
       ) : null}
 
       {/* 본인 후기가 이미 있으면 카드 + 수정/삭제 버튼. showReviewForm 인 경우 폼 우선. */}

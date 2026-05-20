@@ -13,6 +13,7 @@ import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.EventNotFoundException
 import com.contenido.global.exception.ReviewAlreadyExistsException
+import com.contenido.global.exception.ReviewBeforeEventEndedException
 import com.contenido.global.exception.ReviewNotAllowedException
 import com.contenido.global.exception.ReviewNotFoundException
 import com.contenido.global.exception.UnauthorizedException
@@ -21,6 +22,7 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
 /**
  * 이벤트 후기 (별점 + 본문) 도메인 진입점.
@@ -45,13 +47,19 @@ class ReviewService(
         val user = userRepository.findById(userId).orElseThrow { UserNotFoundException() }
         val event = eventRepository.findById(eventId).orElseThrow { EventNotFoundException() }
 
-        // 1. USED 티켓 보유 검증 — 체크인 완료자만.
+        // PR139 — 1. 이벤트 종료 시점 가드. endAt 이 현재보다 미래면 작성 불가.
+        // USED 체크인은 시작 직후라도 받을 수 있어서 USED 만으로는 "행사 종료" 를 보장하지 않는다.
+        if (event.endAt.isAfter(LocalDateTime.now())) {
+            throw ReviewBeforeEventEndedException()
+        }
+
+        // 2. USED 티켓 보유 검증 — 체크인 완료자만.
         val hasUsedTicket = ticketRepository.existsByEventAndBuyerAndStatusIn(
             event = event, buyer = user, statuses = listOf(TicketStatus.USED),
         )
         if (!hasUsedTicket) throw ReviewNotAllowedException()
 
-        // 2. 중복 후기 차단 (race condition 대비 UNIQUE 제약도 있음).
+        // 3. 중복 후기 차단 (race condition 대비 UNIQUE 제약도 있음).
         if (reviewRepository.findByEventAndAuthor(event, user).isPresent) {
             throw ReviewAlreadyExistsException()
         }

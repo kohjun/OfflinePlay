@@ -86,6 +86,7 @@ export function useEventDetailReviews({
   async function handleReviewSubmit(rating: number, content: string) {
     if (submittingReview) return
     setSubmittingReview(true)
+    const wasUpdating = !!myReview
     try {
       const saved = myReview
         ? await updateReview(myReview.id, { rating, content })
@@ -99,18 +100,32 @@ export function useEventDetailReviews({
       ])
       setReviewSummary(summary)
       setReviews(listPage.content)
-      showToast({ title: myReview ? '후기를 수정했어요' : '후기가 등록되었어요', tone: 'success' })
+      showToast({ title: wasUpdating ? '후기를 수정했어요' : '후기가 등록되었어요', tone: 'success' })
     } catch (error) {
       const status = (error as { status?: number } | null)?.status
+      const apiMessage = error instanceof Error ? error.message : ''
+      // PR139 — 새 ReviewBeforeEventEndedException (403) 과 기존 USED 가드 (403) 를 메시지로 구분.
+      const isBeforeEventEnded = apiMessage.includes('끝난 뒤에')
       const title =
         status === 403
-          ? '체크인 완료자만 후기를 쓸 수 있어요'
+          ? isBeforeEventEnded
+            ? '이벤트가 끝난 뒤에 후기를 쓸 수 있어요'
+            : '체크인 완료자만 후기를 쓸 수 있어요'
           : status === 409
             ? '이미 후기를 작성했어요'
-            : '후기 저장에 실패했어요'
+            : status === 404
+              ? wasUpdating
+                ? '수정할 후기를 찾을 수 없어요 — 새로 작성해주세요'
+                : '후기를 찾을 수 없어요'
+              : '후기 저장에 실패했어요'
+      // 수정 시 404 → backend 의 review 가 사라진 상태. 로컬 state 도 비워서 다음 시도부터 작성 모드로.
+      if (wasUpdating && status === 404) {
+        setMyReview(null)
+        setShowReviewForm(false)
+      }
       showToast({
         title,
-        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        message: apiMessage || '잠시 후 다시 시도해주세요.',
         tone: 'danger',
       })
     } finally {
