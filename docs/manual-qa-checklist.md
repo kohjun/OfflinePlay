@@ -706,6 +706,24 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 archive 보존된 환불 audit 도 active 와 같은 panel UX 로 확인 — 옛 환불 사고 조사 시 raw JSON 만 보지 않아도 된다. archive list/CSV 는 그대로 N+1 부담 없이 빠른 페이지네이션 / 외부 도구 호환 유지.
 
+### 28. CSV export 의 환불 파생 컬럼 (PR131)
+**목적**: PR63 active CSV / PR67 archive CSV 양쪽에 환불 분석 파생 10 컬럼이 append-only 로 추가되는지 검증. 기존 prefix (10 / 11 컬럼) 의 위치 / 값 / 의미는 변경 없음. lookup enrichment 는 detail endpoint 의 책임이며 CSV 는 afterValue JSON 파생값만 노출 (N+1 회피).
+
+**사전 조건**: 강제 환불 / 부분 환불 / 전액 환불 각 1건 이상 audit row 가 active 에 있고, archive 에도 같은 분포로 일부 row 가 보존된 상태.
+
+- [ ] 🖱 PR131 — `/admin?tab=audit-logs` 진입 → "CSV 내보내기" 클릭 → 다운로드된 파일의 첫 줄 (헤더) 이 정확히 `id,createdAt,actorId,actorNickname,action,targetType,targetId,reason,beforeValue,afterValue,refundKind,ticketId,paymentAttemptId,eventId,refundAmount,refundedAmount,remainingRefundableAmount,ticketStatus,paymentStatus,fullRefund`
+- [ ] 🖱 PR131 — `TICKET_FORCED_REFUNDED` row → `refundKind=FORCED` + `ticketId` / `paymentAttemptId` / `refundAmount` (forced refund 의 `amount`) / `ticketStatus` 채워짐. `eventId` / `refundedAmount` / `remainingRefundableAmount` / `paymentStatus` / `fullRefund` 5 컬럼은 빈 값
+- [ ] 🖱 PR131 — `PAYMENT_PARTIALLY_REFUNDED` row → `refundKind=PARTIAL` + PR122 JSON 9 필드 (ticketId, paymentAttemptId, eventId, refundAmount, refundedAmount, remainingRefundableAmount, ticketStatus, paymentStatus, fullRefund=false) 모두 채워짐
+- [ ] 🖱 PR131 — `PAYMENT_REFUNDED` row → `refundKind=FULL` + 동일 JSON 9 필드 + `fullRefund=true` + `remainingRefundableAmount=0`
+- [ ] 🖱 PR131 — non-refund row (예: `TARGET_HIDDEN`) → 새 10 컬럼이 전부 빈 값 (10 개 연속 콤마)
+- [ ] 🖱 PR131 — malformed `afterValue` JSON 이 있는 refund row → export 가 실패하지 않음. `refundKind` 만 채워지고 나머지 9 컬럼은 빈 값
+- [ ] 🖱 PR131 — archive 탭의 "CSV 내보내기" → 동일 정의의 10 추가 컬럼이 archive CSV 헤더에도 (prefix 11 컬럼 뒤에) 노출됨. 같은 helper 가 active / archive 둘 다 채움
+- [ ] 📋 PR131 — CSV 의 기존 prefix 컬럼 (active 10 / archive 11) 의 **위치 / 이름 / 값** 은 PR130 이전과 동일 — 외부 도구 호환 가드
+- [ ] 📋 PR131 — `refundAmount` 한 컬럼이 두 의미를 모두 표현: forced refund 의 `amount` 와 user refund 의 `refundAmount` (이번 호출 환불액). 컬럼 정의가 일관되게 "이 audit row 가 만든 환불액"
+- [ ] 📋 PR131 — CSV path 는 ticket / buyer / event lookup 을 절대 호출하지 않음 (대용량 export 도 N+1 부담 없음). buyer 닉네임 / event 제목 / 채널 이름이 필요하면 detail endpoint 를 사용
+
+**기대 결과**: 운영자가 외부 도구 (Excel / Sheets) 에서 CSV 한 줄로 환불 종류 / 금액 / 상태를 곧장 확인 가능. raw JSON 을 읽지 않아도 부분 vs 전액 환불 분포, 누적 환불 금액, 남은 환불 한도 등을 컬럼 단위로 정렬 / 필터 가능. lookup 의 깊은 enrichment 는 여전히 detail endpoint 의 책임이라 CSV path 의 N+1 부담은 없다.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

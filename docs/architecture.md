@@ -625,5 +625,21 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR126 — User refund audit detail enrichment: `ModerationAuditLogResponse.paymentRefundContext` 필드 + `PaymentRefundAuditContextResponse` DTO (16 필드: ticketId/paymentAttemptId/eventId/refundAmount/refundedAmount/remainingRefundableAmount/ticketStatus/paymentStatus/fullRefund + buyer/event/channel lookup + contextAvailable). PR115 의 `forcedRefundContext` 패턴을 `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit row 에 그대로 확장 — 단건 detail 조회 시점에만 ticket → buyer/event/channel lookup, list/CSV/archive 응답은 enrichment 제외 (N+1 회피). frontend `AdminAuditLogsSection` 에 `PaymentRefundContextPanel` 추가 (CSS `.ct-audit-context` 재사용). `ModerationAuditLogService.get` 의 enrich 플래그가 `enrichRefundContexts` 로 리네임 — forced/payment 두 컨텍스트 모두 같은 플래그로 켬
 - PR128 — `AdminAuditLogsSection` 의 빠른 필터 chip row 에 "부분 환불" / "환불 완료" 2개 chip 추가 (PR113 "강제 환불" chip 패턴 그대로). chip 클릭은 `auditFilters.action` 을 `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` 로 set/unset 하며 액션 select 와 양방향 동기화, "필터 초기화" 버튼이 한꺼번에 해제. backend / API / DB / 마이그레이션 변경 없음 — frontend 한 파일 chip 2개 추가만
 - PR130 — Archive audit detail enrichment: `ArchivedModerationAuditLogResponse` 에 `forcedRefundContext` / `paymentRefundContext` optional 필드 추가 + `ModerationAuditLogArchiveService.getArchived` 가 active detail (PR115/PR126) 과 동일한 정책으로 enrichment. archive list / CSV 응답은 enrichment 미적용 (N+1 회피 + CSV 호환). `ModerationAuditLogService.buildForcedRefundContext` / `buildPaymentRefundContext` 의 가시성을 `internal` 로 노출해 archive service 가 재사용 — best-effort + lookup 실패 swallow 정책 그대로. frontend `ArchivedModerationAuditLog` type 에 두 optional context 추가 + 기존 `ForcedRefundContextPanel` / `PaymentRefundContextPanel` 을 archive 탭 detail 에서도 동일 조건부 렌더로 재사용 ("읽기 전용" Badge 는 유지)
+- PR131 — Audit CSV refund-derived columns: active export (`exportToCsv`) 와 archive export (`exportArchivedToCsv`) 양쪽 헤더에 환불 분석용 10 컬럼 append-only 추가 (`refundKind` / `ticketId` / `paymentAttemptId` / `eventId` / `refundAmount` / `refundedAmount` / `remainingRefundableAmount` / `ticketStatus` / `paymentStatus` / `fullRefund`). 단일 helper `ModerationAuditLogService.csvRefundDerivedColumns(action, afterValue)` 가 두 서비스에서 공유 — afterValue JSON 파생값만 사용, ticket / buyer / event 등 lookup 호출 **금지** (CSV 는 N+1 부담을 안 진다). refundKind 은 action 기반 (`TICKET_FORCED_REFUNDED` → FORCED, `PAYMENT_PARTIALLY_REFUNDED` → PARTIAL, `PAYMENT_REFUNDED` → FULL), 그 외는 10 컬럼 모두 빈 값. malformed JSON / null afterValue 도 export 가 절대 throw 하지 않음 — 새 컬럼만 빈 값으로 떨어진다. 원본 `beforeValue` / `afterValue` 컬럼은 위치 / 값 그대로
+
+## Refund Audit Enrichment 정책 (PR115 / PR126 / PR130 / PR131 통합)
+
+`TICKET_FORCED_REFUNDED` (PR106) 와 `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` (PR122) audit row 의 운영 가독성은 다음 세 layer 로 분리되어 있다 — 각 layer 가 다른 비용 / 부하 특성을 가진다.
+
+| 응답 경로 | enrichment 종류 | DB lookup | 비고 |
+|---|---|---|---|
+| Active detail `GET /admin/moderation/audit-logs/{id}` | buyer/event/channel + 세 금액 + 상태 + fullRefund | ✅ ticket → buyer/event/channel (PR115/PR126) | endpoint 호출당 row 1개. 실패 시 `contextAvailable=false` 로 fallback. |
+| Archive detail `GET /admin/moderation/audit-logs/archive/{originalId}` | 동일 | ✅ 동일 (PR130) | archive endpoint 호출당 row 1개. active 와 같은 helper 재사용. |
+| Active list `GET /admin/moderation/audit-logs?page=...` | 없음 | ❌ | N+1 회피 — page 당 row N 개. raw JSON 만. |
+| Archive list `GET /admin/moderation/audit-logs/archive?page=...` | 없음 | ❌ | 동일. |
+| Active CSV export `GET /admin/moderation/audit-logs/export` | afterValue JSON 파생 10 컬럼 (PR131) | ❌ | 최대 1000 행. JSON 파생만, lookup 절대 안 함. |
+| Archive CSV export `GET /admin/moderation/audit-logs/archive/export` | 동일 (PR131) | ❌ | 동일. |
+
+원본 audit row (`beforeValue` / `afterValue` / `reason`) 는 어느 layer 에서도 수정되지 않는다. enrichment 는 **읽기 뷰** 일 뿐이며 lookup 실패가 detail / export 자체를 깨지 않는다 (best-effort + `runCatching {...}.getOrNull()` swallow 정책).
 
 상세 정책 변경 이력은 도메인별 세부 문서 (특히 [payment-refund-policy.md](payment-refund-policy.md)) 와 git log 를 참고.
