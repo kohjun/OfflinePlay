@@ -110,17 +110,25 @@ data class RefundTicketResponse(
  * PR106 — ADMIN 강제 환불 (`POST /api/v1/admin/tickets/{ticketId}/forced-refund`) 요청 body.
  *
  *  - [reason] : 운영 사유. 필수. 1~500자. audit log 에 그대로 기록된다.
+ *  - [amount] : PR134 — optional 부분 강제 환불 금액. null 이면 기존 동작 (remaining 전액
+ *    환불, full cascade). 1 <= amount <= remainingRefundableAmount 일 때만 허용 — 범위 위반은
+ *    `InvalidRefundAmountException`. amount == remaining 이면 full cascade, 미만이면 partial
+ *    cascade (참가/정원 유지). PR117 일반 환불의 `RefundTicketRequest.amount` 와 동일한 의미.
  */
 data class AdminForcedRefundRequest(
     @field:jakarta.validation.constraints.NotBlank
     @field:jakarta.validation.constraints.Size(min = 1, max = 500)
     val reason: String,
+    val amount: Long? = null,
 )
 
 /**
  * PR106 — ADMIN 강제 환불 응답. 일반 환불 응답과 유사하지만 forced reason 을 명시 echo 한다
  * (감사 추적용). cascade 결과(ticket REFUNDED, participation CANCELED, currentParticipants--)는
  * 일반 환불과 동일하다.
+ *
+ * PR134 — 부분 강제 환불 도입에 따라 누적 환불액 / 남은 환불 가능액 / fullRefund 플래그 3 필드를
+ * 추가. 기존 [amount] 는 결제 시도의 총 결제 금액 (참조용, PR42 부터 그대로) 이며 의미 변경 없음.
  */
 data class AdminForcedRefundResponse(
     val ticketId: Long,
@@ -131,4 +139,7 @@ data class AdminForcedRefundResponse(
     val refundedAt: String,
     val providerPaymentKey: String?,
     val refundReason: String,
+    val refundedAmount: Long = 0L,
+    val remainingRefundableAmount: Long = 0L,
+    val fullRefund: Boolean = true,
 )

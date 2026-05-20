@@ -440,12 +440,16 @@ class PaymentService(
      *  - **deadline 검사 없음** — 이벤트 시작 후 / USED 티켓도 환불 허용 (노쇼 보상, 행사 취소 등
      *    운영 케이스 대응)
      *  - **권한 = ADMIN 만** — buyer / channel owner 는 본 흐름으로 호출 불가 (UnauthorizedException)
-     *  - 부분 환불 아님 — 전액(`attempt.amount`)만 환불
+     *  - PR134 — 부분 강제 환불 지원. [amount] null 이면 remaining 전액 환불 (기존 동작), 지정 시
+     *    1 <= amount <= remainingRefundableAmount. amount == remaining → full cascade,
+     *    amount < remaining → partial cascade (참가/정원 유지). 범위 위반은 [InvalidRefundAmountException].
      *
      * 공통:
      *  - PG `paymentGateway.refund` 호출 (Toss 또는 Mock)
-     *  - 성공 시 [markRefundedInternal] 재사용 → ticket REFUNDED, participation CANCELED,
-     *    `event.currentParticipants` 감소 (active 였던 경우), buyer 에게 REFUND_COMPLETED 알림
+     *  - amount == remaining → [markRefundedInternal] 재사용 (ticket REFUNDED, participation
+     *    CANCELED, `event.currentParticipants` 감소, REFUND_COMPLETED 알림)
+     *  - amount < remaining → [applyPartialRefund] 재사용 (ticket/attempt PARTIALLY_REFUNDED,
+     *    참가/정원 무영향)
      *
      * 거부 조건:
      *  - actor 가 ADMIN 아님 → [UnauthorizedException]
@@ -464,6 +468,7 @@ class PaymentService(
         adminUserId: Long,
         ticketId: Long,
         reason: String,
+        amount: Long? = null,
     ): RefundTicketResponse {
         val actor = userRepository.findById(adminUserId).orElseThrow { UserNotFoundException() }
         if (actor.role != UserRole.ADMIN) throw UnauthorizedException()
@@ -488,24 +493,39 @@ class PaymentService(
         val providerKey = attempt.providerPaymentKey?.takeIf { it.isNotBlank() }
             ?: throw PaymentNotRefundableException("PG 결제 키가 없어 환불할 수 없습니다.")
 
+        // PR134 — 부분 강제 환불. amount null 이면 remaining 전액 (기존 동작).
+        val refundAmount = amount ?: remaining
+        if (refundAmount < 1L) {
+            throw InvalidRefundAmountException("환불 금액은 1원 이상이어야 합니다.")
+        }
+        if (refundAmount > remaining) {
+            throw InvalidRefundAmountException("환불 금액은 남은 환불 가능 금액(${remaining}원)을 초과할 수 없습니다.")
+        }
+        val willBeFullyRefunded = refundAmount == remaining
+
         val trimmedReason = reason.trim()
         val result = paymentGateway.refund(
             PaymentGatewayRefundRequest(
                 providerPaymentKey = providerKey,
-                amount = remaining,
+                amount = refundAmount,
                 reason = trimmedReason,
             )
         )
         return when (result) {
             is PaymentGatewayRefundResult.Success -> {
-                // ADMIN 강제 환불은 항상 remaining 전액을 끝까지 환불 → full cascade.
-                markRefundedInternal(attempt, ticket, trimmedReason)
+                if (willBeFullyRefunded) {
+                    // remaining 전액 환불 → full cascade.
+                    markRefundedInternal(attempt, ticket, trimmedReason)
+                } else {
+                    // PR134 — 부분 강제 환불. 참가/정원 유지, ticket/attempt PARTIALLY_REFUNDED.
+                    applyPartialRefund(attempt, ticket, refundAmount, trimmedReason)
+                }
                 attempt.toRefundResponse(ticket)
             }
             is PaymentGatewayRefundResult.Failure -> {
                 log.warn(
                     "[forceRefundByAdmin] gateway rejected ticketId={} amount={} code={} msg={}",
-                    ticket.id, remaining, result.code, result.message,
+                    ticket.id, refundAmount, result.code, result.message,
                 )
                 throw RefundFailedException(result.code, result.message)
             }
