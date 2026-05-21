@@ -45,6 +45,31 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePop)
   }, [])
 
+  // PR139 — Service worker (Web Push) 등록.
+  //   - https / localhost 에서만 등록 시도. file:// 또는 IP-only 호스트에서는 SW unsupported.
+  //   - 사용자가 구독을 누르기 전이라도 워커는 미리 install 되어 push event 를 받을 준비를 한다.
+  //   - 실패는 조용히 무시 — 푸시는 폴백되어도 SSE 가 살아 있다.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    const isSecure = window.isSecureContext || window.location.hostname === 'localhost'
+    if (!isSecure) return
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* ignore — push 미지원 환경 */
+    })
+  }, [])
+
+  // PR139 — service worker 가 notificationclick 시 보내는 navigate 메시지를 router 로 연결.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return
+    const handler = (event: MessageEvent) => {
+      const data = event.data as { source?: string; type?: string; url?: string } | null
+      if (!data || data.source !== 'contenido-sw' || data.type !== 'navigate' || !data.url) return
+      navigate(data.url)
+    }
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [])
+
   function navigate(nextPath: string) {
     window.history.pushState({}, '', nextPath)
     // 라우트 매칭은 pathname 기준이라 query/hash 는 떼고 저장한다.

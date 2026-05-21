@@ -53,6 +53,11 @@ class NotificationNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "존재하지 않는 알림입니다."
 )
 
+/** PR139 — Web Push 구독 payload 검증 실패. endpoint/key 형식이 잘못된 경우 400. */
+class InvalidPushSubscriptionException(
+    detail: String = "푸시 구독 정보가 올바르지 않습니다.",
+) : ContENIDOException(HttpStatus.BAD_REQUEST, detail)
+
 // --- Interaction ---
 class CommentNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "존재하지 않는 댓글입니다."
