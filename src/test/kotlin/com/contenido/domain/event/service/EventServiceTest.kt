@@ -4,6 +4,7 @@ import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.entity.ChannelCategory
 import com.contenido.domain.channel.entity.ChannelMember
 import com.contenido.domain.channel.entity.ChannelMemberRole
+import com.contenido.domain.channel.entity.ChannelSubscription
 import com.contenido.domain.channel.repository.ChannelMemberRepository
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
@@ -146,6 +147,91 @@ class EventServiceTest {
             eventService.createEvent(1L, 1L, request)
         }
         verify(exactly = 0) { eventRepository.save(any()) }
+    }
+
+    @Test
+    fun `createEvent NEW_EVENT 알림 — 구독자에게 발송 (PR142)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val subscriberA = createUser(id = 10L, role = UserRole.PARTICIPANT)
+        val subscriberB = createUser(id = 11L, role = UserRole.PARTICIPANT)
+        val channel = createChannel(id = 1L, owner = owner)
+        val savedEvent = createEvent(id = 100L, channel = channel)
+
+        every { userRepository.findById(1L) } returns Optional.of(owner)
+        every { channelRepository.findById(1L) } returns Optional.of(channel)
+        every { eventRepository.save(any()) } returns savedEvent
+        every { channelSubscriptionRepository.findByChannel(channel) } returns listOf(
+            ChannelSubscription(subscriber = subscriberA, channel = channel),
+            ChannelSubscription(subscriber = subscriberB, channel = channel),
+        )
+
+        eventService.createEvent(1L, 1L, createEventRequest())
+
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = match { it.toSet() == setOf(10L, 11L) },
+                type = NotificationType.NEW_EVENT,
+                title = any(),
+                message = any(),
+                targetType = "events",
+                targetId = 100L,
+            )
+        }
+    }
+
+    @Test
+    fun `createEvent NEW_EVENT — 채널 owner 가 자기 채널 구독자에 포함돼도 본인은 제외 (PR142)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val realSubscriber = createUser(id = 10L, role = UserRole.PARTICIPANT)
+        val channel = createChannel(id = 1L, owner = owner)
+        val savedEvent = createEvent(id = 100L, channel = channel)
+
+        every { userRepository.findById(1L) } returns Optional.of(owner)
+        every { channelRepository.findById(1L) } returns Optional.of(channel)
+        every { eventRepository.save(any()) } returns savedEvent
+        // owner 가 본인 채널을 구독한 비정상 상태 (방어 코드 검증).
+        every { channelSubscriptionRepository.findByChannel(channel) } returns listOf(
+            ChannelSubscription(subscriber = owner, channel = channel),
+            ChannelSubscription(subscriber = realSubscriber, channel = channel),
+        )
+
+        eventService.createEvent(1L, 1L, createEventRequest())
+
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = match { it == listOf(10L) },
+                type = NotificationType.NEW_EVENT,
+                title = any(),
+                message = any(),
+                targetType = "events",
+                targetId = 100L,
+            )
+        }
+    }
+
+    @Test
+    fun `createEvent NEW_EVENT — 구독자가 없으면 빈 receiver 목록으로 notify (NotificationService 가 즉시 return)`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 1L, owner = owner)
+        val savedEvent = createEvent(id = 100L, channel = channel)
+
+        every { userRepository.findById(1L) } returns Optional.of(owner)
+        every { channelRepository.findById(1L) } returns Optional.of(channel)
+        every { eventRepository.save(any()) } returns savedEvent
+        every { channelSubscriptionRepository.findByChannel(channel) } returns emptyList()
+
+        eventService.createEvent(1L, 1L, createEventRequest())
+
+        verify(exactly = 1) {
+            notificationService.notify(
+                receiverIds = match { it.isEmpty() },
+                type = NotificationType.NEW_EVENT,
+                title = any(),
+                message = any(),
+                targetType = "events",
+                targetId = 100L,
+            )
+        }
     }
 
     @Test

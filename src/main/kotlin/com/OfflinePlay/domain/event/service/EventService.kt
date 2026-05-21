@@ -88,9 +88,12 @@ class EventService(
 
         publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "EVENT", event.id))
 
-        // 채널 구독자 전원에게 NEW_EVENT 알림
+        // 채널 구독자에게 NEW_EVENT 알림. owner 가 자기 채널을 구독했더라도 본인 알림은 제외 (PR142).
+        // preference 필터링은 NotificationService 가 담당하므로 여기서는 dedupe + owner 제외만.
         val subscriberIds = channelSubscriptionRepository.findByChannel(channel)
             .map { it.subscriber.id }
+            .distinct()
+            .filter { it != channel.owner.id }
         runCatching {
             notificationService.notify(
                 receiverIds = subscriberIds,
@@ -100,6 +103,8 @@ class EventService(
                 targetType = "events",
                 targetId = event.id,
             )
+        }.onFailure { e ->
+            log.warn("[createEvent] NEW_EVENT notify failed eventId={} err={}", event.id, e.message)
         }
 
         return event.toResponse()
