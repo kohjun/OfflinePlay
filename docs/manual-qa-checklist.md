@@ -743,6 +743,80 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 운영자가 노쇼 보상의 일부만 돌려주는 케이스도 단일 도구에서 처리. 전액 / 부분 케이스 모두 audit + result card 가 정확한 cascade / 잔여 정보를 보여줘 운영 추적성이 유지된다.
 
+### 30. Web Push 구독 (PR139)
+**목적**: NotificationsPage 알림 설정 패널의 "브라우저 푸시 알림" 섹션이 권한 / 구독 / 해지를 정상 처리하는지 검증. 발송 동작은 §31 에서.
+
+**사전 조건**: 백엔드가 떠 있고 frontend dev 서버 또는 정적 빌드가 https / localhost 에서 접근 가능. `VITE_PUSH_VAPID_PUBLIC_KEY` 가 채워진 빌드. 데스크톱 Chrome / Edge 권장 (Firefox / Safari 도 동작).
+
+- [ ] 🖱 PR139 — 로그인 → 알림 페이지 → "알림 설정" 토글 → 패널 상단 "브라우저 푸시 알림" 섹션 노출 + "푸시 알림 켜기" 버튼
+- [ ] 🖱 PR139 — "푸시 알림 켜기" 클릭 → 브라우저 권한 prompt → "허용" → "브라우저 푸시 알림을 켰어요" success toast + 버튼 라벨 "푸시 알림 끄기" 로 전환
+- [ ] 🖱 PR139 — devtools Application → Service Workers 에 `/sw.js` 등록됨 / 활성. Application → Push Messaging 에서 endpoint 확인 가능
+- [ ] 🖱 PR139 — "푸시 알림 끄기" 클릭 → "브라우저 푸시 알림을 껐어요" success toast + 버튼 라벨 "푸시 알림 켜기" 로 복귀
+- [ ] 🖱 PR139 — 권한 prompt 에서 "차단" → "브라우저 알림 권한이 필요해요" warning toast + 버튼 disabled + 안내 텍스트 노출
+- [ ] 🖱 PR139 — `VITE_PUSH_VAPID_PUBLIC_KEY` 비운 빌드로 NotificationsPage 진입 → "푸시 키가 아직 배포되지 않았어요" 안내, 토글 자체 비노출
+- [ ] 🖱 PR139 — Firefox 등 SW/PushManager 미지원 환경 → "이 브라우저에서는 푸시 알림을 사용할 수 없어요" 안내
+- [ ] 📋 PR139 — `POST /api/v1/push/subscriptions` 응답에 `id` / `enabled=true` / `lastSeenAt` / `createdAt` / `updatedAt` 포함. payload 의 `endpoint` 는 backend 가 그대로 보관, SHA-256 hash 로 UNIQUE 검증
+- [ ] 📋 PR139 — 같은 endpoint 로 두 번째 POST 호출 → row 새로 생기지 않고 기존 row 의 `p256dh` / `auth` / `userAgent` / `updatedAt` 만 갱신 (DB 직접 확인)
+- [ ] 📋 PR139 — `DELETE /api/v1/push/subscriptions` body `{endpoint}` 호출 → 매칭 row 삭제 + 응답 data 가 삭제된 행 수 (1 또는 0)
+- [ ] 📋 PR139 — 같은 사용자가 Chrome / Edge / 모바일 Safari 등 3 브라우저에서 각각 구독 → `GET /api/v1/push/subscriptions/me` 가 3 row 반환 (각 endpoint / userAgent 분리)
+
+**기대 결과**: 권한 / SW 등록 / backend 저장 / 해지가 한 클릭으로 끝남. 미지원 환경에는 정확한 안내. 같은 디바이스 재구독은 idempotent.
+
+### 31. Web Push 발송 (PR140)
+**목적**: NotificationService 가 row + SSE 와 함께 활성 Web Push 구독에 발송하는지, 410/404 응답이 구독을 disable 하는지, push 실패가 알림 트랜잭션을 깨지 않는지 검증.
+
+**사전 조건**: 운영 환경 또는 staging 에 `PUSH_VAPID_PUBLIC_KEY` / `PUSH_VAPID_PRIVATE_KEY` / `PUSH_VAPID_SUBJECT` 환경 변수가 채워져 있어야 함. 로컬에서는 dev VAPID 키 페어를 만들어 `application-local.yml` 또는 export 로 주입. §30 으로 구독을 등록한 상태에서 시작.
+
+- [ ] 🖱 PR140 — 다른 브라우저에서 PARTICIPATION_REQUESTED 트리거 (참가자 신청) → owner 화면의 SSE 알림 도착 + OS 알림 센터에 push notification 도착 (title `[운영] ...` + body `${event.title}`)
+- [ ] 🖱 PR140 — Push notification 클릭 → 앱이 포커스되고 EventDetailPage 로 이동 (페이지 새로고침 없음). 이미 같은 탭이 열려 있으면 그 탭이 활성화
+- [ ] 🖱 PR140 — 결제 완료 후 TICKET_ISSUED 푸시 도착 → 클릭 → `/tickets/{id}` 로 이동
+- [ ] 🖱 PR140 — 채널 새 이벤트 발행 → 구독자에게 NEW_EVENT 푸시 도착 + 클릭 → `/events/{id}` 이동
+- [ ] 🖱 PR140 — preference 패널에서 PARTICIPATION_REQUESTED 끄기 → 같은 알림 다시 트리거 → in-app row / SSE / push 모두 도착하지 않음 (DB row 자체가 INSERT 되지 않음)
+- [ ] 🖱 PR140 — 한 사용자가 두 브라우저에 구독한 상태에서 한 쪽 브라우저 콘솔에서 `navigator.serviceWorker.getRegistration().then(r => r.pushManager.getSubscription().then(s => s.unsubscribe()))` → backend 미통보로 구독 row 가 남음 → 다음 알림 발송 시 backend 가 410 받고 자동으로 `enabled=false` 로 disable (DB 확인)
+- [ ] 🖱 PR140 — VAPID 키 미설정 환경 (`PUSH_VAPID_PRIVATE_KEY=`) 으로 부팅 → 알림 트리거 → row / SSE 는 정상, push 만 no-op (서버 로그에 "VAPID 키 미설정 — push 발송 비활성화" 한 줄)
+- [ ] 📋 PR140 — push 발송 실패 (네트워크 단절 / 4xx 5xx) 가 notification row INSERT 또는 SSE 발송을 깨지 않음 — `NotificationServiceTest` 의 `push dispatch 예외는 notification row SSE 흐름을 깨지 않는다` 케이스 회귀 가드
+- [ ] 📋 PR140 — `disable()` / `touchSeen()` 은 별도 `REQUIRES_NEW` 트랜잭션으로 호출되어 dispatch 메인 흐름의 트랜잭션 상태와 독립
+- [ ] 📋 PR140 — push payload JSON 의 키는 `title` / `body` / `type` / `targetType` / `targetId` / `url` / `notificationId` 7 종 (service worker 의 `event.data.json()` 이 그대로 사용)
+
+**기대 결과**: 인앱 알림이 도착하는 모든 흐름에서 OS 레벨 푸시도 함께 도착. 만료/해지된 endpoint 는 backend self-healing 으로 자동 정리. push 실패가 어떤 경우에도 알림 row / SSE 를 깨지 않는다.
+
+### 32. Event 공지 (PR141)
+**목적**: 이벤트 owner / STAFF / ADMIN 이 활성 참가자에게 공지를 보내면 in-app + SSE + (PR140 설정 시) push 가 발송되고, 권한 / 수신자 정책이 정확히 적용되는지 검증.
+
+**사전 조건**: APPROVED 참가자 2명 + CANCELED 1명 + REJECTED 1명이 있는 무료 이벤트. 유료 이벤트는 PAID / USED / PARTIALLY_REFUNDED / CANCELED / REFUNDED 티켓 보유자가 각 1명 있는 상태.
+
+- [ ] 🖱 PR141 — owner 로 EventDetailPage 진입 → "공지" 섹션 + 작성 form 노출 (제목 / 내용 / 발송 버튼)
+- [ ] 🖱 PR141 — form 에 제목 "긴급 안내" + 내용 "공연 시간 변경" 입력 → "공지 보내기" 클릭 → success toast + 목록 상단에 새 공지 prepend
+- [ ] 🖱 PR141 — APPROVED 참가자 2명 모두 NotificationsPage 에 EVENT_ANNOUNCEMENT 도착 (title `[공지] {이벤트명}` + message `{공지 제목}`). 카드 클릭 → EventDetailPage 이동
+- [ ] 🖱 PR141 — CANCELED / REJECTED 참가자는 공지 알림 미수신 (NotificationsPage 에 row 없음, SSE 미발송)
+- [ ] 🖱 PR141 — 유료 이벤트의 PAID / USED / PARTIALLY_REFUNDED 참가자 3명만 수신, CANCELED / REFUNDED 티켓 보유자는 미수신
+- [ ] 🖱 PR141 — 참가자 본인 (APPROVED) 으로 EventDetailPage 진입 → "공지" 섹션 표시되지만 form 은 비노출 (canWrite=false). 발송된 공지가 목록에 보임
+- [ ] 🖱 PR141 — 비참가자 (PENDING / REJECTED / 미신청) 로 EventDetailPage 진입 → "공지" 섹션 자체가 안 보임 (canRead=false)
+- [ ] 🖱 PR141 — owner 가 빈 제목 또는 빈 내용으로 발송 시도 → "공지 제목과 내용을 입력해주세요." warning toast + 발송 안 됨
+- [ ] 🖱 PR141 — 비 owner / 비 STAFF / 비 ADMIN 참가자가 직접 `POST /api/v1/events/{eventId}/announcements` 호출 → 403
+- [ ] 🖱 PR141 — preference 패널에서 EVENT_ANNOUNCEMENT (또는 "콘텐츠 관련" 묶음) OFF → 다음 공지 발송 시 그 사용자 row/SSE/push 모두 미수신
+- [ ] 🖱 PR141 — push 도 함께 활성화한 사용자라면 공지 발송 시 OS 알림 도착 → 클릭 시 EventDetailPage 이동
+- [ ] 📋 PR141 — V13 마이그레이션이 적용된 환경에서 `event_announcements` 테이블 존재 + `(event_id, created_at)` 인덱스 확인
+- [ ] 📋 PR141 — `GET /api/v1/events/{eventId}/announcements` 응답은 created_at desc, 각 항목에 `authorNickname` 동봉
+- [ ] 📋 PR141 — `notificationMeta.NOTIFICATION_PREFERENCE_BUNDLES.find(b => b.id === 'content').types` 에 `'EVENT_ANNOUNCEMENT'` 포함 (코드 inspect)
+
+**기대 결과**: 운영자가 active 참가자에게만 정확히 공지를 보낼 수 있고, 비활성 (CANCELED / REFUNDED / REJECTED) 은 noise 없이 제외. 권한 없는 사용자에게는 작성 form / 섹션 자체가 안 보인다.
+
+### 33. Channel new event push 커버리지 (PR142)
+**목적**: 채널 구독자가 새 이벤트 발행 시 in-app + SSE + push 를 받고, 채널 owner 본인은 자기 이벤트 알림에서 제외되는지 검증.
+
+**사전 조건**: 채널 owner + 구독자 2명. 구독자 중 한 명은 owner 본인 (이론상 안 됨; 강제로 만든 비정상 상태) — DB 직접 INSERT 또는 owner 가 자기 채널 subscribe 호출 시도.
+
+- [ ] 🖱 PR142 — owner 로 `/events/new` → 이벤트 생성 → "{채널명}에 새 이벤트가 등록되었습니다." NEW_EVENT 알림이 구독자 2명에게 도착 (push 포함)
+- [ ] 🖱 PR142 — owner 본인의 NotificationsPage 에 NEW_EVENT 미도착 (본인 채널의 본인 발행이라 제외)
+- [ ] 🖱 PR142 — owner 본인이 구독자 목록에 들어 있는 비정상 상태에서도 NEW_EVENT 본인 미도착 (defensive 제외)
+- [ ] 🖱 PR142 — 구독을 끊은 사용자는 NEW_EVENT 미수신
+- [ ] 🖱 PR142 — 구독자가 preference NEW_EVENT off 면 row/SSE/push 모두 미수신
+- [ ] 🖱 PR142 — 구독자의 push 가 켜져 있으면 NEW_EVENT 푸시 도착 → 클릭 → `/events/{id}` 이동
+- [ ] 📋 PR142 — 구독자 0명인 채널 발행도 정상 (notify 가 빈 list 로 호출되고 NotificationService 가 즉시 return — 트랜잭션 안 깨짐)
+
+**기대 결과**: 구독자 fan-out 이 정확히 동작. owner 본인은 자기 이벤트 알림에서 항상 제외. preference / 구독 해지가 모두 효과적.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

@@ -298,8 +298,15 @@ POST /admin/tickets/{ticketId}/forced-refund   ← ADMIN only
 - `TICKET_ISSUED`, `TICKET_CHECKED_IN`
 - `CHANNEL_BANNED`, `CHANNEL_UNBANNED` (PR59)
 - `REFUND_COMPLETED` (PR81)
+- `EVENT_ANNOUNCEMENT` (PR141)
 
 `targetType` 은 `"events" | "tickets" | "channels" | "participations" | "applications" | "posts" | "comments"`.
+
+발송 단계 (PR95 → PR140):
+1. receiver 별 `NotificationPreferenceService.isEnabled(userId, type)` 필터 — disabled 면 row/SSE/push 모두 skip.
+2. 통과한 receiver 들의 `Notification` row 를 `saveAll`.
+3. 각 row 에 대해 `SseEmitterService.sendToUser` — best-effort, 실패해도 DB row 는 남는다.
+4. `PushNotificationService.dispatch(notifications)` — Web Push best-effort (PR140). 실패는 swallow.
 
 ### 6.2 SSE 스트림
 
@@ -412,6 +419,10 @@ PATCH payload 는 해당 bundle 의 type 들만 `{ type, enabled: nextEnabled }`
 
 본 액션은 **사용자 preference 만 변경**한다. notification row 의 read 상태 / DB 행 삭제 / 라우팅(`pathForNotification`) 동작은 건드리지 않는다 — 이미 도착한 알림은 그대로 남고, 이후 같은 type 으로 발송되는 알림이 §6.5 의 발송 단계 필터에서 차단된다.
 
+### 6.6.3 EVENT_ANNOUNCEMENT bundle 편입 (PR141)
+
+신규 `EVENT_ANNOUNCEMENT` enum 은 `content` 카테고리에 들어간다 — `구독 채널의 새 이벤트 / 새 글 / 댓글 / 좋아요 / 이벤트 공지` 묶음 토글이 본 type 도 함께 켜고 끈다. UI 의 individual checkbox 는 `notificationMeta.ts` 의 `META.EVENT_ANNOUNCEMENT` 정의에서 라벨/tone 을 가져온다 (label: "이벤트 공지", tone: primary).
+
 ### 6.7 notificationMeta.ts — 메타데이터 single source (PR97)
 
 `frontend/src/utils/notificationMeta.ts` 가 NotificationType 의 label / tone / 설명 / 라우팅 규칙을 단일 정의한다. NotificationsPage 알림 카드와 §6.6 의 알림 설정 패널이 같은 정의를 공유 — 새 enum 이 추가되면 이 파일 하나만 수정하면 두 화면에 반영된다.
@@ -419,6 +430,123 @@ PATCH payload 는 해당 bundle 의 type 들만 `{ type, enabled: nextEnabled }`
 - `META: Record<NotificationType, { label, tone, description? }>` — 라벨/뱃지 색/설정 패널의 보조 설명
 - `getNotificationMeta/Label/Tone(type: string)` — 알 수 없는 type 은 안전 fallback (`{ label: '알림', tone: 'neutral' }`) 반환
 - `pathForNotification(targetType, targetId, type, viewerRole)` — §5.5 알림 라우팅 규칙 (events / channels / tickets / creator-applications) 의 구현. NotificationsPage 와 `useEventDetailData` 등 후속 진입처가 동일 helper 를 사용한다.
+
+### 6.8 Web Push (PR139 + PR140)
+
+브라우저 Web Push 는 인앱 알림 row / SSE 와 같은 NotificationService 경로 위에 얹어지는 **세 번째 채널**이다. preference 가 false 인 사용자는 row / SSE / push 모두 받지 않는다 (§6.5 의 필터가 모든 채널의 공통 게이트).
+
+#### 6.8.1 구독 저장 (PR139)
+
+| 컴포넌트 | 책임 |
+|---|---|
+| `user_push_subscriptions` (V12) | endpoint TEXT + endpoint SHA-256 hex 64자 + p256dh / auth (base64url) + userAgent + enabled + last_seen_at. `UNIQUE(user_id, endpoint_hash)` — 같은 사용자가 같은 endpoint 를 다시 등록하면 credential 만 갱신. |
+| `UserPushSubscription` entity | `refreshCredentials(p256dh, auth, userAgent)` / `disable()` (PR140 self-healing) / `touchSeen()`. |
+| `UserPushSubscriptionRepository` | `findByUserIdInAndEnabledTrue(...)` (PR140 dispatch), `findByUserAndEndpointHash(...)` (upsert), `deleteByUserAndEndpointHash(...)` (사용자 명시 해지). |
+| `PushSubscriptionService` | endpoint validation (https + 길이) → SHA-256 hash → upsert / hard delete / list. 실패는 `InvalidPushSubscriptionException` (400). |
+| `PushSubscriptionController` | `POST /api/v1/push/subscriptions` (등록/갱신), `DELETE /api/v1/push/subscriptions` (해지 — body `{endpoint}`), `GET /api/v1/push/subscriptions/me` (내 디바이스 목록). |
+
+`disable()` vs `delete`:
+- `disable()` — backend self-healing. 410/404 응답을 받았을 때 PR140 `PushNotificationService` 가 호출. row 는 남는다.
+- `deleteByUserAndEndpointHash` — 사용자 명시 해지. UI 가 "끄기" 를 누르면 호출. row 자체가 사라진다.
+
+이 분리는 "사용자의 의도" 와 "운영 self-healing" 을 구별하기 위함이다 — 둘 다 hard delete 로 통일하면 잘못된 endpoint 로 인한 자동 disable 까지 사용자 의도로 오인된다.
+
+#### 6.8.2 VAPID 키 (PR139 + PR140)
+
+| 항목 | 값 | 비고 |
+|---|---|---|
+| `push.vapid.public-key` | env `PUSH_VAPID_PUBLIC_KEY` (default empty) | 클라이언트 `PushManager.subscribe({applicationServerKey})` 가 사용. 비어 있으면 frontend 가 "no-vapid-key" 폴백. |
+| `push.vapid.private-key` | env `PUSH_VAPID_PRIVATE_KEY` (default empty) | 운영 환경 env var 만으로 주입. **절대 commit 금지.** 비어 있으면 backend dispatch 가 no-op. |
+| `push.vapid.subject` | env `PUSH_VAPID_SUBJECT` (default `mailto:no-reply@contenido.local`) | RFC8292 VAPID `sub` claim. mailto: 또는 https URL. |
+| frontend env | `VITE_PUSH_VAPID_PUBLIC_KEY` | 빌드 시 인라이닝. 비어 있으면 `BrowserPushPanel` 이 "no-vapid-key" 메시지 표시. |
+
+backend `PushNotificationProperties.enabled` 는 publicKey + privateKey 가 모두 채워졌을 때만 true. 한쪽이라도 비면 `LibraryWebPushSender.send` 가 `WebPushSendResult.disabled()` 반환 → dispatch 흐름 자체가 no-op (로컬/CI 안전 디폴트).
+
+#### 6.8.3 Dispatch 흐름 (PR140)
+
+`NotificationService.notify` 가 row 저장 + SSE 발송 후 `PushNotificationService.dispatch(notifications)` 를 호출. 실패는 try-catch 로 swallow 되어 notification 트랜잭션을 깨지 않는다.
+
+`PushNotificationService`:
+1. `findByUserIdInAndEnabledTrue(receiverIds)` 로 활성 구독 묶음 조회.
+2. notification 단위로 payload 생성 (`encodePayload`):
+   - `{title, body, type, targetType, targetId, url, notificationId}` JSON UTF-8 bytes.
+   - `url` 은 `defaultUrlFor(targetType, targetId, type)` 의 결과 — frontend `notificationMeta.pathForNotification` 과 호환되는 fallback 라우팅 (viewerRole 분기는 SW 가 받은 뒤 router 가 보정).
+3. 각 구독에 `WebPushSender.send(endpoint, p256dh, auth, payload)` 호출.
+4. 결과 분기 — 모두 별도 `REQUIRES_NEW` 트랜잭션으로 처리:
+   - 2xx → `touchSeen()` (last_seen_at 갱신).
+   - 404 / 410 → `disable()` (브라우저 unsubscribe 흔적).
+   - 기타 → warn log + 다음 구독으로 진행.
+   - `WebPushSendResult.disabled()` (VAPID 키 미설정) → 침묵.
+
+`WebPushSender` 는 추상화. 운영 구현체는 `LibraryWebPushSender` (nl.martijndwars:web-push 5.1.1 + BouncyCastle 1.78.1, BC provider 는 클래스 로드 시 1회 등록). 발송 자체 예외는 라이브러리 레벨에서 잡아 `WebPushSendResult.failure(msg)` 로 변환 — 호출자가 외부 라이브러리 타입에 의존하지 않는다.
+
+#### 6.8.4 Service worker (`frontend/public/sw.js`)
+
+| 이벤트 | 동작 |
+|---|---|
+| `install` | `self.skipWaiting()` — 사용자가 첫 구독 시 reload 없이 즉시 활성화. |
+| `activate` | `clients.claim()` — 모든 탭이 새 worker 를 따른다. |
+| `push` | `event.data.json()` parse → `showNotification(title, {body, icon, badge, data: {url, notificationId, type, targetType, targetId}})`. JSON 이 아니면 plain text fallback. |
+| `notificationclick` | `notification.close()` 후 같은 origin 의 client 가 있으면 focus + `postMessage({source: 'contenido-sw', type: 'navigate', url})`. 없으면 `clients.openWindow(url)`. |
+
+`App.tsx` 가:
+1. mount 시 `serviceWorker.register('/sw.js')` (https / localhost 만).
+2. `serviceWorker.message` listener — `contenido-sw / navigate` 메시지를 router `navigate(url)` 로 연결.
+
+#### 6.8.5 Frontend — BrowserPushPanel (PR139)
+
+`pages/NotificationsPage.tsx` 알림 설정 패널 안에 `components/BrowserPushPanel.tsx` 가 들어간다. 상태는 세 가지:
+- `unsupported` — SW / PushManager 없음. 안내 텍스트만.
+- `no-vapid-key` — env 가 비어 있음. "잠시 후 다시 시도" 안내.
+- `supported` — 토글 가능. 권한이 `denied` 면 브라우저 설정에서 풀어달라는 안내 + 등록 버튼 disabled.
+
+API helpers (`frontend/src/api/push.ts`):
+- `registerPushSubscription()` — 권한 요청 → SW 등록 → `pushManager.subscribe({userVisibleOnly, applicationServerKey})` → `POST /push/subscriptions`. 이미 같은 endpoint 가 있으면 backend 가 credential 만 갱신.
+- `unregisterPushSubscription()` — 현재 PushManager 구독을 찾아 `DELETE /push/subscriptions` body `{endpoint}` 호출 + 브라우저 측 `subscription.unsubscribe()`.
+- `getActivePushSubscription()` — 현재 브라우저가 PushManager 에 구독돼 있는지 (UI 가 토글 초기 상태에 사용).
+- `getMyPushSubscriptions()` — 내 활성/비활성 구독 디바이스 목록.
+
+### 6.9 Event announcements (PR141)
+
+이벤트 owner / 채널 STAFF / ADMIN 이 이벤트의 **활성 참가자**에게 공지를 보내면 in-app row + SSE + Web Push 가 한 번에 발송된다.
+
+| 컴포넌트 | 책임 |
+|---|---|
+| `event_announcements` (V13) | id PK / event_id FK / author_id FK / title VARCHAR(200) / content TEXT / created_at + updated_at. INDEX `(event_id, created_at)`. |
+| `EventAnnouncement` entity | title / content / author + audit timestamps. |
+| `EventAnnouncementRepository` | `findByEventOrderByCreatedAtDesc(event)` / `countByEvent(event)`. |
+| `EventAnnouncementService` | create (가드 + notify) / list (가드). |
+| `EventAnnouncementController` | `POST/GET /api/v1/events/{eventId}/announcements`. |
+
+권한:
+- 작성 — 채널 owner, 채널 STAFF, ADMIN. 그 외 → `UnauthorizedException` (403).
+- 조회 — 작성 권한자 + 해당 이벤트의 APPROVED 참가자. 그 외 → 403.
+
+수신자 (active 참가자) 계산:
+1. `participationRepository.findByEventOrderByJoinedAtDesc(event)` 에서 `status == APPROVED` 만.
+2. **무료 이벤트** (`participationFee <= 0`) → 위 그대로 수신자.
+3. **유료 이벤트** → 위 buyer 들의 최근 ticket 을 묶음 조회. `CANCELED / REFUNDED` 제외, `PAID / USED / PARTIALLY_REFUNDED` 포함. 유료인데 티켓이 없는 APPROVED 는 비정상이라 안전한 쪽으로 제외.
+
+알림 호출:
+```
+notificationService.notify(
+    receiverIds = activeParticipantIds(event),
+    type = NotificationType.EVENT_ANNOUNCEMENT,
+    title = "[공지] ${event.title}",
+    message = announcement.title,
+    targetType = "events",
+    targetId = event.id,
+)
+```
+
+NotificationService preference 필터를 통과한 수신자만 row/SSE/push 가 발송된다. notify 실패는 try-catch 로 swallow — 공지 row 자체는 트랜잭션과 함께 commit.
+
+Frontend (`pages/event-detail/EventAnnouncementsSection.tsx`):
+- `canRead` 가 true 일 때만 렌더 — 권한 없는 사용자에게는 섹션 자체가 안 보인다.
+- `canWrite` 면 inline form (제목/내용) + "공지 보내기" 버튼. 발송 성공 시 목록 prepend + form 초기화.
+- 목록은 created_at desc, 항목당 author nickname + 로컬 시각.
+
+`EventDetailPage.tsx` 가 `isOwner || user?.role === 'ADMIN'` 를 `canWrite` 로, `isOwner || ADMIN || participation?.status === 'APPROVED'` 를 `canRead` 로 전달한다.
 
 ---
 
@@ -557,7 +685,11 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 | **정원 race condition lock** | confirm 시점 재검증만. READY 다수가 동시 confirm 시 초과 가능. | 향후 PR |
 | **Kafka outbox** | 도입 설계만 ([kafka-outbox-plan.md](kafka-outbox-plan.md)). 현재 알림은 직접 SSE push. | 향후 PR |
 | **실시간 잔여 자리 / QR 회전 / 푸시** | EventDetail 의 잔여 자리는 SSE refetch 기반. QR 30초 회전 / 푸시 / 시스템 밝기는 미구현. | 향후 PR |
-| **Push / Email 채널별 preference** | preference 는 NotificationType 차원만 다룬다. 같은 type 을 SSE 만 받고 push 는 끄는 등 채널별 선택 불가 (현재 채널은 SSE/in-app 1종). | 향후 PR |
+| **Push / Email 채널별 preference** | preference 는 NotificationType 차원만 다룬다. 같은 type 을 SSE 만 받고 push 는 끄는 등 채널별 선택 불가. **PR140 부터 Web Push 가 SSE / in-app 와 동일한 NotificationType preference 게이트로 켜고 꺼지지만, 채널별 분리는 여전히 없음.** | 향후 PR |
+| **Native FCM adapter** | Web Push 만 지원 — iOS Safari/Chrome 18.5+ 와 Android 모든 브라우저 커버. native iOS/Android 앱 → APNs/FCM 어댑터는 미구현. | 향후 PR |
+| **Push delivery retry queue** | 4xx/5xx 응답은 warn log 만. expired (410/404) 만 subscription disable. 일시 실패 (network blip 등) 의 자동 재시도 / dead letter queue 없음. | 향후 PR |
+| **Push analytics / open tracking** | dispatch 결과 (sent / expired / failed) 의 dashboard / open-rate / CTR 추적 없음. backend 로그만 남는다. | 향후 PR |
+| **Push quiet hours** | 시간대별 발송 정지 (e.g. 23시~07시 mute) 미구현. preference disable 은 24/7. | 향후 PR |
 | **Preference 변경 audit / 이력** | preference 변경은 `moderation_audit_logs` 에 기록되지 않으며 별도 이력 테이블도 없음. PR104 부터 `UserNotificationPreference.updatedAt` 의 "마지막 row 변경 시각" 만 응답에 노출 — 변경 이력 / actor / 전·후 값은 여전히 미저장. | 향후 PR |
 
 운영 검증 미수행 / 백엔드 영향 있는 변경은 [manual-qa-checklist.md](manual-qa-checklist.md) 의 항목 단위로 추적한다. 알림 preference + 메타데이터 흐름의 수동 QA 는 §20 / §21 참고.
@@ -628,6 +760,10 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR131 — Audit CSV refund-derived columns: active export (`exportToCsv`) 와 archive export (`exportArchivedToCsv`) 양쪽 헤더에 환불 분석용 10 컬럼 append-only 추가 (`refundKind` / `ticketId` / `paymentAttemptId` / `eventId` / `refundAmount` / `refundedAmount` / `remainingRefundableAmount` / `ticketStatus` / `paymentStatus` / `fullRefund`). 단일 helper `ModerationAuditLogService.csvRefundDerivedColumns(action, afterValue)` 가 두 서비스에서 공유 — afterValue JSON 파생값만 사용, ticket / buyer / event 등 lookup 호출 **금지** (CSV 는 N+1 부담을 안 진다). refundKind 은 action 기반 (`TICKET_FORCED_REFUNDED` → FORCED, `PAYMENT_PARTIALLY_REFUNDED` → PARTIAL, `PAYMENT_REFUNDED` → FULL), 그 외는 10 컬럼 모두 빈 값. malformed JSON / null afterValue 도 export 가 절대 throw 하지 않음 — 새 컬럼만 빈 값으로 떨어진다. 원본 `beforeValue` / `afterValue` 컬럼은 위치 / 값 그대로
 - PR134 — Partial admin forced refund: `AdminForcedRefundRequest.amount: Long?` optional 추가 + `PaymentService.forceRefundByAdmin(adminUserId, ticketId, reason, amount = null)` 시그니처 확장. `amount == null` 이면 PR106 동작 그대로 (remaining 전액 + full cascade), 지정 시 `1 <= amount <= remaining` 검증 후 `amount == remaining` → full cascade, `amount < remaining` → PR117 `applyPartialRefund` 재사용 (ticket/attempt PARTIALLY_REFUNDED + 참가/정원 무영향). audit action 은 PR106 그대로 `TICKET_FORCED_REFUNDED` 1건만; afterValue JSON 에 `refundAmount / refundedAmount / remainingRefundableAmount / fullRefund` 4 필드 추가 (PR126 paymentRefundContext 와 같은 의미). 기존 4 필드 (ticketId/paymentAttemptId/ticketStatus/amount) 는 호환을 위해 유지 — PR115 enrichment + PR131 CSV 컬럼이 깨지지 않음. USED 티켓 + 부분 강제 환불도 허용 (ticket → PARTIALLY_REFUNDED). `AdminForcedRefundResponse` 에 `refundedAmount / remainingRefundableAmount / fullRefund` 3 필드 추가
 - PR135 — Partial admin forced refund UI: `AdminPaymentToolsSection` 에 "환불 방식" 라디오 fieldset (`남은 환불 가능액 전액` / `금액 지정 (부분 환불)`) + PARTIAL 선택 시 환불 금액 input. confirm dialog 에 선택한 방식 / 금액 / cascade 영향 명시. result card 에 `누적 환불액 / 남은 환불 가능액` + 환불 유형 Badge ("전액 환불" / "부분 환불"). 400 → "환불 금액을 확인해주세요." error mapping. `forceRefundTicket(ticketId, reason, amount?)` API 함수는 amount 가 undefined 이면 body 에서 키를 제외해 PR106 backward compat 호출 경로 유지. 일반 사용자 refund UI 변경 없음
+- PR139 — Web Push 구독 인프라: V12 `user_push_subscriptions` (endpoint TEXT + SHA-256 hex 64자 UNIQUE) + `UserPushSubscription` entity / repository / service / controller (`POST/DELETE/GET /api/v1/push/subscriptions`) + `push.vapid.*` placeholder yml + `InvalidPushSubscriptionException` (400). frontend `public/sw.js` (install/activate/push/notificationclick) + `api/push.ts` (register/unregister/list + permission/support detection) + `BrowserPushPanel` UI in NotificationsPage + `VITE_PUSH_VAPID_PUBLIC_KEY` env. App.tsx 가 SW 등록 + `notificationclick` 메시지를 router 로 bridge. 발송은 미구현 (PR140 에서)
+- PR140 — Web Push 발송: `WebPushSender` 인터페이스 + `LibraryWebPushSender` (`nl.martijndwars:web-push:5.1.1` + `org.bouncycastle:bcprov-jdk18on:1.78.1`, BC provider 클래스 로드 시 1회 등록). `PushNotificationService.dispatch(notifications)` 가 receiver 별 active 구독 묶음 조회 → payload JSON (`title/body/type/targetType/targetId/url/notificationId`) → 각 endpoint 발송 → 결과 분기 (2xx → `touchSeen`, 410/404 → `disable()`, 그 외 → warn log). 모든 self-healing 은 `REQUIRES_NEW` 트랜잭션. NotificationService 가 row 저장 + SSE 이후 호출하며 실패를 try-catch 로 swallow — push 가 notification 트랜잭션을 깨지 않는다. VAPID 키 미설정이면 `WebPushSendResult.disabled()` 반환 → dispatch 자체가 no-op (로컬/CI 안전). `PushNotificationProperties` 가 application 에서 `@EnableConfigurationProperties` 로 활성화
+- PR141 — Event announcement notifications: V13 `event_announcements` (event_id FK / author_id FK / title VARCHAR(200) / content TEXT, idx event+created) + `EventAnnouncement` entity / repository / DTOs + `EventAnnouncementService` (create / list + 권한 가드) + `EventAnnouncementController` (`POST/GET /api/v1/events/{eventId}/announcements`). `NotificationType.EVENT_ANNOUNCEMENT` 추가. 작성 권한 — owner / 채널 STAFF / ADMIN. 조회 권한 — 작성자 + APPROVED 참가자. 수신자 — APPROVED participation × (무료 또는 ticket NOT IN CANCELED/REFUNDED). frontend `EventAnnouncementsSection` 이 EventDetailPage 안에서 canWrite/canRead 분기로 form + list 렌더. notificationMeta `content` 묶음에 EVENT_ANNOUNCEMENT 편입
+- PR142 — Channel new event push coverage: `EventService.createEvent` 의 NEW_EVENT 수신자 묶음에서 channel.owner.id 제외 (defensive — owner 가 자기 채널을 구독한 비정상 상태에서도 자기 알림은 안 받게) + dedupe. EventServiceTest 3 신규 케이스 — 구독자 receive / owner 본인 제외 / 빈 구독자도 notify 호출. push dispatch 자체는 PR140 NotificationService 통합 테스트로 보장 — 본 PR 은 receiver 정책만 정리
 
 ## Refund Audit Enrichment 정책 (PR115 / PR126 / PR130 / PR131 통합)
 

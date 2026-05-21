@@ -1,79 +1,77 @@
-# Local Release Bundle — PR130 to PR137 (retrospective) + PR138 (this doc)
+# Local Release Bundle — PR139~PR142 (retrospective) + PR143 (this doc)
 
 본 문서는 두 역할을 동시에 한다:
 
-1. **Push 전 self-audit** — 본 PR138 (release-notes refresh) 만 origin 에 push 전이라면 1 commit ahead 인 상태의 ship-readiness 노트.
-2. **PR130~PR137 사이클 retrospective** — 직전 8 commit 묶음 (archive audit enrichment + CSV refund columns + partial admin forced refund + 회귀 가드) 의 정리. 이 8 commit 은 본 문서 작성 시점에 이미 origin/main 에 반영되어 있다 — 다음 사이클 운영자가 한 번에 훑을 수 있게 같은 문서에 retrospective 로 묶어둔다.
+1. **Push 전 self-audit** — 본 PR143 (release-notes refresh) 만 origin 에 push 전이라면 5 commit ahead 인 상태의 ship-readiness 노트.
+2. **PR139~PR142 사이클 retrospective** — 직전 4 commit 묶음 (Web Push 인프라 + 발송 + 이벤트 공지 + 채널 새 이벤트 push 커버리지) 의 정리. 이 4 commit 은 본 문서 작성 시점에는 아직 로컬에만 존재 — 같은 push 에 PR143 docs 와 함께 origin/main 으로 올라간다.
 
 | 항목 | 값 |
 |---|---|
-| Base | `origin/main` (PR130~PR137 까지 모두 반영된 시점) |
-| Head | `<PR138 docs commit>` (본 문서 commit) |
-| Ahead | **1 commit** (예상, PR138 만 — PR130~PR137 은 origin 에 있음) |
-| 직전 cycle | `0e41e23 (PR130) … f7c09cb (PR137)` (8 commits, 이미 push 완료) |
-| 작성 시점 | 2026-05-19 |
+| Base | `origin/main` (PR137 + 두 운영 PR `843c3b9` review-gate / `37c4737` event-room 까지 반영된 시점) |
+| Head | `<PR143 docs commit>` (본 문서 commit) |
+| Ahead | **본 cycle 5 commits** (PR139~PR142 + PR143). 그 외 origin 미반영 commit (PR142 prior 3) 도 함께 push 될 수 있음 — `git log origin/main..HEAD` 로 정확한 ahead 확인. |
+| 직전 cycle | `0e41e23 (PR130) … f7c09cb (PR137)` (이미 origin 에 push 완료) |
+| 본 cycle | `d5ee69f (PR139) … 994b17d (PR142)` (4 commits, 로컬 only) + 본 PR143 docs commit |
+| 작성 시점 | 2026-05-21 |
 
-직전 push 가 PR130~PR137 8 커밋을 한꺼번에 origin 에 올렸다. 두 작은 cycle 의 묶음이다 — **(a) PR130~PR133 환불 audit 가독성 확장** (archive detail enrichment / CSV refund columns / docs / regression hardening) 와 **(b) PR134~PR137 부분 강제 환불 도입** (backend + UI + docs + regression hardening). 두 cycle 모두 backend 의 기존 헬퍼 (`buildForcedRefundContext` / `applyPartialRefund` / `markRefundedInternal` / `csvRefundDerivedColumns`) 를 재사용해 변경의 외연을 좁게 유지했다.
+이번 사이클은 **알림 채널의 세 번째 다리** 인 Web Push 를 in-app 알림 + SSE 와 같은 NotificationService 경로 위에 올리고, 그 위에 두 개의 새 fan-out 흐름 (이벤트 공지 + 채널 새 이벤트) 을 정리했다. 모든 변경이 기존 `NotificationService.notify` 단일 진입점 위에서 이루어졌으므로 preference 게이트 (PR95) 와 NotificationType 별 라우팅 (PR97) 은 그대로 활용된다.
 
-본 PR138 은 이 8 commit 의 retrospective 정리만 — production / backend / frontend / migration 변경 없음.
+본 PR143 은 PR139~PR142 4 commit 의 docs 정리만 — production / backend / frontend / migration 변경 없음.
 
 ---
 
-## 1. 커밋 묶음 요약 (PR130~PR137, origin 에 반영됨)
+## 1. 커밋 묶음 요약 (PR139~PR142, 로컬 only — 본 push 에 함께 올라감)
 
-### Archive audit enrichment + CSV refund columns + partial forced refund
+### Web Push + Event announcements + new-event push coverage
 
 | commit | PR | 요약 |
 |---|---|---|
-| `0e41e23` | PR130 | **Archive audit detail enrichment**. `ArchivedModerationAuditLogResponse` 에 `forcedRefundContext` / `paymentRefundContext` optional 필드 + `getArchived` 가 active detail 과 같은 정책으로 enrichment. archive list / CSV 응답은 미적용 (N+1 회피). frontend `ArchivedModerationAuditLog` type 확장 + archive 탭 detail 에서 기존 panel 재사용. 6 신규 MockK 케이스 + active PR115/PR126 회귀 통과. |
-| `5f3bc32` | PR131 | **Audit CSV refund-derived columns**. active / archive CSV 모두에 환불 분석용 10 파생 컬럼 append-only — `refundKind` / `ticketId` / `paymentAttemptId` / `eventId` / `refundAmount` / `refundedAmount` / `remainingRefundableAmount` / `ticketStatus` / `paymentStatus` / `fullRefund`. 단일 helper `csvRefundDerivedColumns` 가 두 서비스 공유 — afterValue JSON 파생값만, lookup 호출 없음. 6 active + 2 archive 신규 케이스. |
-| `165593d` | PR132 | **Refund audit enrichment 정책 문서화**. architecture.md 6-row enrichment 표 (active/archive × detail/list/CSV) + manual-qa §28 + release-notes 갱신. docs only. |
-| `e16be9e` | PR133 | **Refund audit enrichment 회귀 가드**. 5 신규 MockK 케이스 — active CSV 모든 row 가 정확히 20 컬럼 (action 무관), archive CSV 모든 row 가 21 컬럼, FORCED malformed JSON export 성공, ticket lookup 이 throw 해도 detail 200, archive mutual exclusion. production 코드 변경 없음. |
-| `41a50ae` | PR134 | **Partial admin forced refund backend**. `AdminForcedRefundRequest.amount: Long?` optional + `PaymentService.forceRefundByAdmin(amount = null)` 시그니처 확장. amount null → PR106 동작 그대로, 지정 시 `1 <= amount <= remaining` 검증 → `applyPartialRefund` (PR117 헬퍼 재사용) 또는 `markRefundedInternal`. audit afterValue JSON 에 4 필드 (`refundAmount / refundedAmount / remainingRefundableAmount / fullRefund`) 추가 — 기존 4 필드는 호환을 위해 유지. `AdminForcedRefundResponse` 에 3 필드 추가. action 은 PR106 그대로 `TICKET_FORCED_REFUNDED` 1건만. 5 신규 PaymentServiceTest + 2 신규 AdminPaymentServiceTest 케이스. |
-| `3681282` | PR135 | **Partial admin forced refund UI**. `AdminPaymentToolsSection` 에 "환불 방식" 라디오 fieldset (전액 / 금액 지정) + PARTIAL 선택 시 amount input + confirm dialog 의 선택한 방식 / 금액 / cascade 명시 + result card 에 누적 환불액 / 남은 환불 가능액 + 환불 유형 Badge. 400 → "환불 금액을 확인해주세요." error mapping. `forceRefundTicket(ticketId, reason, amount?)` API 함수 — undefined 이면 body 에서 amount 키 제외해 PR106 호출 경로 유지. 일반 사용자 refund UI 변경 없음. 11 manual-qa 항목. |
-| `acd1db7` | PR136 | **Partial forced refund 정책 문서화**. payment-refund-policy.md §16 신설 (요청/응답 변경 + USED 부분 환불 + audit afterValue 확장 + 의도적 제외) + architecture.md PR134/135 entries + release-notes 갱신. Known follow-ups 에서 "부분 forced refund" 제거. docs only. |
-| `f7c09cb` | PR137 | **Partial forced refund 회귀 가드**. 4 신규 PaymentServiceTest chain 케이스 — 두 번 partial 누적 후 PARTIALLY_REFUNDED 유지, partial → forced full cascade, user partial → admin forced full cascade, admin partial + user over-remaining 차단. production 코드 변경 없음. |
+| `d5ee69f` | **PR139** | **Web Push 구독 인프라**. V12 `user_push_subscriptions` (endpoint TEXT + SHA-256 hex 64자 UNIQUE) + `UserPushSubscription` entity / repository / service / controller (`POST/DELETE/GET /api/v1/push/subscriptions`) + `push.vapid.*` placeholder yml + `InvalidPushSubscriptionException` (400). frontend `public/sw.js` (install/activate/push/notificationclick) + `api/push.ts` (register/unregister/list + permission/support detection) + `BrowserPushPanel` UI in NotificationsPage + `VITE_PUSH_VAPID_PUBLIC_KEY` env. App.tsx 가 SW 등록 + `notificationclick` 메시지를 router 로 bridge. PushSubscriptionService 9 단위 테스트. **발송 자체는 PR140 에서.** |
+| `c5e09f6` | **PR140** | **Web Push 발송**. `WebPushSender` 인터페이스 + `LibraryWebPushSender` (`nl.martijndwars:web-push:5.1.1` + `org.bouncycastle:bcprov-jdk18on:1.78.1`, BC provider 클래스 로드 시 1회 등록). `PushNotificationService.dispatch(notifications)` 가 receiver 별 active 구독 묶음 조회 → payload JSON (`title/body/type/targetType/targetId/url/notificationId`) → 각 endpoint 발송 → 결과 분기 (2xx → `touchSeen`, 410/404 → `disable()`, 그 외 → warn log). `disable()` / `touchSeen()` 은 `REQUIRES_NEW` 트랜잭션. NotificationService 가 row 저장 + SSE 이후 호출하며 실패를 try-catch 로 swallow — push 가 notification 트랜잭션을 깨지 않는다. VAPID 키 미설정이면 `WebPushSendResult.disabled()` 반환 → dispatch 자체가 no-op (로컬/CI 안전). `PushNotificationProperties` 가 application 에서 `@EnableConfigurationProperties` 로 활성화. PushNotificationServiceTest 7 신규 + NotificationServiceTest 3 신규 (preference 통합 + dispatch 예외 격리). |
+| `2632aab` | **PR141** | **Event announcement notifications**. V13 `event_announcements` (event_id FK / author_id FK / title VARCHAR(200) / content TEXT, idx event+created) + `EventAnnouncement` entity / repository / DTOs + `EventAnnouncementService` (create / list + 권한 가드) + `EventAnnouncementController` (`POST/GET /api/v1/events/{eventId}/announcements`). `NotificationType.EVENT_ANNOUNCEMENT` 추가. 작성 권한 — owner / 채널 STAFF / ADMIN. 조회 권한 — 작성자 + APPROVED 참가자. 수신자 — APPROVED participation × (무료 또는 ticket NOT IN CANCELED/REFUNDED). frontend `EventAnnouncementsSection` 이 EventDetailPage 안에서 canWrite/canRead 분기로 form + list 렌더. notificationMeta `content` 묶음에 EVENT_ANNOUNCEMENT 편입. EventAnnouncementServiceTest 6 신규 (owner success / non-owner 403 / STAFF 허용 / CANCELED·REJECTED 제외 / 유료 ticket 상태 필터 / list 권한). |
+| `994b17d` | **PR142** | **Channel new event push 커버리지**. `EventService.createEvent` 의 NEW_EVENT 수신자 묶음에서 channel.owner.id 제외 (defensive — owner 가 자기 채널을 구독한 비정상 상태에서도 자기 알림은 안 받게) + dedupe. notify 실패 시 warn log 추가 (다른 경로와 parity). EventServiceTest 3 신규 케이스 — 구독자 수신 / owner 본인 제외 / 빈 구독자도 notify 호출. push dispatch 자체는 PR140 NotificationService 통합 테스트로 보장 — 본 PR 은 receiver 정책만 정리. |
 
-### PR138 (본 문서)
+### PR143 (본 문서)
 
 | commit | PR | 요약 |
 |---|---|---|
-| `<TBD>` | PR138 | **Release notes retrospective**. PR130~PR137 8 commit 사이클을 정리 + Known follow-ups 갱신. docs only. |
+| `<TBD>` | **PR143** | **Release notes / architecture / manual QA 갱신**. PR139~PR142 4 commit 사이클 정리 + architecture.md §6.8 (Web Push) / §6.9 (Event announcements) / Known Exclusions 갱신 + manual-qa §30~§33 4 신규 섹션. docs only. |
 
 ---
 
-## 2. 두 cycle 의 운영 가치
+## 2. 사이클의 운영 가치
 
-### (a) Audit enrichment cycle (PR130~PR133)
+### (a) 알림 채널의 세 번째 다리 (PR139 + PR140)
 
-환불 audit 의 가독성 정책이 6 응답 경로 모두 일관되게 정리됐다:
+NotificationService 의 알림 흐름이 이제 **세 채널 동시 fan-out**:
 
-| 응답 경로 | enrichment | DB lookup | 도입 PR |
-|---|---|---|---|
-| `GET /admin/moderation/audit-logs/{id}` | buyer/event/channel + 세 금액 + 상태 | ✅ | PR115 / PR126 |
-| `GET /admin/moderation/audit-logs/archive/{originalId}` | 동일 | ✅ | **PR130** |
-| `GET /admin/moderation/audit-logs?page=...` | 없음 | ❌ | PR62 |
-| `GET /admin/moderation/audit-logs/archive?page=...` | 없음 | ❌ | PR67 |
-| `GET /admin/moderation/audit-logs/export` (CSV) | afterValue JSON 파생 10 컬럼 | ❌ | **PR131** |
-| `GET /admin/moderation/audit-logs/archive/export` (CSV) | 동일 | ❌ | **PR131** |
+| 채널 | 시점 | 실패 정책 |
+|---|---|---|
+| In-app row (`notifications` 테이블) | preference 통과 → saveAll | 트랜잭션과 함께 rollback |
+| SSE (`SseEmitterService.sendToUser`) | row 저장 직후 | best-effort, 실패해도 row 유지 |
+| **Web Push (PR140 신규)** | SSE 직후 | best-effort, 실패해도 row/SSE 유지. 410/404 → subscription self-disable |
 
-**N+1 정책**: list / CSV 경로는 **절대 ticket / buyer / event / channel lookup 호출 없음**. 깊은 enrichment 가 필요하면 detail endpoint 로. lookup 실패는 detail 자체를 깨지 않음 (`runCatching {...}.getOrNull()` swallow).
+세 채널 모두 같은 NotificationType preference 게이트 (PR95) 위에서 동작. 사용자가 PARTICIPATION_REQUESTED 를 끄면 세 채널 모두 발송되지 않는다. 채널별 분리 (예: SSE 만 받고 push 만 끄기) 는 Known follow-ups 에 남아 있다.
 
-### (b) Partial admin forced refund cycle (PR134~PR137)
+### (b) 이벤트 운영자 → active 참가자 직접 채널 (PR141)
 
-ADMIN 강제 환불 (`/admin/tickets/{id}/forced-refund`) 이 optional `amount` 를 받아 부분 강제 환불을 지원. 노쇼 부분 보상 같은 케이스도 단일 도구로 처리:
+기존 흐름은 owner 가 active 참가자에게 알림을 보낼 도구가 없었다 — `채널 owner → 채널 구독자` 의 NEW_POST / NEW_EVENT 뿐. PR141 은 그 사이의 빈 영역인 `이벤트 owner → 이벤트의 APPROVED 참가자` 직접 채널을 열었다.
 
-| 케이스 | UI 흐름 | backend 호출 | cascade |
-|---|---|---|---|
-| 전액 강제 환불 (PR106 회귀) | "환불 방식: 남은 환불 가능액 전액" 선택 | `forceRefundByAdmin(amount=null)` | full — ticket REFUNDED + participation CANCELED + 정원 -1 |
-| 부분 강제 환불 (PR134 신규) | "금액 지정" 선택 + 환불 금액 입력 | `forceRefundByAdmin(amount=10000)` | partial — ticket PARTIALLY_REFUNDED + 참가/정원 무영향 |
-| amount == remaining | 동일 | `forceRefundByAdmin(amount=remaining)` | full cascade |
+| 흐름 | 수신자 | 사용 사례 |
+|---|---|---|
+| 채널 공지 (NEW_POST) | 채널 구독자 전원 | 채널 단위 마케팅 / 새 콘텐츠 안내 |
+| 새 이벤트 알림 (NEW_EVENT) | 채널 구독자 전원 | 새 이벤트 발행 시 자동 |
+| **이벤트 공지 (EVENT_ANNOUNCEMENT, PR141)** | 이벤트의 active 참가자 | 공연 시간 변경 / 장소 안내 / 우천 대비 등 운영 직접 채널 |
 
-세 케이스 모두 `TICKET_FORCED_REFUNDED` audit row 1건만 — partial / full 구분은 `afterValue.fullRefund` 플래그로 표시. action 단위 분류 (PR109 actor stats / PR128 quick filter chip) 는 변경 없이 그대로 작동. 일반 사용자 환불 (`refundPaymentByTicket`, PR117/PR122) 정책 / audit 는 무변경 — endpoint 가 다르므로 정확히 구분.
+active 참가자 정의: APPROVED 참가 × 티켓이 (없음 OR `PAID/USED/PARTIALLY_REFUNDED`). CANCELED/REFUNDED 티켓 보유자는 자동 제외 — 이미 참가하지 않을 사람에게는 운영 공지가 노이즈.
+
+### (c) 채널 owner self-notification 방어 (PR142)
+
+PR47 부터 `EventService.createEvent` 는 채널 구독자 전원에게 NEW_EVENT 를 발송했지만, owner 본인이 자기 채널을 구독한 비정상 상태에서는 자기 이벤트 알림을 자기가 받는 결과가 나왔다. PR142 는 defensive 제외 — `receiverIds.filter { it != channel.owner.id }` — 로 막는다. preference 필터링은 그대로 NotificationService 가 담당.
 
 ---
 
-## 3. Push 전 확인사항 (PR138 만 대상)
+## 3. Push 전 확인사항
 
 ### 스테이징 금지 파일
 
@@ -89,83 +87,104 @@ ADMIN 강제 환불 (`/admin/tickets/{id}/forced-refund`) 이 optional `amount` 
 
 push 직전 `git status -sb` 로 위 파일들이 staged 영역에 들어가 있지 않은지 한 번 더 확인.
 
-### 최종 git 상태 (PR138 commit 후 push 직전 예상)
+### 최종 git 상태 (PR143 commit 후 push 직전 예상)
 
 ```
 git -C C:/WOYA status -sb
-## main...origin/main [ahead 1]
+## main...origin/main [ahead N]
  M .claude/settings.local.json
  M build/resources/main/application.yml
 ```
 
-본 PR138 docs 갱신만 ahead 1. 위 외에 staged 변화가 있으면 push 보류하고 원인 확인.
+본 cycle 가 더하는 5 commits (PR139~PR142 + PR143) 위에 prior cycle 의 미반영 commit (PR136~PR138 등) 이 함께 ahead 로 보일 수 있다. `git log --oneline origin/main..HEAD` 로 정확한 목록을 확인하고, 위에 나열된 staged 파일 외에 staged 변화가 있으면 push 보류하고 원인 확인.
 
 ---
 
-## 4. 검증 기록 (PR130~PR137 사이클 내 빌드/테스트 결과)
+## 4. 검증 기록 (PR139~PR142 사이클 내 빌드/테스트 결과)
 
 | 시점 | 검증 | 결과 |
 |---|---|---|
-| PR130 (`0e41e23`) | backend 좁은 `--tests *ModerationAuditLog*` | green (50s) — archive enrichment 6 신규 + PR115/PR126 회귀 |
-| PR130 (`0e41e23`) | backend full `gradle test` | green (46s) |
-| PR130 (`0e41e23`) | frontend `npm run build` | green (981ms) |
-| PR131 (`5f3bc32`) | backend 좁은 `--tests *ModerationAuditLog*` | green — CSV refund 컬럼 6 active + 2 archive 신규 |
-| PR131 (`5f3bc32`) | backend full `gradle test` | green (50s) |
-| PR132 (`165593d`) | docs-only | build/test 생략 |
-| PR133 (`e16be9e`) | backend `--tests *ModerationAuditLog*` (rerun-tasks) | green — 컬럼 수 invariant + FORCED malformed JSON + lookup-throw + 상호 배타 |
-| PR133 (`e16be9e`) | backend full `gradle test` | green (41s) |
-| PR133 (`e16be9e`) | frontend `npm run build` | green (789ms) |
-| PR134 (`41a50ae`) | backend `--tests *PaymentServiceTest*` | green (1m 54s) — partial / full / amount over / amount 0 / USED partial 5 신규 |
-| PR134 (`41a50ae`) | backend `--tests *AdminPaymentServiceTest*` | green (3m 2s, kotlin daemon stop/restart 필요) — afterValue 4 신규 키 + response 3 신규 필드 |
-| PR134 (`41a50ae`) | backend full `gradle test` | green (1m 48s) |
-| PR135 (`3681282`) | frontend `npm run build` | green (761ms) — 새 fieldset / 라디오 / amount input / Badge 토큰 정상 |
-| PR136 (`acd1db7`) | docs-only | build/test 생략 |
-| PR137 (`f7c09cb`) | backend `--tests *PaymentServiceTest*` | green (2m 3s) — 부분/누적/cascade chain / over-remaining 차단 4 신규 |
-| PR137 (`f7c09cb`) | backend full `gradle test` | green (1m 40s) |
-| PR137 (`f7c09cb`) | frontend `npm run build` | green (745ms) |
-| PR138 (본 문서) | docs-only | build/test 생략 |
+| PR139 (`d5ee69f`) | backend `--tests *PushSubscriptionServiceTest*` | green — upsert / duplicate / delete / invalid payload / not found 9 케이스 |
+| PR139 (`d5ee69f`) | backend full `gradle test` | green (~31s) |
+| PR139 (`d5ee69f`) | frontend `npm run build` | green (~770ms) — sw.js 가 dist 로 복사됨 |
+| PR140 (`c5e09f6`) | backend `--tests com.contenido.domain.notification.*` | green — 새 PushNotificationServiceTest 7 + NotificationServiceTest 신규 3 |
+| PR140 (`c5e09f6`) | backend full `gradle test` | green (~34s) |
+| PR140 (`c5e09f6`) | frontend `npm run build` | 본 PR 은 service worker / API helper 변경 없음 (PR139 build 재사용) |
+| PR141 (`2632aab`) | backend `--tests *EventAnnouncementServiceTest*` | green — owner / non-owner / STAFF / 상태 필터 / list 권한 6 케이스 |
+| PR141 (`2632aab`) | backend full `gradle test` | green (~34s) |
+| PR141 (`2632aab`) | frontend `npm run build` | green (~730ms) — `EventAnnouncementsSection` + `eventAnnouncements.ts` 추가 |
+| PR142 (`994b17d`) | backend `--tests *EventServiceTest*` | green — NEW_EVENT 구독자 / owner 제외 / 빈 구독자 3 신규 |
+| PR142 (`994b17d`) | backend full `gradle test` | green (~34s) |
+| PR142 (`994b17d`) | frontend `npm run build` | green (~777ms) |
+| PR143 (본 문서) | docs-only | build/test 생략 |
 
-**마지막 frontend `npm run build` green**: PR137 (`f7c09cb`).
+**마지막 frontend `npm run build` green**: PR142 (`994b17d`).
 
-**마지막 전체 backend `gradle test` green**: PR137 (`f7c09cb`).
+**마지막 전체 backend `gradle test` green**: PR142 (`994b17d`).
 
-push 직후 CI 가 cold-start 로 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 다시 통과해야 한다. 빌드 캐시 corruption (`.gradle/kotlin` daemon zip 또는 `build/snapshot/kotlin` 잠금) 으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat test` 으로 회복 — 본 묶음의 변경과 무관한 Windows 환경 이슈 (PR74 stabilize 시리즈 + PR134 caches-jvm 잠금 경험 참고).
+push 직후 CI 가 cold-start 로 (a) 전체 `./gradlew.bat test`, (b) `cd frontend; npm run build` 를 다시 통과해야 한다. 빌드 캐시 corruption (Windows 환경의 kotlin daemon `caches-jvm/inputs/source-to-output.tab.keystream.len`) 으로 첫 시도가 실패할 수 있다 — 사이클 중 한 번 발생했고 `./gradlew.bat --stop && ./gradlew.bat clean test` 로 회복. PR74 stabilize + PR134 caches-jvm 경험과 동일한 Windows-specific 이슈.
 
 ---
 
 ## 5. 운영 / 배포 주의사항 (사이클 누적)
 
-### Flyway 마이그레이션 — 없음
+### Flyway 마이그레이션 — V12 + V13 두 건 추가
 
-PR130 ~ PR137 모두 **새 V 마이그레이션 없음**. enum / 테이블 / 컬럼 변경 없음. 전체 마이그레이션 범위는 V1~V11 그대로 (PR117 V11 이 마지막).
+| 버전 | 파일 | 내용 |
+|---|---|---|
+| V12 | `V12__add_user_push_subscriptions.sql` | PR139 — `user_push_subscriptions` 테이블 (endpoint TEXT + endpoint_hash CHAR(64) UNIQUE per user). |
+| V13 | `V13__add_event_announcements.sql` | PR141 — `event_announcements` 테이블 (event_id FK / author_id FK / title VARCHAR(200) / content TEXT). |
 
-### Detail endpoint response shape — archive 측 2 필드 추가 (PR130)
+배포 시 Flyway 가 V11 → V12 → V13 순으로 적용. 마이그레이션 자체는 새 테이블 + FK 만 — 기존 데이터에 영향 없음.
 
-`GET /api/v1/admin/moderation/audit-logs/archive/{originalId}` 응답에 `forcedRefundContext` / `paymentRefundContext` 두 optional 필드가 추가됐다. active detail 과 동일 정책 / 동일 helper / 동일 shape — 이전 frontend bundle 도 호환.
+### 새 환경 변수 (운영 필수)
 
-### CSV export header — 10 컬럼 append (PR131)
+| 변수 | 설명 |
+|---|---|
+| `PUSH_VAPID_PUBLIC_KEY` | backend 가 공개 키로 보유. 비어 있으면 push 발송 자체 no-op. |
+| `PUSH_VAPID_PRIVATE_KEY` | backend 만 알아야 하는 비밀 키. **절대 commit 금지** — 운영 env var 전용. |
+| `PUSH_VAPID_SUBJECT` | VAPID `sub` claim (`mailto:` 또는 `https://...`). default `mailto:no-reply@contenido.local`. |
+| `VITE_PUSH_VAPID_PUBLIC_KEY` | frontend 빌드 시 인라이닝되는 공개 키. backend 의 PUSH_VAPID_PUBLIC_KEY 와 동일 값. 비어 있으면 frontend 가 "푸시 키 미배포" 폴백. |
 
-active CSV 와 archive CSV 양쪽 헤더에 동일한 10 컬럼이 끝에 append. prefix (active 10 / archive 11) 컬럼은 위치 / 이름 / 값 그대로 — 외부 도구가 prefix 만 보고 있다면 PR131 이후에도 호환. CSV path 는 lookup 호출 없음.
+키 페어 생성 — staging / production 각각 별도 keypair 권장. 운영 셋업 시:
+```bash
+# nl.martijndwars:web-push CLI 또는 web-push npm 패키지로 생성
+npx web-push generate-vapid-keys
+# 출력의 Public/Private 를 위 env 에 그대로 주입
+```
 
-### Forced refund request body — optional amount 추가 (PR134)
+### 새 API 엔드포인트
 
-`POST /admin/tickets/{id}/forced-refund` body 에 `amount` 가 optional 로 추가. 옛 body `{ "reason": "..." }` 는 여전히 유효 — 미지정 시 PR106 동작 그대로. frontend `forceRefundTicket(amount?)` 는 undefined 일 때 body 에서 키를 제외해 외부 운영 스크립트도 깨지지 않는다.
+| 엔드포인트 | 권한 | 책임 |
+|---|---|---|
+| `POST /api/v1/push/subscriptions` | 인증 사용자 | 새 구독 등록 / 같은 endpoint credential 갱신 (PR139) |
+| `DELETE /api/v1/push/subscriptions` | 인증 사용자 | body `{endpoint}` — 본 endpoint hash 매칭 row hard delete (PR139) |
+| `GET /api/v1/push/subscriptions/me` | 인증 사용자 | 내 구독 디바이스 목록 (PR139) |
+| `POST /api/v1/events/{eventId}/announcements` | owner / STAFF / ADMIN | 새 공지 발송 — active 참가자에게 EVENT_ANNOUNCEMENT (PR141) |
+| `GET /api/v1/events/{eventId}/announcements` | 작성자 + APPROVED 참가자 | 공지 목록 created_at desc (PR141) |
 
-### Forced refund response shape — 3 필드 추가 (PR134)
+### NotificationType enum 확장
 
-`AdminForcedRefundResponse` 에 `refundedAmount` / `remainingRefundableAmount` / `fullRefund` 3 optional 필드가 추가. 옛 frontend bundle 은 새 필드를 무시 — 깨지지 않음.
+`EVENT_ANNOUNCEMENT` 추가 (PR141). frontend `notificationMeta.ts` 의 `META` / `NOTIFICATION_PREFERENCE_BUNDLES` 에도 추가됨 — `content` 묶음의 일부.
 
-### Audit afterValue JSON — 4 키 추가 (PR134)
+기존 frontend bundle 이 새 type 을 모르는 상태에서 EVENT_ANNOUNCEMENT 알림을 받으면 `getNotificationMeta` 의 fallback (`{label: '알림', tone: 'neutral'}`) 으로 안전하게 표시 — 회귀 없음. 새 frontend bundle 이 배포되면 정확한 라벨/색이 노출된다.
 
-`TICKET_FORCED_REFUNDED` row 의 `afterValue` 가 PR134 부터 8 키로 확장. 기존 4 키 (`ticketId / paymentAttemptId / ticketStatus / amount`) 는 위치 / 의미 그대로 — PR115 `ForcedRefundContextResponse` enrichment + PR131 CSV `csvRefundDerivedColumns` 가 깨지지 않는다. 새 4 키 (`refundAmount / refundedAmount / remainingRefundableAmount / fullRefund`) 는 PR126 `paymentRefundContext` 와 같은 의미 — PR131 CSV 의 `refundedAmount / remainingRefundableAmount / fullRefund` 컬럼이 forced refund row 에서도 자동으로 채워지게 됐다 (helper 변경 없이).
+### NotificationService 변경 — push dispatch 호출 추가
 
-### 일반 사용자 환불 정책 (PR42 / PR117 / PR122) — 무변경
+`NotificationService.notify` 가 row 저장 + SSE 발송 이후 `pushNotificationService.dispatch(notifications)` 를 호출. 호출은 try-catch 로 감싸져 push 실패가 row / SSE 트랜잭션을 깨지 않는다. 외부 호출자는 정확히 동일한 시그니처 — caller side 변경 없음.
 
-`POST /tickets/{id}/refund` 의 동작 / 가드 / audit 정책은 본 사이클에서 변경되지 않는다. 부분 / 전액 / cascade / `PAYMENT_PARTIALLY_REFUNDED` / `PAYMENT_REFUNDED` audit 기록 모두 PR129 이전과 동일. **partial admin forced refund 와 partial user refund 는 endpoint 가 다르고 audit action 도 다르다** (`TICKET_FORCED_REFUNDED` vs `PAYMENT_PARTIALLY_REFUNDED`/`PAYMENT_REFUNDED`) — 혼동 금지.
+### 새 dependency
 
-### Enrichment / Export 실패는 detail / export 자체를 깨지 않음
+| 좌표 | 버전 | 용도 |
+|---|---|---|
+| `nl.martijndwars:web-push` | 5.1.1 | VAPID JWT 서명 + RFC8291 payload encryption (PR140) |
+| `org.bouncycastle:bcprov-jdk18on` | 1.78.1 | EC key 처리 — nl.martijndwars 가 transitive 로 가져오지 않으므로 명시 추가 (PR140) |
 
-PR130 archive detail enrichment, PR131 CSV refund columns 둘 다 **best-effort + throw 금지** 정책 (`runCatching {...}.getOrNull()`). detail 은 lookup 실패 시 200 + `contextAvailable=false`, CSV 는 malformed JSON 시 새 10 컬럼만 빈 값. 두 경우 모두 endpoint / export 자체는 정상 응답.
+두 dep 합계 약 5-6 MB 추가. Spring Boot fat jar 의 크기가 그만큼 증가.
+
+### Service worker (`/sw.js`) 가 정적 빌드에 포함
+
+`frontend/public/sw.js` 가 vite 의 `public/` 정책에 의해 `dist/sw.js` 로 그대로 복사됨. 배포 시 정적 호스팅 (nginx / S3+CloudFront 등) 이 `/sw.js` 를 그대로 서빙해야 SW 등록이 성공. Vite dev 서버는 자동 처리.
 
 ---
 
@@ -175,27 +194,27 @@ PR130 archive detail enrichment, PR131 CSV refund columns 둘 다 **best-effort 
 
 | 영역 | 상태 |
 |---|---|
-| **CSV 의 buyer / event title / channel lookup 컬럼** | PR131 은 afterValue JSON 파생값만 노출 — buyer 닉네임 / event 제목 / 채널 이름은 detail endpoint (PR115/PR126/PR130) 에서만. CSV 한 줄로 닉네임까지 보고 싶다면 N+1 lookup 또는 join-loaded query 가 필요한 별도 PR. |
-| **환불 정산 reconciliation batch** | 일별 PG 정산 vs REFUNDED/PARTIALLY_REFUNDED 카운트 일치 batch 없음. 부분 강제 환불까지 도입한 지금 정합성 batch 의 가치가 가장 커졌다. |
-| **환불 실패 큐 / 자동 재시도** | `refund.failed` webhook 처리는 단순 skip. deadletter + 운영자 retry 도구 필요. |
-| **PortOne / 다른 PG 어댑터** | interface 만 열려 있고 구현체는 Toss + Mock 만. |
-| **정원 race condition lock** | confirm 시점 재검증만. READY 다수 동시 confirm 시 초과 가능. |
-| **부분 환불 동시 race** | 별도 lock 없음. 후순위 호출이 400 으로 거부될 뿐 — race 빈도 낮아 의도적으로 lock 도입 보류. |
-| **partial forced refund 의 별도 audit action** | PR134 는 `TICKET_FORCED_REFUNDED` 1 action 으로 유지. partial / full 구분은 `afterValue.fullRefund` 플래그. |
-| **forced refund 의 별도 buyer 알림 카피** | partial forced refund 의 buyer 알림은 PR117 `applyPartialRefund` 알림 ("부분 환불이 처리되었어요") 그대로 재사용. 운영 vs 일반 환불의 알림 카피 분리는 후속 PR. |
+| **Native FCM adapter** | Web Push 만 지원 (iOS Safari 18.5+, Android 모든 브라우저 커버). native iOS/Android 앱용 APNs/FCM 어댑터는 향후 PR. |
+| **Push delivery retry queue** | 4xx/5xx 응답은 warn log 만. expired (410/404) 만 subscription disable. 일시 실패의 자동 재시도 / dead letter queue 없음. |
+| **Push analytics / open tracking** | dispatch 결과 (sent / expired / failed) 의 dashboard / open-rate / CTR 추적 없음. backend 로그만. |
+| **Push quiet hours** | 시간대별 발송 정지 (e.g. 23시~07시 mute) 미구현. preference disable 은 24/7. |
+| **Push / Email channel preference** | preference 는 NotificationType 차원만 — 같은 type 을 SSE 만 받고 push 는 끄는 등 채널별 분리 불가 (현재 채널은 SSE / in-app / push 가 같은 게이트). |
+| **이벤트 공지 수정 / 삭제** | PR141 은 create / list 만. 잘못 보낸 공지의 edit / delete 는 후속 PR. |
+| **이벤트 공지 의 staff actor breakdown** | 누가 보낸 공지인지 list 응답에 author nickname 만. moderation_audit_logs 미기록 (운영 audit 영역 밖). |
+| **환불 정산 reconciliation batch** | PG 정산 vs REFUNDED 카운트 일치 batch 없음 (직전 사이클부터 보류). |
+| **환불 실패 큐 / 자동 재시도** | `refund.failed` webhook 처리는 단순 skip. |
+| **PortOne / 다른 PG 어댑터** | interface 만 열려 있고 구현체는 Toss + Mock. |
+| **정원 race condition lock** | confirm 시점 재검증만. |
+| **부분 환불 동시 race** | 별도 lock 없음. 후순위 호출이 400 으로 거부. |
 | **Kafka outbox** | 도입 설계만 (`kafka-outbox-plan.md`). 알림은 직접 SSE push. |
-| **Push / Email channel preference** | preference 는 NotificationType 차원만. 채널별 선택 불가. |
-| **Preference 변경 audit / 이력** | PR104 의 `updatedAt` 은 lightweight signal — 변경 이력 / actor / 전·후 값 미저장. 별도 history 테이블 도입은 후속 PR. |
-| **부분 환불 webhook** | PG 가 partial cancel webhook 을 보낼 가능성은 본 PR 범위 밖. `PaymentStatus.PARTIALLY_REFUNDED` webhook 입력은 무시. |
-| **Webhook 환불 audit** | `refund.completed` webhook 흐름은 audit 미기록 그대로 (PG-driven, actor 없음). |
-| **COMMENT cascade 자동 hide** | comment cascade 미구현 — 운영자 수동 처리. |
-| **실시간 잔여 자리 SSE 채널 / QR 회전 / 푸시** | 잔여 자리는 SSE refetch 기반 + highlight (PR91). QR 30초 회전 / push 알림 / 시스템 밝기는 미구현. |
+| **Preference 변경 audit / 이력** | PR104 의 `updatedAt` 은 lightweight signal. 변경 이력 / actor / 전·후 값 미저장. |
+| **COMMENT cascade 자동 hide** | 운영자 수동 처리 그대로. |
+| **실시간 잔여 자리 SSE 채널 / QR 회전** | 잔여 자리는 SSE refetch + highlight (PR91). QR 30초 회전은 미구현. |
 
-직전 release notes 에 있던 다음 항목들은 본 사이클에서 채워졌으므로 제거됐다:
+직전 release notes 에 있던 다음 항목들은 본 사이클에서 부분 채워졌다:
 
-- **"Archive audit detail enrichment"** → PR130 으로 구현.
-- **"CSV export 에 enrichment 컬럼"** → PR131 으로 부분 구현 (afterValue JSON 파생 10 컬럼). buyer/event title lookup 컬럼은 여전히 미구현 — 위 표에 별도 항목으로 유지.
-- **"부분 forced refund"** → PR134 + PR135 으로 구현. PR106 의 전액 동작은 amount=null 시 그대로 유지.
+- **"Push / Email channel preference"** → 항목 자체는 유지. PR140 부터 push 가 같은 NotificationType preference 게이트로 켜고 꺼지지만 **채널별 분리** 는 여전히 미구현.
+- **"실시간 잔여 자리 / QR 회전 / 푸시"** → "푸시" 부분은 PR139 + PR140 으로 해소. 남은 두 항목은 별도 유지.
 
 ---
 
@@ -207,36 +226,30 @@ PR130 archive detail enrichment, PR131 CSV refund columns 둘 다 **best-effort 
 
 - §1~§11 — 회원가입 / 채널 / 이벤트 생성 / 참가 신청 / 승인·거절 / 티켓 / 체크인 / 공지 / 알림 라우팅 / 비밀번호 변경
 
-### 결제·환불·재신청 (회귀 가드)
+### 본 사이클의 핵심
 
-- §13 결제 플로우 / §14 환불 플로우 / §15 정합성 / §16 재신청 — 본 사이클은 일반 환불 정책 무변경
-- §22 ADMIN 강제 환불 (PR106) — 회귀. PR134 의 amount=null 경로가 PR106 동작과 동일해야 함
+- **§30 — Web Push 구독 (PR139)** — 권한 / SW 등록 / backend POST·DELETE / 미지원 환경 fallback 12 항목
+- **§31 — Web Push 발송 (PR140)** — 알림 트리거 후 push 도착 / 클릭 라우팅 / 410 자동 disable / preference off 시 미수신 / 발송 실패가 트랜잭션 깨지 않음 10 항목
+- **§32 — Event 공지 (PR141)** — owner 작성 / active 참가자만 수신 / CANCELED·REJECTED·REFUNDED 제외 / 권한 가드 13 항목
+- **§33 — Channel new event push 커버리지 (PR142)** — 구독자 수신 / owner 본인 제외 / preference off / push 클릭 라우팅 7 항목
 
-### 운영 콘솔 — 본 사이클의 핵심
+### 회귀 (본 사이클 무변경)
 
-- §12 / §19 — Admin 콘솔 / 운영자 활동 요약 — 회귀
-- §23 / §24 — forced refund / user refund actor stats 카운트 — 회귀
-- §25 / §26 — active 사용자 환불 detail enrichment / quick filter chip — 회귀
-- **§27 — Archive audit 상세 enrichment (PR130)** — 본 사이클 11 항목
-- **§28 — CSV export 환불 파생 컬럼 (PR131)** — 본 사이클 11 항목
-- **§29 — 부분 강제 환불 (PR134 / PR135)** — 본 사이클 11 항목
-
-### 알림 (PR104 영향, 본 사이클 무변경)
-
-- §20 / §21
+- §20 / §21 — 알림 preference / notificationMeta 일관성
+- §22~§29 — 결제 / 환불 / forced refund / audit (직전 사이클 결과 회귀)
 
 🖱 / 📋 라벨 의미는 manual QA 문서 상단 "본 문서 사용법" 참고.
 
 ---
 
-## 8. Push 전 권장 명령 (PR138 commit 후)
+## 8. Push 전 권장 명령 (PR143 commit 후)
 
 ```bash
-# 1) 최종 상태 확인
+# 1) 최종 상태 확인 — PR139~PR142 + PR143 = 5 ahead
 git -C C:/WOYA status -sb
 git -C C:/WOYA log --oneline origin/main..HEAD
 
-# 2) 풀 빌드 + 테스트 (PR138 은 docs only 라 사실상 cold-start 가드)
+# 2) 풀 빌드 + 테스트
 cd C:/WOYA && ./gradlew.bat test
 cd C:/WOYA/frontend && npm run build
 
@@ -244,24 +257,24 @@ cd C:/WOYA/frontend && npm run build
 # git -C C:/WOYA push origin main
 ```
 
-`./gradlew.bat test` 가 cold-start 일 때 kotlin daemon 의 caches-jvm lock 또는 `build/snapshot/kotlin/compileTestKotlin` 잠금으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat test` 으로 회복 — Windows 환경 이슈 (PR74 stabilize + PR134 caches-jvm 경험).
+`./gradlew.bat test` 가 cold-start 일 때 kotlin daemon 의 caches-jvm lock 또는 `build/snapshot/kotlin/compileTestKotlin` 잠금으로 첫 시도가 실패하면 `./gradlew.bat --stop && ./gradlew.bat clean test` 으로 회복 — Windows 환경 이슈 (PR74 stabilize + PR134 caches-jvm 경험). 사이클 중 한 번 발생 + 회복.
 
-본 PR138 은 docs only — DTO / migration / endpoint 변경 없음. 이전 frontend bundle / 외부 도구 모두 호환된다.
-
----
-
-## 9. 다음 사이클 (post-PR138 추천)
-
-PR130~PR137 8 commit 으로 두 cycle 이 닫혔다. 다음 사이클 후보:
-
-1. **PR139 옵션 A — 환불 reconciliation batch**: PG 측 일별 cancel 데이터를 받아 카운트 일치 검증. 큰 backend PR — 부분 환불 + 부분 강제 환불 + audit detail + CSV 까지 도입한 지금 정합성 batch 의 가치가 가장 커졌다.
-2. **PR139 옵션 B — CSV 에 buyer / event title lookup 컬럼**: 외부 도구가 한 CSV 로 닉네임 / 이벤트 제목까지 보고 싶을 때. join-loaded query 또는 batch lookup 으로 N+1 회피 필요. 큰 backend PR.
-3. **PR139 옵션 C — 환불 실패 큐 / 자동 재시도**: `refund.failed` webhook 의 deadletter + 운영자 retry 도구. backend + frontend + 알림.
-4. **PR139 옵션 D — Forced refund 의 별도 buyer 알림 카피**: 운영 vs 일반 환불의 알림 메시지 분리. 작은 frontend / backend 묶음.
-5. **PR139 옵션 E — PortOne / 다른 PG 어댑터**: 결제 다중화. interface 가 PR42 부터 열려 있어 구현체만 추가. backend + 설정.
-
-옵션 A 는 안정성. 옵션 B 는 외부 도구 호환 확장. 옵션 C 는 환불 실패의 신뢰성. 옵션 D 는 buyer-facing 카피 polish. 옵션 E 는 결제 인프라 다양화.
+본 PR143 은 docs only — DTO / migration / endpoint 변경 없음. 단, 같은 push 에 올라가는 PR139~PR142 는 새 마이그레이션 (V12 / V13) + 새 dependency (nl.martijndwars + bcprov) + 새 env 변수 (PUSH_VAPID_*, VITE_PUSH_VAPID_PUBLIC_KEY) 를 포함하므로 deploy 시 env 셋업 필요.
 
 ---
 
-본 문서는 PR130~PR137 retrospective + PR138 self-audit. push 후에는 본 문서를 그대로 두고 (또는 별도 `release-notes/PR130-PR137.md` 로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.
+## 9. 다음 사이클 (post-PR143 추천)
+
+PR139~PR142 4 commit 으로 Web Push 다리가 닫혔다. 다음 사이클 후보:
+
+1. **PR144 옵션 A — 환불 정산 reconciliation batch**: PG 측 일별 cancel 데이터를 받아 카운트 일치 검증. 큰 backend PR — 부분 환불 + 부분 강제 환불 + audit detail + CSV + 다음 사이클 까지 도입한 지금 정합성 batch 의 가치가 가장 커졌다 (직전 사이클부터 미해결).
+2. **PR144 옵션 B — Push retry queue + delivery analytics**: PR140 의 best-effort 실패를 dead letter queue 로 모아 자동 retry / 운영자 dashboard. push 도입 후 자연스러운 후속 — failed push 의 root cause 파악에 필수.
+3. **PR144 옵션 C — Push quiet hours / 채널별 preference**: NotificationType 차원이 아닌 시간대 / 채널(SSE vs push) 별 분리. 사용자 friction 감소.
+4. **PR144 옵션 D — Event announcement edit / delete**: PR141 의 create 만 다룬 한계 보완. 잘못 보낸 공지의 수정 / 삭제 + 알림 처리.
+5. **PR144 옵션 E — Native FCM adapter**: iOS/Android 네이티브 앱 출시 시 필수. interface 가 `WebPushSender` 로 열려 있어 구현체만 추가하면 다중 채널 가능.
+
+옵션 A 는 안정성 (직전 사이클부터 미해결). 옵션 B 는 push 운영의 신뢰성. 옵션 C 는 사용자 control. 옵션 D 는 운영자 control. 옵션 E 는 플랫폼 확장.
+
+---
+
+본 문서는 PR139~PR142 retrospective + PR143 self-audit. push 후에는 본 문서를 그대로 두고 (또는 별도 `release-notes/PR139-PR142.md` 로 옮기고) 다음 묶음을 위해 새 release-notes 를 만든다.

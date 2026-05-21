@@ -5,7 +5,7 @@
 - **Backend**: Spring Boot 3.3 (Kotlin 1.9.24, Java 21) + JPA/MySQL + Redis + Elasticsearch
 - **Frontend**: Vite + React 18 + TypeScript (모바일 우선 420px 프레임)
 - **Auth**: JWT (access + refresh) + Spring Security
-- **Realtime**: SSE 알림 스트림
+- **Realtime**: SSE 알림 스트림 + Web Push (브라우저 native push, PR139~PR140)
 
 ## 빠른 시작
 
@@ -31,7 +31,7 @@ cd frontend; npm run build  # 프론트 typecheck + 빌드
 ## 문서
 
 - [docs/architecture.md](docs/architecture.md) — 플랫폼 아키텍처 / 도메인 / 결제·환불·재신청·moderation·audit 흐름 전반 (현재 구조 스냅샷)
-- [docs/release-notes-local-bundle.md](docs/release-notes-local-bundle.md) — 다음 push 전 ship-readiness 노트 (PR81~PR102 묶음)
+- [docs/release-notes-local-bundle.md](docs/release-notes-local-bundle.md) — 다음 push 전 ship-readiness 노트 (현재 cycle: PR139~PR143)
 - [docs/dev-setup.md](docs/dev-setup.md) — 로컬 개발 환경
 - [docs/seed-data.md](docs/seed-data.md) — 수동 QA 용 seed 데이터 만드는 절차
 - [docs/manual-qa-checklist.md](docs/manual-qa-checklist.md) — 릴리스 전 수동 QA 동선
