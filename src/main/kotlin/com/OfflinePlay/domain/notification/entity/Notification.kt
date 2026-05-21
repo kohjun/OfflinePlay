@@ -26,6 +26,12 @@ enum class NotificationType {
     CHANNEL_UNBANNED,
     /** PR81 — 환불 성공 최초 1회 — ticket.buyer 에게 발송. targetType="tickets", targetId=ticket.id. */
     REFUND_COMPLETED,
+
+    /**
+     * PR141 — 이벤트 공지 — 활성 참가자(APPROVED + 티켓 정상) 에게 발송.
+     * targetType="events", targetId=event.id. click 시 EventDetailPage 로 이동.
+     */
+    EVENT_ANNOUNCEMENT,
 }
 
 @Entity

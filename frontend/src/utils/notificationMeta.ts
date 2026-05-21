@@ -95,6 +95,11 @@ const META: Record<NotificationType, NotificationMetaEntry> = {
     tone: 'warning',
     description: '결제한 티켓의 환불이 완료되면 알려드려요.',
   },
+  EVENT_ANNOUNCEMENT: {
+    label: '이벤트 공지',
+    tone: 'primary',
+    description: '참가 확정된 이벤트의 운영 공지를 알려드려요.',
+  },
 }
 
 /** 알 수 없는 type 에 사용할 안전한 fallback (서버에 새 enum 이 추가됐는데 frontend 가 따라가지 못한 경우). */
@@ -158,8 +163,8 @@ export const NOTIFICATION_PREFERENCE_BUNDLES: readonly NotificationPreferenceBun
   {
     id: 'content',
     label: '콘텐츠 관련',
-    description: '구독 채널의 새 이벤트 / 새 글 / 댓글 / 좋아요',
-    types: ['NEW_EVENT', 'NEW_POST', 'NEW_COMMENT', 'NEW_LIKE'],
+    description: '구독 채널의 새 이벤트 / 새 글 / 댓글 / 좋아요 / 이벤트 공지',
+    types: ['NEW_EVENT', 'NEW_POST', 'NEW_COMMENT', 'NEW_LIKE', 'EVENT_ANNOUNCEMENT'],
   },
   {
     id: 'moderation',

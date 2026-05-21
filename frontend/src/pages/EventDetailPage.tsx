@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { RemainingProgress } from '../components/RemainingProgress'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
+import { EventAnnouncementsSection } from './event-detail/EventAnnouncementsSection'
 import { EventCommentsSection } from './event-detail/EventCommentsSection'
 import {
   EventDetailActionPanel,
@@ -294,6 +295,16 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
           onReject={handleReject}
         />
       ) : null}
+
+      <EventAnnouncementsSection
+        eventId={eventId}
+        canWrite={isOwner || user?.role === 'ADMIN'}
+        canRead={
+          isOwner ||
+          user?.role === 'ADMIN' ||
+          participation?.status === 'APPROVED'
+        }
+      />
 
       <EventCommentsSection
         comments={comments}

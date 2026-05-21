@@ -29,6 +29,7 @@ export type NotificationType =
   | 'CHANNEL_BANNED'
   | 'CHANNEL_UNBANNED'
   | 'REFUND_COMPLETED'
+  | 'EVENT_ANNOUNCEMENT'
 
 /**
  * PR95 — 사용자별 NotificationType 수신 선호. backend 응답은 모든 type 을 반환하며 row 가 없는
