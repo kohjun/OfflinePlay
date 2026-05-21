@@ -7,6 +7,7 @@ import com.contenido.domain.notification.repository.NotificationRepository
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.NotificationNotFoundException
 import com.contenido.global.exception.UserNotFoundException
+import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.scheduling.annotation.Async
@@ -20,7 +21,9 @@ class NotificationService(
     private val userRepository: UserRepository,
     private val sseEmitterService: SseEmitterService,
     private val notificationPreferenceService: NotificationPreferenceService,
+    private val pushNotificationService: PushNotificationService,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
 
     /**
      * 알림 생성 + SSE 즉시 전송. @Async로 별도 스레드에서 실행되어 호출자 트랜잭션과 독립적으로 처리된다.
@@ -61,6 +64,14 @@ class NotificationService(
         // DB 저장 후 SSE 전송 (저장된 ID 포함)
         notifications.forEach { notification ->
             sseEmitterService.sendToUser(notification.receiver.id, notification.toResponse())
+        }
+
+        // PR140 — Web Push 발송 (best-effort). preference 가 통과한 receiver 만 도달하므로
+        // 별도 필터링이 필요하지 않다. 발송 실패는 row/SSE 트랜잭션을 깨지 않도록 try-catch.
+        runCatching {
+            pushNotificationService.dispatch(notifications)
+        }.onFailure { e ->
+            log.warn("[notify] push dispatch failed type={} count={} err={}", type, notifications.size, e.message)
         }
     }
 

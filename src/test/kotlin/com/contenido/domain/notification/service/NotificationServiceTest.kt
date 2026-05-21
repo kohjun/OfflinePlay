@@ -32,6 +32,7 @@ class NotificationServiceTest {
     @MockK lateinit var userRepository: UserRepository
     @MockK(relaxed = true) lateinit var sseEmitterService: SseEmitterService
     @MockK lateinit var notificationPreferenceService: NotificationPreferenceService
+    @MockK(relaxed = true) lateinit var pushNotificationService: PushNotificationService
 
     private lateinit var service: NotificationService
 
@@ -42,6 +43,7 @@ class NotificationServiceTest {
             userRepository = userRepository,
             sseEmitterService = sseEmitterService,
             notificationPreferenceService = notificationPreferenceService,
+            pushNotificationService = pushNotificationService,
         )
     }
 
@@ -117,6 +119,66 @@ class NotificationServiceTest {
         verify(exactly = 1) { sseEmitterService.sendToUser(1L, any()) }
         verify(exactly = 1) { sseEmitterService.sendToUser(3L, any()) }
         verify(exactly = 0) { sseEmitterService.sendToUser(2L, any()) }
+    }
+
+    @Test
+    fun `preference true 면 push dispatch 호출 (PR140)`() {
+        val u = createUser(1L)
+        every { notificationPreferenceService.isEnabled(1L, NotificationType.NEW_COMMENT) } returns true
+        every { userRepository.findAllById(listOf(1L)) } returns listOf(u)
+        every { notificationRepository.saveAll(any<List<Notification>>()) } answers {
+            firstArg<List<Notification>>().onEach { ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now()) }
+        }
+
+        service.notify(
+            receiverIds = listOf(1L),
+            type = NotificationType.NEW_COMMENT,
+            title = "title",
+            message = "msg",
+            targetType = "comments",
+            targetId = 9L,
+        )
+
+        verify(exactly = 1) { pushNotificationService.dispatch(any()) }
+    }
+
+    @Test
+    fun `preference false 면 push dispatch 미호출 (PR140)`() {
+        every { notificationPreferenceService.isEnabled(1L, NotificationType.NEW_COMMENT) } returns false
+
+        service.notify(
+            receiverIds = listOf(1L),
+            type = NotificationType.NEW_COMMENT,
+            title = "title",
+            message = "msg",
+            targetType = "comments",
+            targetId = 9L,
+        )
+
+        verify(exactly = 0) { pushNotificationService.dispatch(any()) }
+    }
+
+    @Test
+    fun `push dispatch 예외는 notification row SSE 흐름을 깨지 않는다 (PR140)`() {
+        val u = createUser(1L)
+        every { notificationPreferenceService.isEnabled(1L, NotificationType.NEW_COMMENT) } returns true
+        every { userRepository.findAllById(listOf(1L)) } returns listOf(u)
+        every { notificationRepository.saveAll(any<List<Notification>>()) } answers {
+            firstArg<List<Notification>>().onEach { ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now()) }
+        }
+        every { pushNotificationService.dispatch(any()) } throws RuntimeException("push down")
+
+        service.notify(
+            receiverIds = listOf(1L),
+            type = NotificationType.NEW_COMMENT,
+            title = "title",
+            message = "msg",
+            targetType = "comments",
+            targetId = 9L,
+        )
+
+        verify(exactly = 1) { notificationRepository.saveAll(any<List<Notification>>()) }
+        verify(exactly = 1) { sseEmitterService.sendToUser(1L, any()) }
     }
 
     @Test

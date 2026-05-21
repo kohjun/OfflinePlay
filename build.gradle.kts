@@ -64,6 +64,11 @@ dependencies {
     //S3 연동
     implementation("software.amazon.awssdk:s3:2.25.60")
 
+    // Web Push (PR140) — VAPID + RFC8291 payload encryption. Apache 2.0.
+    // nl.martijndwars:web-push 는 BouncyCastle 을 transitive 로 끌어오지 않으므로 명시 추가.
+    implementation("nl.martijndwars:web-push:5.1.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
