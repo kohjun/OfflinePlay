@@ -1,5 +1,12 @@
-import { FormEvent, useState } from 'react'
-import { changeMyPassword, updateMyProfile } from '../api/users'
+import { FormEvent, useEffect, useState } from 'react'
+import {
+  changeMyPassword,
+  getMyExtendedProfile,
+  updateMyExtendedProfile,
+  updateMyProfile,
+  type MyProfileResponse,
+  type ProfileVisibility,
+} from '../api/users'
 import { ApiError } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -42,6 +49,69 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
   const [newPasswordError, setNewPasswordError] = useState<string | null>(null)
   const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null)
   const [currentPasswordError, setCurrentPasswordError] = useState<string | null>(null)
+
+  // PR144 — 확장 프로필 (bio / avatar / region / visibility)
+  const [extProfile, setExtProfile] = useState<MyProfileResponse | null>(null)
+  const [extLoading, setExtLoading] = useState(false)
+  const [editingExt, setEditingExt] = useState(false)
+  const [extBio, setExtBio] = useState('')
+  const [extAvatarUrl, setExtAvatarUrl] = useState('')
+  const [extRegionSido, setExtRegionSido] = useState('')
+  const [extRegionSigungu, setExtRegionSigungu] = useState('')
+  const [extVisibility, setExtVisibility] = useState<ProfileVisibility>('PUBLIC')
+  const [savingExt, setSavingExt] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    setExtLoading(true)
+    getMyExtendedProfile()
+      .then((res) => setExtProfile(res))
+      .catch(() => {
+        // 조용히 실패 — section 자체가 안 보이게.
+        setExtProfile(null)
+      })
+      .finally(() => setExtLoading(false))
+  }, [user])
+
+  function startEditExt() {
+    setExtBio(extProfile?.bio ?? '')
+    setExtAvatarUrl(extProfile?.avatarUrl ?? '')
+    setExtRegionSido(extProfile?.regionSido ?? '')
+    setExtRegionSigungu(extProfile?.regionSigungu ?? '')
+    setExtVisibility(extProfile?.visibility ?? 'PUBLIC')
+    setEditingExt(true)
+  }
+
+  function cancelEditExt() {
+    setEditingExt(false)
+    setSavingExt(false)
+  }
+
+  async function handleSubmitExt(event: FormEvent) {
+    event.preventDefault()
+    if (savingExt) return
+    setSavingExt(true)
+    try {
+      const updated = await updateMyExtendedProfile({
+        bio: extBio,
+        avatarUrl: extAvatarUrl,
+        regionSido: extRegionSido,
+        regionSigungu: extRegionSigungu,
+        visibility: extVisibility,
+      })
+      setExtProfile(updated)
+      showToast({ title: '프로필이 저장되었어요', tone: 'success' })
+      setEditingExt(false)
+    } catch (error) {
+      showToast({
+        title: '프로필 저장에 실패했어요',
+        message: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setSavingExt(false)
+    }
+  }
 
   if (!user) {
     return (
@@ -417,6 +487,102 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
           </form>
         </section>
       ) : null}
+
+      {extLoading ? null : editingExt ? (
+        <section className="form-section" aria-label="공개 프로필 편집">
+          <h2>공개 프로필 편집</h2>
+          <form className="form-stack" onSubmit={handleSubmitExt} noValidate>
+            <label>
+              자기소개
+              <textarea
+                value={extBio}
+                onChange={(e) => setExtBio(e.target.value)}
+                maxLength={500}
+                rows={4}
+                placeholder="다른 참가자에게 나를 소개해보세요. 비워두면 표시되지 않아요."
+                disabled={savingExt}
+              />
+            </label>
+            <label>
+              프로필 이미지 URL
+              <input
+                type="url"
+                value={extAvatarUrl}
+                onChange={(e) => setExtAvatarUrl(e.target.value)}
+                maxLength={500}
+                placeholder="https://..."
+                disabled={savingExt}
+              />
+              <span className="muted">PR147 에서 직접 업로드를 지원할 예정이에요.</span>
+            </label>
+            <div className="ct-form-grid-2">
+              <label>
+                활동 시/도
+                <input
+                  value={extRegionSido}
+                  onChange={(e) => setExtRegionSido(e.target.value)}
+                  maxLength={50}
+                  placeholder="예: 서울특별시"
+                  disabled={savingExt}
+                />
+              </label>
+              <label>
+                활동 시/군/구
+                <input
+                  value={extRegionSigungu}
+                  onChange={(e) => setExtRegionSigungu(e.target.value)}
+                  maxLength={50}
+                  placeholder="예: 종로구"
+                  disabled={savingExt}
+                />
+              </label>
+            </div>
+            <label>
+              공개 범위
+              <select
+                value={extVisibility}
+                onChange={(e) => setExtVisibility(e.target.value as ProfileVisibility)}
+                disabled={savingExt}
+              >
+                <option value="PUBLIC">전체 공개</option>
+                <option value="MEMBERS">로그인 사용자에게만</option>
+                <option value="PRIVATE">비공개 (닉네임만 노출)</option>
+              </select>
+            </label>
+            <div className="ct-profile-edit-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={cancelEditExt}
+                disabled={savingExt}
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                className="button button-primary"
+                disabled={savingExt}
+                aria-busy={savingExt}
+              >
+                {savingExt ? '저장 중…' : '저장'}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : (
+        <button
+          type="button"
+          className="card action-card"
+          onClick={startEditExt}
+        >
+          <strong>공개 프로필 편집</strong>
+          <span className="muted">
+            {extProfile?.bio
+              ? extProfile.bio
+              : '자기소개 / 활동 지역 / 공개 범위를 설정해 다른 참가자가 나를 알게 해주세요.'}
+          </span>
+        </button>
+      )}
 
       <button
         type="button"

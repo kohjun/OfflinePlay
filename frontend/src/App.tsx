@@ -22,6 +22,7 @@ import { PaymentPage } from './pages/PaymentPage'
 import { PaymentFailPage, PaymentSuccessPage } from './pages/PaymentResultPages'
 import { PlayPage } from './pages/PlayPage'
 import { ProfilePage } from './pages/ProfilePage'
+import { ProfileViewPage } from './pages/ProfileViewPage'
 import { TicketCheckInPage } from './pages/TicketCheckInPage'
 import { TicketDetailPage } from './pages/TicketDetailPage'
 
@@ -141,6 +142,13 @@ export default function App() {
     if (path === '/play') return <PlayPage onNavigate={navigate} />
     if (path === '/my') return <MyPage onNavigate={navigate} />
     if (path === '/profile') return <ProfilePage onNavigate={navigate} />
+
+    // PR144 — /users/{userId} 공개 프로필 페이지
+    const publicProfile = path.match(/^\/users\/(\d+)/)
+    if (publicProfile) {
+      return <ProfileViewPage userId={Number(publicProfile[1])} onNavigate={navigate} />
+    }
+
     return <HomePage onNavigate={navigate} />
   }, [path])
 

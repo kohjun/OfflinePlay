@@ -1,5 +1,47 @@
 import { apiClient } from './client'
-import type { User } from '../types'
+import type { User, UserRole } from '../types'
+
+/**
+ * PR144 — 공개 프로필 가시성. PRIVATE 면 공개 응답에서 bio/avatar/region 모두 숨김.
+ */
+export type ProfileVisibility = 'PUBLIC' | 'MEMBERS' | 'PRIVATE'
+
+export interface PublicProfileResponse {
+  userId: number
+  nickname: string
+  role: UserRole
+  avatarUrl: string | null
+  bio: string | null
+  regionSido: string | null
+  regionSigungu: string | null
+  visibility: ProfileVisibility
+  joinedAt: string
+}
+
+export interface MyProfileResponse extends Omit<PublicProfileResponse, 'visibility'> {
+  visibility: ProfileVisibility
+  updatedAt: string | null
+}
+
+export interface UpdateMyProfileRequest {
+  bio?: string
+  avatarUrl?: string
+  regionSido?: string
+  regionSigungu?: string
+  visibility?: ProfileVisibility
+}
+
+export function getPublicProfile(userId: number) {
+  return apiClient.get<PublicProfileResponse>(`/users/${userId}/profile`)
+}
+
+export function getMyExtendedProfile() {
+  return apiClient.get<MyProfileResponse>('/users/me/profile')
+}
+
+export function updateMyExtendedProfile(request: UpdateMyProfileRequest) {
+  return apiClient.patch<MyProfileResponse>('/users/me/profile', request)
+}
 
 /**
  * PATCH /api/v1/users/me — 닉네임/전화번호 부분 업데이트.
