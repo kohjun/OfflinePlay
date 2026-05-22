@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { getEventUnreadAnnouncementCount } from '../../api/eventAnnouncements'
+import { Badge } from '../../components/Badge'
 import type { EventApplicant, EventComment } from '../../types'
 import { EventAnnouncementsSection } from './EventAnnouncementsSection'
 import { EventCommentsSection } from './EventCommentsSection'
@@ -59,6 +61,23 @@ export function EventRoomSection({
   maxParticipants,
 }: EventRoomSectionProps) {
   const [tab, setTab] = useState<RoomTab>('announcements')
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  // PR151 — unread 공지 카운트. 권한 있는 사용자만 호출.
+  useEffect(() => {
+    if (!canReadAnnouncement) return
+    let alive = true
+    getEventUnreadAnnouncementCount(eventId)
+      .then((res) => {
+        if (alive) setUnreadCount(res.unreadCount)
+      })
+      .catch(() => {
+        if (alive) setUnreadCount(0)
+      })
+    return () => {
+      alive = false
+    }
+  }, [eventId, canReadAnnouncement, tab])
 
   if (!canAccessRoom) return null
 
@@ -82,7 +101,9 @@ export function EventRoomSection({
             onClick={() => setTab(t.id)}
           >
             {t.label}
-            {/* PR151 에서 공지 탭에 unreadCount dot 을 채운다. */}
+            {t.id === 'announcements' && unreadCount > 0 ? (
+              <Badge tone="danger">{unreadCount}</Badge>
+            ) : null}
           </button>
         ))}
       </nav>

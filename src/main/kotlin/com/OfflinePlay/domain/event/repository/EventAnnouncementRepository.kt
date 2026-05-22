@@ -14,4 +14,7 @@ interface EventAnnouncementRepository : JpaRepository<EventAnnouncement, Long> {
     fun findByEventOrderByCreatedAtDesc(event: Event): List<EventAnnouncement>
 
     fun countByEvent(event: Event): Long
+
+    /** PR151 — pin 토글 시 같은 이벤트의 다른 pinned 해제용. */
+    fun findByEventAndPinnedAtIsNotNull(event: Event): List<EventAnnouncement>
 }

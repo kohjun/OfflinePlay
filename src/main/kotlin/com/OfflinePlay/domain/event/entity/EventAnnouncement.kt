@@ -20,6 +20,7 @@ import java.time.LocalDateTime
     indexes = [
         Index(name = "idx_event_announcements_event", columnList = "event_id"),
         Index(name = "idx_event_announcements_event_created", columnList = "event_id, created_at"),
+        Index(name = "idx_event_announcements_event_pinned", columnList = "event_id, pinned_at"),
     ],
 )
 @EntityListeners(AuditingEntityListener::class)
@@ -52,4 +53,22 @@ class EventAnnouncement(
     @Column(name = "updated_at", nullable = false)
     lateinit var updatedAt: LocalDateTime
         protected set
+
+    /**
+     * PR151 — pinned 표시. 값 자체보다 IS NOT NULL 여부가 의미. 한 이벤트 안에 동시 1건만
+     * pinned 인지는 service 가 보장 (pin 호출 시 기존 pinned 해제).
+     */
+    @Column(name = "pinned_at")
+    var pinnedAt: LocalDateTime? = null
+
+    val isPinned: Boolean
+        get() = pinnedAt != null
+
+    fun pin(now: LocalDateTime = LocalDateTime.now()) {
+        pinnedAt = now
+    }
+
+    fun unpin() {
+        pinnedAt = null
+    }
 }

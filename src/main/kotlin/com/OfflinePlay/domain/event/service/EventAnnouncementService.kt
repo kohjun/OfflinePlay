@@ -5,7 +5,9 @@ import com.contenido.domain.event.dto.CreateEventAnnouncementRequest
 import com.contenido.domain.event.dto.EventAnnouncementResponse
 import com.contenido.domain.event.entity.Event
 import com.contenido.domain.event.entity.EventAnnouncement
+import com.contenido.domain.event.entity.EventAnnouncementRead
 import com.contenido.domain.event.entity.ParticipationStatus
+import com.contenido.domain.event.repository.EventAnnouncementReadRepository
 import com.contenido.domain.event.repository.EventAnnouncementRepository
 import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
@@ -18,11 +20,13 @@ import com.contenido.domain.user.entity.UserRole
 import com.contenido.domain.user.repository.UserRepository
 import com.contenido.global.exception.DeletedUserException
 import com.contenido.global.exception.EventNotFoundException
+import com.contenido.global.exception.NotificationNotFoundException
 import com.contenido.global.exception.UnauthorizedException
 import com.contenido.global.exception.UserNotFoundException
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
 /**
  * PR141 — 이벤트 공지 생성 / 조회 / 알림 fan-out.
@@ -43,6 +47,7 @@ import org.springframework.transaction.annotation.Transactional
 @Transactional(readOnly = true)
 class EventAnnouncementService(
     private val announcementRepository: EventAnnouncementRepository,
+    private val readRepository: EventAnnouncementReadRepository,
     private val eventRepository: EventRepository,
     private val participationRepository: EventParticipationRepository,
     private val ticketRepository: TicketRepository,
@@ -94,9 +99,100 @@ class EventAnnouncementService(
         val user = findActiveUser(userId)
         val event = findEvent(eventId)
         ensureCanRead(user, event)
-        return announcementRepository.findByEventOrderByCreatedAtDesc(event)
-            .map(EventAnnouncementResponse::from)
+        val items = announcementRepository.findByEventOrderByCreatedAtDesc(event)
+        if (items.isEmpty()) return emptyList()
+
+        // PR151 — pinned 상단 고정 + viewer 의 read 여부 추가.
+        val readIds = readRepository.findByUserIdAndAnnouncementIdIn(userId, items.map { it.id })
+            .map { it.announcementId }
+            .toSet()
+
+        return items
+            .sortedWith(
+                compareByDescending<EventAnnouncement> { it.pinnedAt != null }
+                    .thenByDescending { it.createdAt },
+            )
+            .map { EventAnnouncementResponse.from(it, read = it.id in readIds) }
     }
+
+    /**
+     * PR151 — pin 토글. 같은 이벤트의 기존 pinned 는 자동 해제 (한 이벤트 동시 1건만).
+     *  - pinned=true 요청: 기존 pinned 해제 후 본 announcement 만 pin.
+     *  - pinned=false 요청: 본 announcement 만 unpin (다른 row 영향 없음).
+     */
+    @Transactional
+    fun setPinned(
+        userId: Long,
+        eventId: Long,
+        announcementId: Long,
+        pinned: Boolean,
+    ): EventAnnouncementResponse {
+        val user = findActiveUser(userId)
+        val event = findEvent(eventId)
+        ensureCanWrite(user, event)
+
+        val target = announcementRepository.findById(announcementId)
+            .orElseThrow { NotificationNotFoundException() }
+        if (target.event.id != event.id) throw NotificationNotFoundException()
+
+        if (pinned) {
+            // 같은 이벤트의 기존 pinned 모두 해제 (보통 0 또는 1건).
+            announcementRepository.findByEventAndPinnedAtIsNotNull(event)
+                .filter { it.id != target.id }
+                .forEach { it.unpin() }
+            target.pin()
+        } else {
+            target.unpin()
+        }
+        return EventAnnouncementResponse.from(target, read = isReadByUser(target.id, userId))
+    }
+
+    /**
+     * PR151 — read receipt 멱등 upsert. 권한 가드: ensureCanRead.
+     *  - row 가 이미 있으면 readAt 만 갱신.
+     */
+    @Transactional
+    fun markAsRead(userId: Long, eventId: Long, announcementId: Long) {
+        val user = findActiveUser(userId)
+        val event = findEvent(eventId)
+        ensureCanRead(user, event)
+
+        val target = announcementRepository.findById(announcementId)
+            .orElseThrow { NotificationNotFoundException() }
+        if (target.event.id != event.id) throw NotificationNotFoundException()
+
+        val now = LocalDateTime.now()
+        val existing = readRepository.findById(
+            com.contenido.domain.event.entity.EventAnnouncementReadId(
+                announcementId = announcementId, userId = userId,
+            ),
+        ).orElse(null)
+        if (existing != null) {
+            existing.readAt = now
+        } else {
+            readRepository.save(
+                EventAnnouncementRead(
+                    announcementId = announcementId,
+                    userId = userId,
+                    readAt = now,
+                ),
+            )
+        }
+    }
+
+    fun unreadCount(userId: Long, eventId: Long): Long {
+        val user = findActiveUser(userId)
+        val event = findEvent(eventId)
+        ensureCanRead(user, event)
+        return readRepository.countUnreadByEventIdAndUserId(eventId = event.id, userId = userId)
+    }
+
+    private fun isReadByUser(announcementId: Long, userId: Long): Boolean =
+        readRepository.findById(
+            com.contenido.domain.event.entity.EventAnnouncementReadId(
+                announcementId = announcementId, userId = userId,
+            ),
+        ).isPresent
 
     // ─── helpers ────────────────────────────────────────────────────────────────
 

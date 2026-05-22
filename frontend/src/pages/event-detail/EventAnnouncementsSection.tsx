@@ -2,13 +2,16 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createEventAnnouncement,
   getEventAnnouncements,
+  markEventAnnouncementAsRead,
+  setEventAnnouncementPinned,
   type EventAnnouncement,
 } from '../../api/eventAnnouncements'
+import { Badge } from '../../components/Badge'
 import { useToast } from '../../hooks/useToast'
 
 interface EventAnnouncementsSectionProps {
   eventId: number
-  /** owner / STAFF / ADMIN 여부 — true 면 "공지 보내기" 폼 노출. */
+  /** owner / STAFF / ADMIN 여부 — true 면 "공지 보내기" 폼 + pin 토글 노출. */
   canWrite: boolean
   /** APPROVED 참가자 / owner / STAFF / ADMIN — 위 권한이 없으면 backend 가 403 으로 막는다. */
   canRead: boolean
@@ -32,6 +35,8 @@ export function EventAnnouncementsSection({
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  /** PR151 — 펼침 상태별 read 자동 처리. */
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set())
 
   const refresh = useCallback(() => {
     setLoading(true)
@@ -137,19 +142,98 @@ export function EventAnnouncementsSection({
         <p className="muted">아직 공지가 없습니다.</p>
       ) : (
         <ul className="event-announcement-list">
-          {items.map((a) => (
-            <li key={a.id} className="card event-announcement-item">
-              <div className="card-body stack">
-                <strong>{a.title}</strong>
-                <p className="ct-event-section-text">{a.content}</p>
-                <span className="muted">
-                  {a.authorNickname} · {new Date(a.createdAt).toLocaleString()}
-                </span>
-              </div>
-            </li>
-          ))}
+          {items.map((a) => {
+            const expanded = expandedIds.has(a.id)
+            return (
+              <li
+                key={a.id}
+                className={`card event-announcement-item${a.pinned ? ' is-pinned' : ''}${
+                  !a.read ? ' is-unread' : ''
+                }`}
+              >
+                <div className="card-body stack">
+                  <div className="card-heading-row">
+                    <strong>{a.title}</strong>
+                    <div className="event-announcement-item__badges">
+                      {a.pinned ? <Badge tone="primary">고정</Badge> : null}
+                      {!a.read ? <Badge tone="danger">새 공지</Badge> : null}
+                    </div>
+                  </div>
+                  {expanded ? (
+                    <p className="ct-event-section-text">{a.content}</p>
+                  ) : null}
+                  <span className="muted">
+                    {a.authorNickname} · {new Date(a.createdAt).toLocaleString()}
+                  </span>
+                  <div className="event-announcement-item__actions">
+                    <button
+                      type="button"
+                      className="button button-tertiary"
+                      onClick={() => handleToggleExpand(a)}
+                    >
+                      {expanded ? '접기' : '본문 보기'}
+                    </button>
+                    {canWrite ? (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => handleTogglePin(a)}
+                      >
+                        {a.pinned ? '고정 해제' : '상단 고정'}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>
   )
+
+  /** PR151 — 펼치면 read 자동 POST + UI optimistic mark. 접기는 read 변경 없음. */
+  async function handleToggleExpand(a: EventAnnouncement) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(a.id)) next.delete(a.id)
+      else next.add(a.id)
+      return next
+    })
+    if (a.read) return
+    setItems((prev) => prev.map((row) => (row.id === a.id ? { ...row, read: true } : row)))
+    try {
+      await markEventAnnouncementAsRead(eventId, a.id)
+    } catch {
+      // 실패 시 optimistic 만 적용. 다음 마운트 시 새 fetch.
+    }
+  }
+
+  /** PR151 — pin 토글. 같은 이벤트 다른 pinned 는 backend 가 해제 — frontend 는 optimistic 반영. */
+  async function handleTogglePin(a: EventAnnouncement) {
+    const next = !a.pinned
+    setItems((prev) =>
+      prev.map((row) => ({
+        ...row,
+        pinned: row.id === a.id ? next : next ? false : row.pinned,
+      })),
+    )
+    try {
+      const updated = await setEventAnnouncementPinned(eventId, a.id, next)
+      setItems((prev) =>
+        prev.map((row) => (row.id === a.id ? { ...row, pinned: updated.pinned } : row)),
+      )
+      showToast({
+        title: next ? '공지를 상단에 고정했어요' : '공지 고정을 해제했어요',
+        tone: 'success',
+      })
+    } catch (err) {
+      showToast({
+        title: '공지 고정 변경에 실패했어요',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+      refresh()
+    }
+  }
 }

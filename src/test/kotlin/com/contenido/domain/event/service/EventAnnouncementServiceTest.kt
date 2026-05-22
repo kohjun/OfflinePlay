@@ -49,6 +49,7 @@ import java.util.Optional
 class EventAnnouncementServiceTest {
 
     @MockK(relaxed = true) lateinit var announcementRepository: EventAnnouncementRepository
+    @MockK(relaxed = true) lateinit var readRepository: com.contenido.domain.event.repository.EventAnnouncementReadRepository
     @MockK lateinit var eventRepository: EventRepository
     @MockK lateinit var participationRepository: EventParticipationRepository
     @MockK lateinit var ticketRepository: TicketRepository
@@ -62,6 +63,7 @@ class EventAnnouncementServiceTest {
     fun setUp() {
         service = EventAnnouncementService(
             announcementRepository = announcementRepository,
+            readRepository = readRepository,
             eventRepository = eventRepository,
             participationRepository = participationRepository,
             ticketRepository = ticketRepository,
