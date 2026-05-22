@@ -17,6 +17,23 @@ export interface NotificationStreamOptions {
   onClose?: () => void
   /** Stream gives up and closes after this many consecutive errors. Default 5. */
   maxErrors?: number
+  /**
+   * PR160 — Event room chat 메시지 수신. SSE `event-chat` named event 로 흘러오는 payload.
+   * EventChatMessageResponse 와 같은 shape (id / eventId / senderId / senderNickname / content /
+   * isAnnouncement / createdAt). 별도 EventSource 를 열지 않고 같은 connection 으로 fan-in.
+   */
+  onChatMessage?: (message: ChatStreamMessage) => void
+}
+
+/** PR160 — 채팅 SSE payload shape. backend `EventChatMessageResponse` 와 1:1. */
+export interface ChatStreamMessage {
+  id: number
+  eventId: number
+  senderId: number
+  senderNickname: string
+  content: string
+  isAnnouncement: boolean
+  createdAt: string
 }
 
 /**
@@ -36,7 +53,7 @@ export interface NotificationStreamOptions {
 export function connectNotificationStream(
   options: NotificationStreamOptions,
 ): () => void {
-  const { onMessage, onOpen, onError, onClose, maxErrors = 5 } = options
+  const { onMessage, onOpen, onError, onClose, onChatMessage, maxErrors = 5 } = options
 
   let closed = false
   const fireClose = () => {
@@ -81,6 +98,19 @@ export function connectNotificationStream(
     try {
       const data = JSON.parse((event as MessageEvent).data) as Notification
       onMessage(data)
+    } catch {
+      /* ignore malformed payload */
+    }
+  })
+
+  // PR160 — Event room chat 메시지. backend SseEmitterService.broadcast 가 같은 emitter 로
+  // event-chat named event 를 흘려보낸다. ChatPanel 이 직접 EventSource 를 열지 않고 본 fan-in 만
+  // 구독해 store 갱신.
+  source.addEventListener('event-chat', (event) => {
+    if (!onChatMessage) return
+    try {
+      const data = JSON.parse((event as MessageEvent).data) as ChatStreamMessage
+      onChatMessage(data)
     } catch {
       /* ignore malformed payload */
     }

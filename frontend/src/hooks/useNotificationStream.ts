@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { connectNotificationStream, getNotifications } from '../api/notifications'
+import { chatStore } from '../stores/chatStore'
 import { notificationStore } from '../stores/notificationStore'
 import { useAuth } from './useAuth'
 
@@ -29,6 +30,10 @@ export function useNotificationStream() {
     const disconnect = connectNotificationStream({
       onMessage: (incoming) => {
         notificationStore.prepend(incoming)
+      },
+      onChatMessage: (message) => {
+        // PR160 — event-chat fan-in. ChatPanel 이 chatStore.subscribe 로 받아 본인 룸만 필터.
+        chatStore.dispatch(message)
       },
       onOpen: () => {
         notificationStore.setStreamStatus('connected')

@@ -1,4 +1,9 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
+import { getMyParticipations } from '../api/events'
+import { Skeleton } from '../components/Skeleton'
+import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../hooks/useToast'
+import type { MyParticipationItem } from '../types'
 
 interface CommunityPageProps {
   onNavigate: (path: string) => void
@@ -12,85 +17,109 @@ const stroke = {
   strokeLinejoin: 'round' as const,
 }
 
-interface PreviewItem {
-  title: string
-  description: string
-  icon: ReactNode
-}
-
-const PREVIEW_ITEMS: PreviewItem[] = [
-  {
-    title: '이벤트별 채팅방',
-    description: '같은 이벤트에 참가한 사람들과 일정·만남을 조율합니다.',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...stroke}>
-        <path d="M4.5 8.5A2.5 2.5 0 0 1 7 6h7a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 14 15h-4l-3 3v-3H7A2.5 2.5 0 0 1 4.5 12.5z" />
-        <path d="M11 5h6a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 1-1 2" />
-      </svg>
-    ),
-  },
-  {
-    title: '채널 토론방',
-    description: '구독한 채널의 공지·이벤트 회고를 함께 이야기합니다.',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...stroke}>
-        <circle cx="9" cy="11" r="3.4" />
-        <path d="M15 7.5a3 3 0 1 1 0 6" />
-        <path d="M3 19a6 6 0 0 1 12 0" />
-        <path d="M14 19a5 5 0 0 1 7 0" />
-      </svg>
-    ),
-  },
-  {
-    title: '라이브 응원',
-    description: '진행 중인 이벤트를 실시간으로 응원하고 반응을 남깁니다.',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" {...stroke}>
-        <path d="M5 14c0-4 3-7 7-7s7 3 7 7" />
-        <path d="M3.5 13.5h17" />
-        <path d="M7 17.5 12 21l5-3.5" />
-      </svg>
-    ),
-  },
-]
-
 /**
- * 커뮤니티 탭 placeholder. 채팅/토론방/라이브 응원이 들어올 자리를 미리 표시한다.
- * 현재는 진입 가능한 액션이 없으므로 미리보기 카드만 노출한다.
+ * PR161 — Community 탭이 이제 "내 이벤트룸" 입구. PR160 이벤트룸 채팅이 활성화된 이벤트만 노출.
+ *
+ *  - 참가 확정 (APPROVED) 된 이벤트 중 ticket 이 CANCELED/REFUNDED 가 아닌 row 만.
+ *  - 카드 클릭 → EventDetailPage 의 이벤트룸 탭으로 직접 진입.
+ *  - 비로그인 / 참가 확정 이벤트 0개 → empty state + explore 버튼.
  */
 export function CommunityPage({ onNavigate }: CommunityPageProps) {
+  const { isAuthenticated } = useAuth()
+  const { showToast } = useToast()
+  const [items, setItems] = useState<MyParticipationItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLoading(false)
+      return
+    }
+    let alive = true
+    getMyParticipations({ page: 0, size: 20 })
+      .then((res) => {
+        if (!alive) return
+        // 채팅 입장 가능한 row 만 노출: APPROVED + ticket 없음(무료) 또는 ticket 활성.
+        setItems(
+          res.content.filter((p) => {
+            if (p.status !== 'APPROVED') return false
+            if (p.ticketStatus == null) return true
+            return p.ticketStatus !== 'CANCELED' && p.ticketStatus !== 'REFUNDED'
+          }),
+        )
+      })
+      .catch((err) => {
+        showToast({
+          title: '내 이벤트룸을 불러오지 못했어요',
+          message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
+          tone: 'warning',
+        })
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [isAuthenticated, showToast])
+
+  if (!isAuthenticated) {
+    return (
+      <main className="page empty-state">
+        <h1>로그인하면 내 이벤트룸이 열려요</h1>
+        <p className="muted">참가 확정된 이벤트의 채팅방에서 다른 참가자와 의사소통할 수 있어요.</p>
+        <button className="button button-primary is-block" type="button" onClick={() => onNavigate('/')}>
+          로그인 하러 가기
+        </button>
+      </main>
+    )
+  }
+
   return (
-    <main className="ct-placeholder-page">
-      <section className="ct-placeholder-hero">
-        <span className="ct-placeholder-hero-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" {...stroke}>
-            <path d="M4.5 8.5A2.5 2.5 0 0 1 7 6h7a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 14 15h-4l-3 3v-3H7A2.5 2.5 0 0 1 4.5 12.5z" />
-            <path d="M11 5h6a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 1-1 2" />
-          </svg>
-        </span>
-        <h1>커뮤니티는 곧 열려요</h1>
-        <p>같은 이벤트에 참여한 사람들과 모이고, 채널 단위의 토론까지 한 곳에서 가능해집니다.</p>
-      </section>
+    <main className="page ct-community-page">
+      <header className="page-header">
+        <p className="eyebrow">Community</p>
+        <h1>내 이벤트룸</h1>
+        <span className="muted">참가 확정된 이벤트의 채팅방에 입장해 다른 참가자와 대화할 수 있어요.</span>
+      </header>
 
-      <section className="ct-preview-list" aria-label="준비 중인 기능">
-        {PREVIEW_ITEMS.map((item) => (
-          <article key={item.title} className="ct-preview-card">
-            <span className="ct-preview-card-icon" aria-hidden="true">{item.icon}</span>
-            <strong>{item.title}</strong>
-            <span>{item.description}</span>
-            <span className="action-tag">준비 중</span>
-          </article>
-        ))}
-      </section>
-
-      <div className="ct-empty-actions">
-        <button className="button button-primary" type="button" onClick={() => onNavigate('/explore')}>
-          채널 둘러보기
-        </button>
-        <button className="button button-secondary" type="button" onClick={() => onNavigate('/notifications')}>
-          알림 보기
-        </button>
-      </div>
+      {loading ? (
+        <Skeleton lines={3} />
+      ) : items.length === 0 ? (
+        <div className="empty-state">
+          <span aria-hidden="true">
+            <svg width="40" height="40" viewBox="0 0 24 24" {...stroke}>
+              <path d="M4.5 8.5A2.5 2.5 0 0 1 7 6h7a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 14 15h-4l-3 3v-3H7A2.5 2.5 0 0 1 4.5 12.5z" />
+              <path d="M11 5h6a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 1-1 2" />
+            </svg>
+          </span>
+          <strong>아직 참가 확정된 이벤트가 없어요</strong>
+          <p className="muted">이벤트에 신청 후 운영자 승인 (또는 결제 완료) 가 되면 채팅방이 열립니다.</p>
+          <button className="button button-primary" type="button" onClick={() => onNavigate('/explore')}>
+            이벤트 둘러보기
+          </button>
+        </div>
+      ) : (
+        <ul className="ct-community-rooms">
+          {items.map((p) => (
+            <li key={p.participationId}>
+              <button
+                type="button"
+                className="card ct-community-room"
+                onClick={() => onNavigate(`/events/${p.eventId}`)}
+              >
+                <div className="card-body stack">
+                  <strong>{p.eventTitle}</strong>
+                  <span className="muted">
+                    {p.channelName} · {new Date(p.startAt).toLocaleDateString()}
+                  </span>
+                  <span className="muted">{p.location}</span>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   )
 }

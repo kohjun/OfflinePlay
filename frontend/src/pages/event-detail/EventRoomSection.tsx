@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { getEventUnreadAnnouncementCount } from '../../api/eventAnnouncements'
 import { Badge } from '../../components/Badge'
-import type { EventApplicant, EventComment } from '../../types'
+import { EventChatPanel } from '../../components/EventChatPanel'
+import type { EventApplicant } from '../../types'
 import { EventAnnouncementsSection } from './EventAnnouncementsSection'
-import { EventCommentsSection } from './EventCommentsSection'
 
 interface EventRoomSectionProps {
   eventId: number
@@ -11,16 +11,10 @@ interface EventRoomSectionProps {
   canAccessRoom: boolean
   /** 공지 작성 가능 (owner / STAFF / ADMIN). */
   canWriteAnnouncement: boolean
-  /** 공지 읽기 가능 (위 + APPROVED 참가자). 사실상 canAccessRoom 과 거의 동일하지만, 본 PR 은
-   *  EventDetailPage 가 명시적으로 전달해 정책 추적성을 유지한다. */
+  /** 공지 읽기 가능 (위 + APPROVED 참가자). */
   canReadAnnouncement: boolean
-
-  // EventCommentsSection 으로 그대로 forward.
-  comments: EventComment[]
-  commentDraft: string
-  submittingComment: boolean
-  onDraftChange: (next: string) => void
-  onSubmit: () => void
+  /** PR161 — 채팅 패널의 운영자 권한 (canWriteAnnouncement 와 동일하지만 명시적으로 forward). */
+  isOperator: boolean
 
   /** 참가자 탭 표시용. owner/STAFF/ADMIN 만 의미가 있고, 일반 참가자는 본인 + 정원 정보만 보일 수도 있다. */
   applicants: EventApplicant[]
@@ -51,11 +45,7 @@ export function EventRoomSection({
   canAccessRoom,
   canWriteAnnouncement,
   canReadAnnouncement,
-  comments,
-  commentDraft,
-  submittingComment,
-  onDraftChange,
-  onSubmit,
+  isOperator,
   applicants,
   approvedCount,
   maxParticipants,
@@ -116,13 +106,10 @@ export function EventRoomSection({
             canRead={canReadAnnouncement}
           />
         ) : tab === 'talk' ? (
-          <EventCommentsSection
-            comments={comments}
-            commentDraft={commentDraft}
-            submittingComment={submittingComment}
+          <EventChatPanel
+            eventId={eventId}
+            isOperator={isOperator}
             canAccessRoom={canAccessRoom}
-            onDraftChange={onDraftChange}
-            onSubmit={onSubmit}
           />
         ) : (
           <div className="ct-event-room__participants">

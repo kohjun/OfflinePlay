@@ -309,11 +309,7 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
           user?.role === 'ADMIN' ||
           participation?.status === 'APPROVED'
         }
-        comments={comments}
-        commentDraft={commentDraft}
-        submittingComment={submittingComment}
-        onDraftChange={setCommentDraft}
-        onSubmit={handleSubmitComment}
+        isOperator={isOwner || user?.role === 'ADMIN'}
         applicants={applicants}
         approvedCount={event.currentParticipants}
         maxParticipants={event.maxParticipants}
