@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { FormEvent, useState } from 'react'
+import { cloneEvent } from '../../api/events'
 import { downloadParticipantCsv } from '../../api/participantExport'
 import { Badge } from '../../components/Badge'
 import type { EventCheckInSummary } from '../../api/tickets'
@@ -20,6 +21,11 @@ interface EventOwnerPanelProps {
   onReject: (participationId: number) => void
 }
 
+function toLocalInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 /**
  * PR84 — owner 전용 패널: 이벤트 수정 버튼 + 신청자 관리 + 체크인 현황.
  * checkInSummary 가 아직 로드되지 않으면 체크인 섹션은 mount 되지 않는다(기존 동작 유지).
@@ -36,6 +42,42 @@ export function EventOwnerPanel({
   const { showToast } = useToast()
   const pendingApplicants = applicants.filter((a) => a.status === 'PENDING').length
   const [exporting, setExporting] = useState(false)
+
+  // PR155 — 복제 modal state. 기본값: 한 주 뒤 같은 시각.
+  const [cloneOpen, setCloneOpen] = useState(false)
+  const defaultClone = (() => {
+    const start = new Date()
+    start.setDate(start.getDate() + 7)
+    start.setHours(19, 0, 0, 0)
+    const end = new Date(start)
+    end.setHours(end.getHours() + 2)
+    return { start: toLocalInputValue(start), end: toLocalInputValue(end) }
+  })()
+  const [cloneStart, setCloneStart] = useState(defaultClone.start)
+  const [cloneEnd, setCloneEnd] = useState(defaultClone.end)
+  const [cloning, setCloning] = useState(false)
+
+  async function handleSubmitClone(e: FormEvent) {
+    e.preventDefault()
+    if (cloning) return
+    const startIso = new Date(cloneStart).toISOString().slice(0, 19)
+    const endIso = new Date(cloneEnd).toISOString().slice(0, 19)
+    setCloning(true)
+    try {
+      const newEvent = await cloneEvent(eventId, { startAt: startIso, endAt: endIso })
+      showToast({ title: '이벤트를 복제했어요', tone: 'success' })
+      setCloneOpen(false)
+      onNavigate(`/events/${newEvent.id}`)
+    } catch (err) {
+      showToast({
+        title: '이벤트 복제에 실패했어요',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setCloning(false)
+    }
+  }
 
   async function handleExport() {
     if (exporting) return
@@ -64,6 +106,58 @@ export function EventOwnerPanel({
         >
           이벤트 수정
         </button>
+        <button
+          type="button"
+          className="button button-tertiary is-block"
+          onClick={() => setCloneOpen((v) => !v)}
+        >
+          {cloneOpen ? '복제 닫기' : '이 이벤트 복제하기'}
+        </button>
+        {cloneOpen ? (
+          <form className="form-stack ct-clone-form" onSubmit={handleSubmitClone}>
+            <p className="muted">
+              제목·내용·참가비·관심사·지역은 그대로 복사돼요. 참가자/공지/후기/티켓은 빈 상태로 시작합니다.
+            </p>
+            <label>
+              새 시작 시간
+              <input
+                type="datetime-local"
+                value={cloneStart}
+                onChange={(e) => setCloneStart(e.target.value)}
+                disabled={cloning}
+                required
+              />
+            </label>
+            <label>
+              새 종료 시간
+              <input
+                type="datetime-local"
+                value={cloneEnd}
+                onChange={(e) => setCloneEnd(e.target.value)}
+                disabled={cloning}
+                required
+              />
+            </label>
+            <div className="ct-profile-edit-actions">
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={() => setCloneOpen(false)}
+                disabled={cloning}
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                className="button button-primary"
+                disabled={cloning}
+                aria-busy={cloning}
+              >
+                {cloning ? '복제 중…' : '복제하기'}
+              </button>
+            </div>
+          </form>
+        ) : null}
       </section>
 
       <section id="applicants" className="ct-event-section ct-applicants-section">

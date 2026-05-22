@@ -4,6 +4,7 @@ import com.contenido.domain.channel.entity.Channel
 import com.contenido.domain.channel.repository.ChannelMemberRepository
 import com.contenido.domain.channel.repository.ChannelRepository
 import com.contenido.domain.channel.repository.ChannelSubscriptionRepository
+import com.contenido.domain.event.dto.CloneEventRequest
 import com.contenido.domain.event.dto.CreateEventRequest
 import com.contenido.domain.event.dto.EventResponse
 import com.contenido.domain.event.dto.MyParticipationItemResponse
@@ -221,6 +222,77 @@ class EventService(
             averageRating = reviewRepository.averageRatingByEventId(event.id),
             reviewCount = reviewRepository.countByEvent(event),
         )
+    }
+
+    /**
+     * PR155 — 이벤트 복제. 기존 이벤트의 운영 metadata 를 새 startAt/endAt 으로 그대로 복사.
+     *
+     *  - 복사: title, description, location, mainImageUrl, participationFee, refundPolicy,
+     *    detailContent, contentType, maxParticipants, region, interests.
+     *  - 제외: currentParticipants(0 reset), participations, comments, announcements, reviews, tickets,
+     *    likeCount, hiddenAt/Reason, status (default UPCOMING).
+     *  - 권한: 채널 owner 또는 ADMIN. STAFF 는 본 PR 에서 제외 (운영 정책 — 재발행은 owner 결정).
+     */
+    @Transactional
+    fun cloneEvent(userId: Long, sourceEventId: Long, request: CloneEventRequest): EventResponse {
+        val user = findActiveUser(userId)
+        val source = findEvent(sourceEventId)
+
+        if (source.channel.owner.id != userId && user.role != UserRole.ADMIN) {
+            throw UnauthorizedException()
+        }
+
+        if (!request.endAt.isAfter(request.startAt)) {
+            throw InvalidEventDateRangeException()
+        }
+
+        val cloned = eventRepository.save(
+            Event(
+                channel = source.channel,
+                title = source.title,
+                description = source.description,
+                location = source.location,
+                mainImageUrl = source.mainImageUrl,
+                startAt = request.startAt,
+                endAt = request.endAt,
+                maxParticipants = source.maxParticipants,
+                participationFee = source.participationFee,
+                refundPolicy = source.refundPolicy,
+                detailContent = source.detailContent,
+                contentType = source.contentType,
+                region = source.region,
+            )
+        )
+
+        // PR155 — 관심사 복제 (PR147 의 event_interests). 원본의 interest id 묶음을 새 event 로 복사.
+        val sourceInterestIds = eventInterestRepository.findByEventId(source.id).map { it.interestId }
+        if (sourceInterestIds.isNotEmpty()) {
+            eventInterestRepository.saveAll(
+                sourceInterestIds.map { com.contenido.domain.interest.entity.EventInterest(eventId = cloned.id, interestId = it) },
+            )
+        }
+
+        publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "EVENT", cloned.id))
+
+        // PR142 — 채널 구독자에게 NEW_EVENT 알림. 본 cloneEvent 도 새 이벤트 생성이므로 동일 정책.
+        val subscriberIds = channelSubscriptionRepository.findByChannel(source.channel)
+            .map { it.subscriber.id }
+            .distinct()
+            .filter { it != source.channel.owner.id }
+        runCatching {
+            notificationService.notify(
+                receiverIds = subscriberIds,
+                type = NotificationType.NEW_EVENT,
+                title = "${source.channel.name}에 새 이벤트가 등록되었습니다.",
+                message = cloned.title,
+                targetType = "events",
+                targetId = cloned.id,
+            )
+        }.onFailure { e ->
+            log.warn("[cloneEvent] NEW_EVENT notify failed eventId={} err={}", cloned.id, e.message)
+        }
+
+        return cloned.toResponse()
     }
 
     // ─── Participation: 신청 → 승인/거절 워크플로 ─────────────────────────────────

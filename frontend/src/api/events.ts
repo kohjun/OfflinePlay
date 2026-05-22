@@ -51,6 +51,19 @@ export function updateEvent(eventId: number, payload: UpdateEventPayload) {
   return apiClient.patch<Event>(`/events/${eventId}`, payload)
 }
 
+/**
+ * PR155 — POST /api/v1/events/{eventId}/clone — owner/ADMIN 만. 새 startAt/endAt 만 보낸다.
+ * 응답은 복제된 새 이벤트.
+ */
+export interface CloneEventPayload {
+  startAt: string
+  endAt: string
+}
+
+export function cloneEvent(eventId: number, payload: CloneEventPayload) {
+  return apiClient.post<Event>(`/events/${eventId}/clone`, payload)
+}
+
 // ── 참가 신청 → 기획자 승인/거절 워크플로 ───────────────────────────────────────
 
 /** POST /api/v1/events/{eventId}/participations — 참가 신청. PENDING 으로 저장된다. */

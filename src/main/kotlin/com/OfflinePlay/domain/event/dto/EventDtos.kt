@@ -74,6 +74,23 @@ data class CreateEventRequest(
  *    ([com.contenido.global.exception.MaxParticipantsBelowCurrentException]).
  *  - startAt/endAt: 함께 보내야 검증이 자연스럽지만 서비스가 결합 후 (start < end) 만 확인.
  */
+/**
+ * PR155 — 이벤트 복제 요청. 새 startAt/endAt 만 받는다.
+ *  - 복제 대상: title / description / location / mainImageUrl / participationFee / refundPolicy /
+ *    detailContent / contentType / maxParticipants / interests / regionCode.
+ *  - 제외: currentParticipants(0 reset) / participations / comments / announcements / reviews / tickets.
+ *  - 새 이벤트의 channel 은 원본과 동일.
+ */
+data class CloneEventRequest(
+    @field:NotNull(message = "시작 시간은 필수입니다.")
+    @field:Future(message = "시작 시간은 현재 이후여야 합니다.")
+    val startAt: LocalDateTime,
+
+    @field:NotNull(message = "종료 시간은 필수입니다.")
+    @field:Future(message = "종료 시간은 현재 이후여야 합니다.")
+    val endAt: LocalDateTime,
+)
+
 data class UpdateEventRequest(
     val title: String? = null,
     val description: String? = null,

@@ -155,6 +155,116 @@ class EventServiceTest {
         verify(exactly = 0) { eventRepository.save(any()) }
     }
 
+    // ── cloneEvent (PR155) ───────────────────────────────────────────────────
+
+    @Test
+    fun `cloneEvent — owner 가 새 시각으로 복제하면 원본 metadata 보존`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 1L, owner = owner)
+        val source = createEvent(id = 100L, channel = channel).apply {
+            title = "원본 이벤트"
+            participationFee = 25_000L
+            maxParticipants = 50
+        }
+        every { userRepository.findById(1L) } returns Optional.of(owner)
+        every { eventRepository.findById(100L) } returns Optional.of(source)
+        val savedSlot = slot<Event>()
+        every { eventRepository.save(capture(savedSlot)) } answers {
+            savedSlot.captured.also {
+                ReflectionTestUtils.setField(it, "id", 999L)
+                ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
+                ReflectionTestUtils.setField(it, "updatedAt", LocalDateTime.now())
+            }
+        }
+        every { channelSubscriptionRepository.findByChannel(channel) } returns emptyList()
+
+        val newStart = LocalDateTime.now().plusDays(30)
+        val newEnd = newStart.plusHours(3)
+        val result = eventService.cloneEvent(
+            1L, 100L,
+            com.contenido.domain.event.dto.CloneEventRequest(startAt = newStart, endAt = newEnd),
+        )
+
+        assertThat(result.id).isEqualTo(999L)
+        assertThat(savedSlot.captured.title).isEqualTo("원본 이벤트")
+        assertThat(savedSlot.captured.participationFee).isEqualTo(25_000L)
+        assertThat(savedSlot.captured.maxParticipants).isEqualTo(50)
+        assertThat(savedSlot.captured.startAt).isEqualTo(newStart)
+        assertThat(savedSlot.captured.endAt).isEqualTo(newEnd)
+        // currentParticipants 는 0 reset
+        assertThat(savedSlot.captured.currentParticipants).isEqualTo(0)
+    }
+
+    @Test
+    fun `cloneEvent — non-owner non-ADMIN 은 Unauthorized`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val stranger = createUser(id = 99L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 1L, owner = owner)
+        val source = createEvent(id = 100L, channel = channel)
+        every { userRepository.findById(99L) } returns Optional.of(stranger)
+        every { eventRepository.findById(100L) } returns Optional.of(source)
+
+        assertThrows<UnauthorizedException> {
+            eventService.cloneEvent(
+                99L, 100L,
+                com.contenido.domain.event.dto.CloneEventRequest(
+                    startAt = LocalDateTime.now().plusDays(30),
+                    endAt = LocalDateTime.now().plusDays(31),
+                ),
+            )
+        }
+        verify(exactly = 0) { eventRepository.save(any()) }
+    }
+
+    @Test
+    fun `cloneEvent — endAt 이 startAt 보다 빠르면 InvalidEventDateRangeException`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val channel = createChannel(id = 1L, owner = owner)
+        val source = createEvent(id = 100L, channel = channel)
+        every { userRepository.findById(1L) } returns Optional.of(owner)
+        every { eventRepository.findById(100L) } returns Optional.of(source)
+
+        val now = LocalDateTime.now()
+        assertThrows<InvalidEventDateRangeException> {
+            eventService.cloneEvent(
+                1L, 100L,
+                com.contenido.domain.event.dto.CloneEventRequest(
+                    startAt = now.plusDays(10),
+                    endAt = now.plusDays(5),
+                ),
+            )
+        }
+        verify(exactly = 0) { eventRepository.save(any()) }
+    }
+
+    @Test
+    fun `cloneEvent — ADMIN 도 복제 가능`() {
+        val owner = createUser(id = 1L, role = UserRole.CREATOR)
+        val admin = createUser(id = 99L, role = UserRole.ADMIN)
+        val channel = createChannel(id = 1L, owner = owner)
+        val source = createEvent(id = 100L, channel = channel)
+        every { userRepository.findById(99L) } returns Optional.of(admin)
+        every { eventRepository.findById(100L) } returns Optional.of(source)
+        every { eventRepository.save(any()) } answers {
+            firstArg<Event>().also {
+                ReflectionTestUtils.setField(it, "id", 999L)
+                ReflectionTestUtils.setField(it, "createdAt", LocalDateTime.now())
+                ReflectionTestUtils.setField(it, "updatedAt", LocalDateTime.now())
+            }
+        }
+        every { channelSubscriptionRepository.findByChannel(channel) } returns emptyList()
+
+        val result = eventService.cloneEvent(
+            99L, 100L,
+            com.contenido.domain.event.dto.CloneEventRequest(
+                startAt = LocalDateTime.now().plusDays(30),
+                endAt = LocalDateTime.now().plusDays(31),
+            ),
+        )
+
+        assertThat(result.id).isEqualTo(999L)
+    }
+
     @Test
     fun `createEvent NEW_EVENT 알림 — 구독자에게 발송 (PR142)`() {
         val owner = createUser(id = 1L, role = UserRole.CREATOR)
