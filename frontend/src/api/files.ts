@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import { compressImage } from '../utils/imageCompression'
 
 /**
  * 백엔드 `/files/upload` 응답 DTO 와 1:1.
@@ -21,14 +22,20 @@ export type FileDirectory = 'PROFILE' | 'CHANNEL_THUMBNAIL' | 'CONTENT_THUMBNAIL
 
 /**
  * 서버 직접 업로드 — `/api/v1/files/upload?directory=...` POST multipart.
- * 작은 파일/단순 흐름에 권장. 큰 파일은 presigned URL 흐름 사용 (별도 helper).
  *
- * 로컬 개발 환경에서는 application-local.yml 의 fake AWS credentials 때문에
- * 실제 PUT 단계에서 실패할 수 있다 — 호출처는 ApiError 를 잡아 사용자에게
- * "URL 직접 입력" 대안을 안내해야 한다.
+ * PR163 부터 이미지 파일은 업로드 전에 Canvas 로 자동 리사이즈/압축 (최대 변 1280px,
+ * JPEG quality 0.85). PNG/JPG/WebP/GIF 모두 입력 가능, GIF 는 첫 프레임만 추출.
+ * 원본보다 결과가 더 크면 원본 그대로 업로드.
+ *
+ * 로컬 개발 환경에서는 application-local.yml 의 `storage.local-fallback.enabled=true` 가 활성화돼
+ * 서버가 디스크에 저장하고 `/uploads/...` URL 을 반환한다. 운영(prod) 은 S3 직접 호출.
  */
-export function uploadFile(file: File, directory: FileDirectory = 'CONTENT_THUMBNAIL') {
+export async function uploadFile(
+  file: File,
+  directory: FileDirectory = 'CONTENT_THUMBNAIL',
+) {
+  const finalFile = file.type.startsWith('image/') ? await compressImage(file) : file
   const form = new FormData()
-  form.append('file', file)
+  form.append('file', finalFile)
   return apiClient.post<UploadedFile>(`/files/upload?directory=${directory}`, form)
 }

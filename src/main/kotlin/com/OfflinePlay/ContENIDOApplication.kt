@@ -1,6 +1,7 @@
 package com.contenido
 
 import com.contenido.global.config.PushNotificationProperties
+import com.contenido.global.storage.LocalFileStorageProperties
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.runApplication
@@ -10,7 +11,7 @@ import org.springframework.scheduling.annotation.EnableAsync
 import org.springframework.scheduling.annotation.EnableScheduling
 
 @EnableAsync
-@EnableConfigurationProperties(PushNotificationProperties::class)
+@EnableConfigurationProperties(PushNotificationProperties::class, LocalFileStorageProperties::class)
 @EnableJpaAuditing
 @EnableRetry
 @EnableScheduling

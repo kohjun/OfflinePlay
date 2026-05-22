@@ -91,6 +91,9 @@ class SecurityConfig(
                     .requestMatchers(HttpMethod.GET, "/api/v1/regions").permitAll()
                     // PR148 — 추천 (비로그인 허용 — fallback segment 응답).
                     .requestMatchers(HttpMethod.GET, "/api/v1/recommendations/**").permitAll()
+                    // PR163 — local-fallback 디스크 파일 (`storage.local-fallback.enabled=true` 일 때만 정적 핸들러 등록됨).
+                    // 운영(prod) 에서는 핸들러 미등록 → 본 permitAll 이 실제로 노출하는 자원 없음.
+                    .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                     // 헬스체크 / actuator — health 트리(liveness/readiness 포함) + info 만 외부 공개.
                     // metrics/prometheus 같은 그 외 엔드포인트는 노출 자체를 management.endpoints
                     // 에서 제외하므로 별도 deny 룰 불필요. 추후 metrics 노출 시 인증 게이트 필요.

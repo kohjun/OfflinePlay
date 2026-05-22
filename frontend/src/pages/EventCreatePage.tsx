@@ -86,11 +86,12 @@ export function EventCreatePage({ channelId, onNavigate }: EventCreatePageProps)
       setMainImageUrl(result.url)
       showToast({ title: '이미지가 업로드되었어요', tone: 'success' })
     } catch (err) {
-      // 로컬 환경에선 가짜 AWS credentials 때문에 보통 실패한다. 사용자에게 명확히 안내.
+      // PR163 — local-fallback storage 가 활성화된 dev 환경에선 이 분기에 거의 도달하지 않는다.
+      // 그래도 네트워크/권한/큰 파일 등 다른 사유로 실패할 수 있으니 friendly copy 유지.
       const msg = err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.'
       showToast({
         title: '이미지 업로드 실패',
-        message: `${msg} — 운영 환경에서만 동작합니다. 이미지 URL 을 직접 입력해주세요.`,
+        message: `${msg} 다시 시도하거나 다른 이미지를 선택해주세요.`,
         tone: 'danger',
       })
       // blob URL 은 그대로 두면 미리보기는 보이지만, 폼 제출 시 backend 가 거부할 것이다.

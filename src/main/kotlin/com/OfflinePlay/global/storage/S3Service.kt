@@ -8,6 +8,7 @@ import com.contenido.global.storage.dto.FileDirectory
 import com.contenido.global.storage.dto.FileUploadResponse
 import com.contenido.global.storage.dto.PresignedUrlResponse
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import org.springframework.web.multipart.MultipartFile
 import software.amazon.awssdk.core.sync.RequestBody
@@ -27,6 +28,9 @@ class S3Service(
     private val s3Client: S3Client,
     private val s3Presigner: S3Presigner,
     private val s3Properties: S3Properties,
+    // PR163 — storage.local-fallback.enabled=true 일 때만 등록되는 디스크 fallback. 운영(prod) 에선
+    // null → 본 클래스가 실제 S3 호출. local/dev 에선 본 service 가 disk 저장 + /uploads URL 반환.
+    private val localFileStorageProvider: ObjectProvider<LocalFileStorage>,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -63,6 +67,12 @@ class S3Service(
         resourceId: Long? = null,
     ): FileUploadResponse {
         validate(file)
+
+        // PR163 — local-fallback 이 켜져 있으면 disk 에 저장하고 즉시 반환.
+        val localFallback = localFileStorageProvider.ifAvailable
+        if (localFallback != null) {
+            return localFallback.upload(file, directory, userId, resourceId)
+        }
 
         val key = buildKey(directory, userId, resourceId, extractExtension(file))
         val contentType = file.contentType ?: "application/octet-stream"
@@ -146,6 +156,9 @@ class S3Service(
      * 실패해도 비즈니스 로직에 영향을 주지 않도록 예외를 흡수하고 로그만 남긴다.
      */
     fun delete(key: String) {
+        // PR163 — local fallback 활성화 시 disk 파일도 함께 정리.
+        localFileStorageProvider.ifAvailable?.delete(key)
+
         try {
             s3Client.deleteObject(
                 DeleteObjectRequest.builder()
