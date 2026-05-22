@@ -8,6 +8,7 @@ import {
 } from '../api/notifications'
 import { Badge } from '../components/Badge'
 import { BrowserPushPanel } from '../components/BrowserPushPanel'
+import { InstallPrompt } from '../components/InstallPrompt'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
@@ -434,6 +435,7 @@ export function NotificationsPage({ onNavigate }: NotificationsPageProps) {
           <p className="muted notification-preferences__hint">
             끈 알림은 알림 목록에 표시되지 않고 실시간 알림도 도착하지 않아요. 다시 켜면 이후에 도착하는 알림부터 표시됩니다.
           </p>
+          <InstallPrompt />
           <BrowserPushPanel />
           {prefsLoading ? (
             <p className="muted">불러오는 중…</p>

@@ -1,0 +1,27 @@
+{
+  "name": "CONTENIDO",
+  "short_name": "CONTENIDO",
+  "description": "오프라인 모임을 만들고 참가하는 모바일 플랫폼",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#FA5252",
+  "background_color": "#FFFFFF",
+  "lang": "ko-KR",
+  "categories": ["social", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

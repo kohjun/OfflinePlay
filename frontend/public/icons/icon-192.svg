@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" rx="32" ry="32" fill="#FA5252"/>
+  <text x="50%" y="50%" font-family="-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', sans-serif" font-size="40" font-weight="800" fill="#FFFFFF" text-anchor="middle" dominant-baseline="central" letter-spacing="-1">CT</text>
+  <circle cx="48" cy="48" r="6" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="144" cy="144" r="6" fill="#FFFFFF" opacity="0.6"/>
+</svg>
