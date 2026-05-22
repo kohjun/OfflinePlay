@@ -3,6 +3,7 @@ import { createChannel } from '../api/channels'
 import { getCreatorHiddenContent, getCreatorStudio } from '../api/creator'
 import { createReportAppeal } from '../api/reportAppeals'
 import { Badge } from '../components/Badge'
+import { CreatorAnalyticsCard } from '../components/CreatorAnalyticsCard'
 import { useAuth } from '../hooks/useAuth'
 import { useCoalescedRefresh } from '../hooks/useCoalescedRefresh'
 import { useToast } from '../hooks/useToast'
@@ -381,6 +382,8 @@ export function CreatorDashboardPage({ onNavigate }: CreatorDashboardPageProps) 
           🎟 티켓 체크인 (코드 입력)
         </button>
       </section>
+
+      <CreatorAnalyticsCard channelId={channel.id} channelName={channel.name} />
 
       <section className="ct-studio-growth" aria-label="구독자 성장">
         <div className="ct-studio-growth-head">

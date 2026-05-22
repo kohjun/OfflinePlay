@@ -6,6 +6,9 @@ import com.contenido.domain.payment.entity.PaymentStatus
 import com.contenido.domain.ticket.entity.Ticket
 import com.contenido.domain.user.entity.User
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
+import java.time.LocalDateTime
 import java.util.Optional
 
 interface PaymentAttemptRepository : JpaRepository<PaymentAttempt, Long> {
@@ -38,4 +41,41 @@ interface PaymentAttemptRepository : JpaRepository<PaymentAttempt, Long> {
      * 호출처가 `Map<ticketId, PaymentAttempt>` 로 변환해 zip.
      */
     fun findByTicketIn(tickets: Collection<Ticket>): List<PaymentAttempt>
+
+    /**
+     * PR153 — 채널 단위 매출/환불 집계. event 별로 grouping 한 raw row 를 반환한다.
+     *
+     * 정책:
+     *  - 결제 시도가 PAID 또는 PARTIALLY_REFUNDED 일 때만 매출 row 에 포함 (READY/FAILED/CANCELED 제외).
+     *  - gross         = SUM(amount)            : 사용자가 실제 결제한 총액
+     *  - refunded      = SUM(refundedAmount)    : 누적 환불액 (전액 환불 + 부분 환불)
+     *  - partialRefund = SUM(refundedAmount where status=PARTIALLY_REFUNDED)
+     *  - fullRefundCnt = COUNT(refundedAmount=amount AND status=PAID 인 row)
+     *  - paidCount     = 매출 row 자체 갯수 (이 이벤트의 결제 건수)
+     *
+     * 날짜 필터는 PaymentAttempt.createdAt 기준 (결제 시도 시작 시각). nullable.
+     *
+     * 반환 row: [eventId(Long), eventTitle(String), gross(Long), refunded(Long),
+     *           partialRefund(Long), fullRefundCount(Long), paidCount(Long)]
+     */
+    @Query(
+        """
+        SELECT p.event.id, p.event.title,
+            COALESCE(SUM(CASE WHEN p.status IN ('PAID', 'PARTIALLY_REFUNDED') THEN p.amount ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN p.status IN ('PAID', 'PARTIALLY_REFUNDED') THEN p.refundedAmount ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN p.status = 'PARTIALLY_REFUNDED' THEN p.refundedAmount ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN p.status = 'PAID' AND p.refundedAmount > 0 AND p.refundedAmount = p.amount THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN p.status IN ('PAID', 'PARTIALLY_REFUNDED') THEN 1 ELSE 0 END), 0)
+        FROM PaymentAttempt p
+        WHERE p.event.channel.id = :channelId
+          AND (:from IS NULL OR p.createdAt >= :from)
+          AND (:to IS NULL OR p.createdAt < :to)
+        GROUP BY p.event.id, p.event.title
+        """,
+    )
+    fun aggregateChannelAnalytics(
+        @Param("channelId") channelId: Long,
+        @Param("from") from: LocalDateTime?,
+        @Param("to") to: LocalDateTime?,
+    ): List<Array<Any>>
 }
