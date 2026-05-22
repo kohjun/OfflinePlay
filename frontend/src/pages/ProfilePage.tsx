@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import {
   changeMyPassword,
   getMyExtendedProfile,
@@ -7,6 +7,7 @@ import {
   type MyProfileResponse,
   type ProfileVisibility,
 } from '../api/users'
+import { uploadFile } from '../api/files'
 import { getMyInterests, updateMyInterests } from '../api/taxonomy'
 import { ApiError } from '../api/client'
 import { InterestPicker } from '../components/InterestPicker'
@@ -63,6 +64,28 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
   const [extVisibility, setExtVisibility] = useState<ProfileVisibility>('PUBLIC')
   const [extInterestIds, setExtInterestIds] = useState<number[]>([])
   const [savingExt, setSavingExt] = useState(false)
+  // PR159 — avatar 파일 업로드 (URL 직접 입력 대체)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
+
+  async function handleAvatarPick(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setUploadingAvatar(true)
+    try {
+      const uploaded = await uploadFile(file, 'PROFILE')
+      setExtAvatarUrl(uploaded.url)
+    } catch (err) {
+      showToast({
+        title: '이미지 업로드에 실패했어요',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
 
   useEffect(() => {
     if (!user) return
@@ -508,18 +531,47 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
                 disabled={savingExt}
               />
             </label>
-            <label>
-              프로필 이미지 URL
-              <input
-                type="url"
-                value={extAvatarUrl}
-                onChange={(e) => setExtAvatarUrl(e.target.value)}
-                maxLength={500}
-                placeholder="https://..."
-                disabled={savingExt}
-              />
-              <span className="muted">PR147 에서 직접 업로드를 지원할 예정이에요.</span>
-            </label>
+            <div className="profile-avatar-upload">
+              <strong>프로필 이미지</strong>
+              <div className="profile-avatar-upload__row">
+                <div className="profile-avatar-upload__preview" aria-hidden="true">
+                  {extAvatarUrl ? (
+                    <img src={extAvatarUrl} alt="" />
+                  ) : (
+                    <span>{user?.nickname?.slice(0, 1).toUpperCase() ?? '?'}</span>
+                  )}
+                </div>
+                <div className="profile-avatar-upload__actions">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={savingExt || uploadingAvatar}
+                    aria-busy={uploadingAvatar}
+                  >
+                    {uploadingAvatar ? '업로드 중…' : extAvatarUrl ? '이미지 변경' : '이미지 선택'}
+                  </button>
+                  {extAvatarUrl ? (
+                    <button
+                      type="button"
+                      className="button button-tertiary"
+                      onClick={() => setExtAvatarUrl('')}
+                      disabled={savingExt || uploadingAvatar}
+                    >
+                      삭제
+                    </button>
+                  ) : null}
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handleAvatarPick}
+                />
+              </div>
+              <span className="muted">JPEG / PNG / WebP / GIF, 최대 10MB. 비워두면 닉네임 첫 글자가 표시돼요.</span>
+            </div>
             <div>
               <strong>활동 지역</strong>
               <RegionPicker
