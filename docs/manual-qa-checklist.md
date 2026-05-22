@@ -939,6 +939,63 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 - **iOS Safari 18.5+**: **홈 화면에 추가한 PWA 에서만** 푸시 알림 동작. 일반 Safari 탭은 권한 prompt 자체가 표시되지 않음. PWA 설치는 공유 → 홈 화면에 추가.
 - **Firefox**: SW + PushManager 지원하지만 일부 모바일 버전에서 응답 timeout. 데스크톱 Firefox 는 동작 확인됨.
 
+### 49. Avatar file upload in profile (PR159)
+- [ ] 🖱 PR159 — `/profile` → "공개 프로필 편집" → "프로필 이미지" 섹션에 URL input 대신 thumbnail + "이미지 선택" 버튼이 보임.
+- [ ] 🖱 PR159 — "이미지 선택" 클릭 → 로컬 파일 선택 → 업로드 중 aria-busy → 성공 시 thumbnail 갱신 + "이미지 변경"/"삭제" 버튼 노출.
+- [ ] 🖱 PR159 — "삭제" 클릭 → thumbnail 가 닉네임 첫 글자 fallback 으로 복귀, 저장 시 backend 가 avatarUrl null 로 저장.
+- [ ] 🖱 PR159 — 큰 이미지(>5MB) 업로드 → PR163 압축이 자동 적용되어 결과 size 가 크게 감소 (devtools Network 탭에서 multipart payload size 확인).
+- [ ] 🖱 PR159 — 업로드 후 저장 → `/users/{내 id}` 진입 시 새 avatar 노출.
+
+### 50. Event room chat (PR160 + PR161)
+**목적**: 카카오톡식 실시간 채팅 + 운영자 공지 push 알림.
+
+- [ ] 🖱 PR160 — 비참가자(PENDING/REJECTED/미신청) 가 이벤트 상세 진입 → 이벤트룸 섹션 자체 hidden, CommunityPage 카드에도 없음.
+- [ ] 🖱 PR160 — APPROVED 참가자 + 무료 이벤트 → 이벤트룸 "대화" 탭 → 메시지 입력 + Enter → 전송 → 본인 화면 + 다른 멤버 화면 (다른 브라우저) 둘 다 거의 즉시 노출.
+- [ ] 🖱 PR160 — APPROVED + 결제 PAID 사용자 → 동일하게 동작.
+- [ ] 🖱 PR160 — APPROVED 인데 ticket CANCELED/REFUNDED 상태 → 진입 시 "참가 확정자만 채팅방에 입장할 수 있어요" 안내.
+- [ ] 🖱 PR161 — 본인 메시지는 우측 정렬 + 다른 사람 메시지는 좌측, sender nickname + 시각 표시.
+- [ ] 🖱 PR161 — Shift+Enter 로 줄바꿈, Enter 로 전송. 빈 메시지 입력 시 전송 버튼 disabled.
+- [ ] 🖱 PR161 — `/community` 진입 → "내 이벤트룸" 입구 카드 목록 (APPROVED + ticket 활성). 카드 클릭 → `/events/{id}` 이동.
+- [ ] 🖱 PR161 — 비로그인 `/community` → "로그인하면 내 이벤트룸이 열려요" 안내.
+
+#### 50.1 운영자 공지 체크 (PR160 push 트리거)
+- [ ] 🖱 PR160 — owner / STAFF / ADMIN 입장 시 채팅 입력 form 위에 "공지로 보내기 (참가자에게 푸시 알림)" 체크박스 노출. 일반 참가자에게는 hidden.
+- [ ] 🖱 PR160 — owner 가 체크박스 + 메시지 전송 → "공지 메시지를 보냈어요" toast + 메시지 카드에 "공지" badge.
+- [ ] 🖱 PR160 — 다른 멤버의 push 가 켜져 있으면 EVENT_ANNOUNCEMENT 푸시 도착 (browser 알림 + notificationStore 갱신). owner 본인은 push 수신 X.
+- [ ] 🖱 PR160 — 일반 참가자가 (어떻게든) isAnnouncement=true 로 POST → backend 가 403 (`EventChatAnnouncementForbiddenException`).
+- [ ] 📋 PR160 — V19 migration 후 `event_chat_messages` 테이블 + idx(event_id, created_at) 인덱스.
+
+#### 50.2 회귀 — 기존 흐름이 깨지지 않음
+- [ ] 🖱 PR161 — 이벤트룸의 "공지" 탭 (PR141 + PR151 + PR152) 동작 그대로. pinned / read receipt / 이미지 grid 정상.
+- [ ] 🖱 PR161 — Notification SSE 의 일반 notification (NEW_EVENT / 결제 결과 등) 수신 여전히 정상.
+
+### 51. Local storage fallback + image compression (PR163)
+- [ ] 📋 PR163 — `application-local.yml` (또는 `STORAGE_LOCAL_FALLBACK_ENABLED=true` env) 설정 후 backend 부팅 → 로그 `[LocalFileStorage] enabled. basePath=...` 출력.
+- [ ] 🖱 PR163 — EventCreatePage 에서 이미지 업로드 → 성공 toast + 미리보기. 더 이상 "운영 환경에서만 동작합니다" 안내가 나오지 않음.
+- [ ] 🖱 PR163 — `~/.woya/uploads/contents/{userId}/thumbnail/{uuid}.jpg` 파일이 실제 생성됨 (운영자가 OS 파일 매니저로 확인 가능).
+- [ ] 🖱 PR163 — 업로드된 이미지 URL (`http://localhost:8080/uploads/...`) 를 새 탭에서 열면 정적 자원으로 서빙됨.
+- [ ] 🖱 PR163 — 이벤트 목록/상세에서 업로드한 대표 이미지가 프리뷰로 표시.
+- [ ] 🖱 PR163 — 4000×3000 PNG (~3MB) 업로드 → DevTools Network multipart payload 가 ~200KB 수준으로 감소 (JPEG 1280px 0.85 quality).
+- [ ] 🖱 PR163 — 작은 이미지 (예: 320×240 100KB JPEG) → 압축이 더 큰 결과를 만들면 원본 그대로 업로드 (silent skip).
+- [ ] 🖱 PR163 — 비-이미지 파일 (PDF 등) 시도 → backend `InvalidFileTypeException` 400.
+- [ ] 📋 PR163 — 운영(prod) profile 부팅 → `LocalFileStorage` bean 미등록 (storage.local-fallback.enabled=false default) → 기존 S3 경로 그대로 사용, `/uploads/**` 핸들러 미등록.
+
+#### 51.1 PR152 announcement 이미지 회귀
+- [ ] 🖱 PR163 — 공지 작성 form 의 "이미지 추가" 도 같은 압축 흐름. 3장 업로드 후 펼침 시 grid 표시.
+
+#### 51.2 PR159 avatar 회귀
+- [ ] 🖱 PR163 — 프로필 avatar 업로드도 같은 압축 + 디스크 저장 동작.
+
+### 52. PR144~PR163 cycle end-to-end smoke
+**목적**: 두 사이클 누적 시점에 핵심 동선이 깨지지 않았는지 점검.
+
+- [ ] 🖱 회원가입 → ProfilePage 공개 프로필 편집 (avatar 업로드 + bio + 지역 cascade + 관심사 chip) → 저장 → `/users/{id}` 에서 확인.
+- [ ] 🖱 ExplorePage 추천 탭에서 이벤트 발견 → 신청 (무료 또는 결제) → APPROVED.
+- [ ] 🖱 EventDetail "이벤트룸" → "대화" 탭에서 다른 참가자와 메시지 주고받기 + owner 가 공지 체크 → 본인에게 push 도착.
+- [ ] 🖱 행사 종료 → 후기 작성 + 매너 평가 (host↔participant).
+- [ ] 🖱 owner 의 Creator Dashboard → "매출/환불" 카드 + 신청자 CSV 내보내기.
+- [ ] 🖱 같은 이벤트를 owner 가 "이 이벤트 복제하기" → 새 startAt/endAt 입력 → 복제 성공.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

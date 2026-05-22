@@ -609,6 +609,44 @@ iOS Safari 18.5+ 에서는 **홈 화면에 추가한 PWA 에서만** 푸시 알�
 
 권한 prompt 는 사용자 액션(버튼 클릭) 안에서만 호출. 등록/해지는 idempotent — 이미 같은 endpoint 면 backend 가 credential 만 갱신.
 
+### 6.13 Event room chat (PR160 + PR161)
+
+PR150 이벤트룸의 "대화" 탭이 카카오톡식 실시간 채팅으로 교체됐다. 참가가 확정된 사용자만 입장, 운영자의 "공지 체크" 메시지는 push 알림 동반.
+
+| 영역 | 책임 |
+|---|---|
+| V19 `event_chat_messages` | text only (VARCHAR(500)) + is_announcement BOOLEAN + soft delete. idx(event_id, created_at) |
+| `EventChatService` 입장 가드 | owner / 채널 STAFF / ADMIN 또는 APPROVED 참가자 + 활성 ticket (무료면 ticket 검증 skip, 유료면 CANCELED/REFUNDED 제외) |
+| `EventChatService.send` 일반 메시지 | save → `SseEmitterService.broadcast(roomMemberIds, 'event-chat', response)`. push 없음. |
+| `EventChatService.send` 공지 메시지 | owner/STAFF/ADMIN 만 허용 (`EventChatAnnouncementForbiddenException`). save + broadcast + 본인 제외한 룸 멤버에게 `NotificationService.notify(EVENT_ANNOUNCEMENT)` push (preference 통과한 receiver 에게만) |
+| Cursor 페이징 | `findRecentByEvent` + `findBeforeByEvent` JPQL. response items 시간 오름차순 (오래된→새것 카톡식), `nextBefore*` cursor 로 위로 스크롤 |
+
+#### 6.13.1 실시간 fan-in
+
+별도 WebSocket 인프라 없이 **기존 SSE 연결을 재사용**한다:
+
+- backend `SseEmitterService.broadcast(userIds, eventName, payload)` 가 채팅 메시지를 `event-chat` named event 로 emitter 에 흘려보낸다. 같은 emitter 가 notification 과 chat 둘 다 전달.
+- frontend `connectNotificationStream` 이 `onChatMessage` 콜백 옵션을 받는다. `useNotificationStream` 이 chatStore.dispatch 로 연결.
+- ChatPanel 은 `chatStore.subscribe` 로 모든 채팅을 받지만 본인 룸 (`eventId` 매칭) 만 골라 append. 본인 송신 echo + REST 응답이 같은 id 로 도착하면 dedupe.
+
+#### 6.13.2 공지 체크의 의미
+
+PR141 EventAnnouncement 와 PR160 ChatMessage 는 별도 테이블이다. PR160 의 isAnnouncement 는 채팅 흐름 내에서 push 발송 트리거 역할만 한다 — 메시지가 EventAnnouncement 로 mirror 저장되진 않는다. 영구 공지 (pinned, read receipt, image grid) 가 필요하면 EventRoomSection 의 "공지" 탭 (PR141 + PR151 + PR152) 을 사용. 채팅 안의 공지는 "지금 빠르게 알려야 하는 운영 메시지" 용도.
+
+### 6.14 Local storage fallback (PR163)
+
+운영(prod) 은 S3 만 사용한다. local/dev 는 fake AWS 자격 증명이라 S3 호출이 실패하므로 디스크 fallback 으로 회피.
+
+| 영역 | 책임 |
+|---|---|
+| `LocalFileStorageProperties` | `storage.local-fallback.enabled` (default false) + base-path + public-base-url. application.yml base 에 env var 노출 (`STORAGE_LOCAL_FALLBACK_ENABLED`) |
+| `LocalFileStorage` | `@ConditionalOnProperty(enabled=true)` bean. 디스크에 저장 (`~/.woya/uploads/...`), URL `http://localhost:8080/uploads/...` 반환. S3 키 규칙 그대로 — 운영 cutover 가 단순 |
+| `LocalFileStorageWebConfig` | `WebMvcConfigurer.addResourceHandlers` 가 `/uploads` → file:// 디렉터리. 같은 ConditionalOnProperty |
+| `S3Service` | `ObjectProvider<LocalFileStorage>` 주입 받아 ifAvailable 이면 upload/delete 위임. prod 에선 bean 미등록 → 기존 S3 경로 그대로 |
+| `SecurityConfig` | `GET /uploads/**` permitAll (정적 자원). 운영에선 핸들러 자체가 미등록 → 노출 없음 |
+
+frontend 는 `utils/imageCompression.ts` 의 Canvas 기반 자동 리사이즈/압축 (최대 변 1280px, JPEG quality 0.85) 을 `api/files.ts` 의 `uploadFile` 안에서 자동 호출. PNG/JPG/WebP/GIF 모두 입력 가능, 항상 JPEG 출력으로 정규화 (alpha 채널은 흰 배경으로 평탄화). 호출처 (EventCreatePage / ProfilePage / EventAnnouncementsSection) 는 모두 변경 없음.
+
 ---
 
 ## 7. Moderation Flow
@@ -841,6 +879,11 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR156 — PWA manifest & install prompt: `public/manifest.webmanifest` (standalone display, theme #FA5252, 192/512 SVG icons). `public/icons/icon-{192,512}.svg` 단색 + CT 모노그램. `index.html` head 에 manifest link + apple-touch-icon + apple-mobile-web-app-* meta. `InstallPrompt` 컴포넌트 — `beforeinstallprompt` event 캐치 후에만 노출, standalone 모드 / 14일 내 dismiss 한 경우 hidden, NotificationsPage push panel 위에 렌더
 - PR157 — Service worker cache shell: `public/offline.html` static page (inline CSS) + `sw.js` 의 install precache (`/`, `/index.html`, `/manifest.webmanifest`, `/icons/*`, `/offline.html`) + activate 에서 옛 `contenido-shell-*` cache 삭제 + fetch handler (navigate request → network-first → cached `/index.html` → `/offline.html` → 503 chain; manifest/icons/offline.html → cache 우선; 그 외 모두 network passthrough). API 응답은 절대 캐시하지 않음 — 환불/결제 hot path 의 stale 응답 방지. `SHELL_VERSION` 상수 — sw.js / manifest / icons 변경 시 bump (release-notes checklist)
 - PR158 — Push onboarding QA + docs: `BrowserPushPanel` 의 denied 상태에서 Chrome/Edge·Android Chrome·iOS Safari 18.5+ 브라우저별 절차를 ul 로 노출. `docs/architecture.md` / `docs/manual-qa-checklist.md` / `docs/release-notes-local-bundle.md` PR144~PR157 cycle retrospective
+- PR159 — Avatar file upload in public profile editor: ProfilePage 공개 프로필 편집 form 의 avatarUrl URL input 을 파일 업로드 버튼으로 교체. PR152 announcement image picker 패턴 재사용 (`uploadFile(file, 'PROFILE')`). thumbnail circle 미리보기 + "이미지 변경"/"삭제" 버튼 + uploading aria-busy. 빈 상태에서는 닉네임 첫 글자 fallback
+- PR160 — Event room chat backend (text-only MVP): V19 `event_chat_messages` (event_id FK + sender_id FK + content VARCHAR(500) + is_announcement BOOLEAN + created_at + deleted_at + idx(event_id, created_at)). `EventChatMessage` entity + cursor 페이징 repository. `EventChatService` — 입장 가드 (owner/STAFF/ADMIN 또는 APPROVED + 활성 ticket), 일반 메시지 SSE broadcast 만 push 없음, 공지 메시지는 owner/STAFF/ADMIN 만 + 본인 제외 룸 멤버에게 EVENT_ANNOUNCEMENT push, 일반 참가자 announcement 시도 → `EventChatAnnouncementForbiddenException` 403. `SseEmitterService.broadcast(userIds, eventName, payload)` 신규. `/api/v1/events/{eid}/chat/{can-enter,messages}` 3 endpoint. `EventChatServiceTest` 7 케이스
+- PR161 — Event room chat frontend (MVP): `connectNotificationStream` 에 `onChatMessage` 옵션 + `ChatStreamMessage` 타입 — 기존 EventSource 재사용으로 `event-chat` named event fan-in. `stores/chatStore.ts` 단순 event bus. `EventChatPanel` 컴포넌트 — canEnter 가드 + history + 실시간 append (id dedupe) + 본인 메시지 우측 정렬 + 공지 강조 + 운영자 "공지로 보내기" 체크박스 + Enter=전송. `EventRoomSection` "대화" 탭이 EventCommentsSection 대신 EventChatPanel 렌더 (`isOperator` prop 신설). `CommunityPage` 가 placeholder 대신 "내 이벤트룸" 입구 — APPROVED + ticket 활성 row 만 카드 표시
+- PR162 — Event chat docs: architecture / manual-qa / release-notes 갱신 (PR159~PR163 cycle retrospective)
+- PR163 — Local disk fallback storage + frontend image auto-compression: `LocalFileStorageProperties` (`storage.local-fallback.enabled` / `base-path` / `public-base-url`, default disabled — 운영 안전). `LocalFileStorage` `@ConditionalOnProperty(storage.local-fallback.enabled=true)` bean — disk 저장 + `http://localhost:8080/uploads/...` URL. `LocalFileStorageWebConfig` 가 `/uploads` → file system 정적 핸들러. `S3Service` 가 `ObjectProvider<LocalFileStorage>` ifAvailable 이면 위임 — prod 에선 bean 미등록 → 기존 S3 경로. `SecurityConfig` GET /uploads permitAll. application.yml env var 노출. frontend `utils/imageCompression.ts` Canvas 기반 자동 리사이즈/압축 (최대 변 1280px, JPEG quality 0.85, PNG/JPG/WebP/GIF → JPEG 정규화, 결과가 더 크면 원본 반환). `api/files.ts` uploadFile 이 이미지 mime 인 경우 압축 후 업로드 — 호출처 변경 없음
 
 ## Refund Audit Enrichment 정책 (PR115 / PR126 / PR130 / PR131 통합)
 
