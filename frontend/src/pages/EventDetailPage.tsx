@@ -2,9 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { RemainingProgress } from '../components/RemainingProgress'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
-import { EventAnnouncementsSection } from './event-detail/EventAnnouncementsSection'
-import { EventCommentsSection } from './event-detail/EventCommentsSection'
 import { EventMannerSection } from './event-detail/EventMannerSection'
+import { EventRoomSection } from './event-detail/EventRoomSection'
 import {
   EventDetailActionPanel,
   type EventDetailCtaConfig,
@@ -297,27 +296,27 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         />
       ) : null}
 
-      <EventAnnouncementsSection
+      <EventRoomSection
         eventId={eventId}
-        canWrite={isOwner || user?.role === 'ADMIN'}
-        canRead={
-          isOwner ||
-          user?.role === 'ADMIN' ||
-          participation?.status === 'APPROVED'
-        }
-      />
-
-      <EventCommentsSection
-        comments={comments}
-        commentDraft={commentDraft}
-        submittingComment={submittingComment}
         canAccessRoom={
           isOwner ||
           user?.role === 'ADMIN' ||
           participation?.status === 'APPROVED'
         }
+        canWriteAnnouncement={isOwner || user?.role === 'ADMIN'}
+        canReadAnnouncement={
+          isOwner ||
+          user?.role === 'ADMIN' ||
+          participation?.status === 'APPROVED'
+        }
+        comments={comments}
+        commentDraft={commentDraft}
+        submittingComment={submittingComment}
         onDraftChange={setCommentDraft}
         onSubmit={handleSubmitComment}
+        applicants={applicants}
+        approvedCount={event.currentParticipants}
+        maxParticipants={event.maxParticipants}
       />
 
       {new Date(event.endAt).getTime() <= Date.now() ? (
