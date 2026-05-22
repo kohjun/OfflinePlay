@@ -4,6 +4,18 @@ import { Badge } from './Badge'
 interface EventCardProps {
   event: Event
   onOpen?: (channelId: number, eventId: number) => void
+  /** PR148 — 추천 reason chip 코드. PR149 가 상위 1-2개만 노출하도록 자르므로 본 컴포넌트는 그대로 렌더만. */
+  reasonCodes?: string[]
+}
+
+const REASON_LABEL: Record<string, string> = {
+  INTEREST_MATCH: '내 관심사',
+  NEAR_YOU: '내 근처',
+  SUBSCRIBED_CHANNEL: '구독 채널',
+  CLOSING_SOON: '마감 임박',
+  TOP_RATED: '높은 평점',
+  POPULAR: '인기',
+  LATEST: '신규',
 }
 
 const STATUS_LABEL: Record<EventStatus, string> = {
@@ -40,7 +52,7 @@ function formatStartAt(startAt: string) {
   return sameYear ? `${month}.${day} ${hh}:${mm}` : `${d.getFullYear()}.${month}.${day} ${hh}:${mm}`
 }
 
-export function EventCard({ event, onOpen }: EventCardProps) {
+export function EventCard({ event, onOpen, reasonCodes }: EventCardProps) {
   const starts = formatStartAt(event.startAt)
   const capacity = `${event.currentParticipants}/${event.maxParticipants}명`
   const fee = formatFee(event.participationFee)
@@ -71,6 +83,9 @@ export function EventCard({ event, onOpen }: EventCardProps) {
         <div className="badge-row">
           <Badge tone="neutral">{event.channelName}</Badge>
           {event.contentType ? <Badge tone="primary">{CONTENT_TYPE_LABEL[event.contentType]}</Badge> : null}
+          {(reasonCodes ?? []).slice(0, 2).map((code) => (
+            <Badge key={code} tone="success">{REASON_LABEL[code] ?? code}</Badge>
+          ))}
           {/* PR47: 후기 1건 이상일 때만 칩 노출. 0건이면 조용히 숨김. */}
           {event.averageRating != null && (event.reviewCount ?? 0) > 0 ? (
             <span className="ct-rating-chip" aria-label={`평균 별점 ${event.averageRating.toFixed(1)}, 후기 ${event.reviewCount}건`}>

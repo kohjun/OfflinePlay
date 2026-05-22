@@ -109,4 +109,23 @@ interface EventRepository : JpaRepository<Event, Long> {
         @Param("excludeFull") excludeFull: Boolean,
         pageable: Pageable,
     ): Page<Event>
+
+    /**
+     * PR148 — 추천 candidate pool. 종료/숨김 제외 + 임박순 정렬 + Service layer 가 score 계산.
+     *  - hidden 제외 + status != CLOSED + currentParticipants < maxParticipants.
+     *  - startAt >= now() 기준 임박 순. now() 는 호출자가 넘겨준다 (테스트 결정성).
+     *  - LIMIT 은 호출자 Pageable 가 결정.
+     */
+    @Query("""
+        SELECT e FROM Event e
+        WHERE e.hiddenAt IS NULL
+          AND e.status <> 'CLOSED'
+          AND e.currentParticipants < e.maxParticipants
+          AND e.startAt >= :now
+        ORDER BY e.startAt ASC, e.id DESC
+    """)
+    fun findRecommendationCandidates(
+        @Param("now") now: LocalDateTime,
+        pageable: Pageable,
+    ): Page<Event>
 }

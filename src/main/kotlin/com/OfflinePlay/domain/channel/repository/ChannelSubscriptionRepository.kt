@@ -16,6 +16,9 @@ interface ChannelSubscriptionRepository : JpaRepository<ChannelSubscription, Lon
 
     fun findBySubscriber(subscriber: User, pageable: Pageable): Page<ChannelSubscription>
 
+    /** PR148 — 추천에서 사용자가 구독 중인 채널 id 묶음을 빠르게 가져오기 위한 derived query. */
+    fun findBySubscriberId(subscriberId: Long): List<ChannelSubscription>
+
     fun deleteBySubscriberAndChannel(subscriber: User, channel: Channel)
 
     fun countByChannel(channel: Channel): Long

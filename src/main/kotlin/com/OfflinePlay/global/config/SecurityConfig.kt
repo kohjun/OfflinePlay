@@ -89,6 +89,8 @@ class SecurityConfig(
                     // PR147 — interests / regions 카탈로그 (비로그인 허용). 개인 관심사 `/users/me/interests` 는 인증 필요.
                     .requestMatchers(HttpMethod.GET, "/api/v1/interests").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/v1/regions").permitAll()
+                    // PR148 — 추천 (비로그인 허용 — fallback segment 응답).
+                    .requestMatchers(HttpMethod.GET, "/api/v1/recommendations/**").permitAll()
                     // 헬스체크 / actuator — health 트리(liveness/readiness 포함) + info 만 외부 공개.
                     // metrics/prometheus 같은 그 외 엔드포인트는 노출 자체를 management.endpoints
                     // 에서 제외하므로 별도 deny 룰 불필요. 추후 metrics 노출 시 인증 게이트 필요.

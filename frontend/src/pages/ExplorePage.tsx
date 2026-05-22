@@ -6,7 +6,9 @@ import {
 } from '../api/channels'
 import { ChannelCard } from '../components/ChannelCard'
 import { EventCard } from '../components/EventCard'
+import { RecommendationStrip } from '../components/RecommendationStrip'
 import { Skeleton } from '../components/Skeleton'
+import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import type { Channel, ChannelCategory, ContentType, Event } from '../types'
 
@@ -173,6 +175,7 @@ function buildSearch(
 
 export function ExplorePage({ onNavigate }: ExplorePageProps) {
   const { showToast } = useToast()
+  const { isAuthenticated } = useAuth()
 
   // 마운트 시 초기값(URL/sessionStorage). 이후 popstate 또는 사용자 액션으로만 변경된다.
   const initial = useState(readFiltersFromUrl)[0]
@@ -430,6 +433,13 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
         <p className="eyebrow">Explore</p>
         <h1 className="ct-explore-title">관심 채널과 이벤트 찾기</h1>
       </header>
+
+      <RecommendationStrip
+        onOpen={(channelId, eventId) =>
+          onNavigate(`/channels/${channelId}/events/${eventId}`)
+        }
+        isAuthenticated={isAuthenticated}
+      />
 
       <form className="ct-search ct-explore-search" onSubmit={handleSubmit} role="search">
         <span className="ct-search-icon" aria-hidden="true">
