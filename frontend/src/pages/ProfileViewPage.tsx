@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
-import { getPublicProfile, type PublicProfileResponse } from '../api/users'
+import {
+  getPublicProfile,
+  getTrustSummary,
+  type PublicProfileResponse,
+  type TrustSummaryResponse,
+} from '../api/users'
 import { Skeleton } from '../components/Skeleton'
+import { TrustChips } from '../components/TrustChips'
 import { useToast } from '../hooks/useToast'
 import type { UserRole } from '../types'
 
@@ -29,6 +35,7 @@ interface ProfileViewPageProps {
 export function ProfileViewPage({ userId, onNavigate }: ProfileViewPageProps) {
   const { showToast } = useToast()
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null)
+  const [trust, setTrust] = useState<TrustSummaryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,9 +43,15 @@ export function ProfileViewPage({ userId, onNavigate }: ProfileViewPageProps) {
     let alive = true
     setLoading(true)
     setError(null)
-    getPublicProfile(userId)
-      .then((res) => {
-        if (alive) setProfile(res)
+    // 프로필 + 신뢰 요약을 병렬로 fetch. 신뢰는 실패해도 프로필 노출 유지 (best-effort).
+    Promise.all([
+      getPublicProfile(userId),
+      getTrustSummary(userId).catch(() => null),
+    ])
+      .then(([profileRes, trustRes]) => {
+        if (!alive) return
+        setProfile(profileRes)
+        setTrust(trustRes)
       })
       .catch((err) => {
         if (!alive) return
@@ -95,6 +108,13 @@ export function ProfileViewPage({ userId, onNavigate }: ProfileViewPageProps) {
           </span>
         </div>
       </section>
+
+      {trust ? (
+        <section className="form-section" aria-label="신뢰 요약">
+          <h2>활동 요약</h2>
+          <TrustChips summary={trust} variant="full" />
+        </section>
+      ) : null}
 
       {visibilityNotice ? (
         <p className="muted">{visibilityNotice}</p>

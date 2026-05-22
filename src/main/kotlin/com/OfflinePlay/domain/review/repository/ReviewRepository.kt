@@ -87,4 +87,18 @@ interface ReviewRepository : JpaRepository<Review, Long> {
         GROUP BY r.event.channel.id
     """)
     fun aggregateByChannelIds(@Param("channelIds") channelIds: Collection<Long>): List<Array<Any>>
+
+    /**
+     * PR145 — host(채널 owner) 단위 평균 별점. 채널이 여러 개여도 owner 가 같으면 전부 합산.
+     * Trust Snapshot 의 averageEventRatingAsHost 와 PR153 Creator Analytics 양쪽이 같은 query 를 쓴다.
+     * 후기가 한 건도 없으면 null.
+     */
+    @Query("""
+        SELECT AVG(r.rating) FROM Review r
+        WHERE r.event.channel.owner.id = :hostUserId
+    """)
+    fun averageRatingByHostUserId(@Param("hostUserId") hostUserId: Long): Double?
+
+    /** PR145 — 사용자가 작성한 후기 총 개수 (자동 숨김 포함). */
+    fun countByAuthorId(authorId: Long): Long
 }

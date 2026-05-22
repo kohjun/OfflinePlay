@@ -64,4 +64,10 @@ interface EventParticipationRepository : JpaRepository<EventParticipation, Long>
     fun countByEventIn(events: List<Event>): Long
 
     fun deleteByEventAndParticipant(event: Event, participant: User)
+
+    /** PR145 — 사용자가 참가했던 이벤트 수 (status 무관). Trust Snapshot 의 participatedEventCount. */
+    fun countByParticipantId(participantId: Long): Long
+
+    /** PR145 — 사용자의 APPROVED 참가 횟수만. 추후 분리 표시가 필요할 때 사용. */
+    fun countByParticipantIdAndStatus(participantId: Long, status: ParticipationStatus): Long
 }

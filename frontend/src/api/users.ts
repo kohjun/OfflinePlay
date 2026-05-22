@@ -44,6 +44,22 @@ export function updateMyExtendedProfile(request: UpdateMyProfileRequest) {
 }
 
 /**
+ * PR145 — 사용자 신뢰 요약. 기존 이벤트/참가/티켓/후기 데이터 즉시 집계.
+ */
+export interface TrustSummaryResponse {
+  userId: number
+  hostedEventCount: number
+  participatedEventCount: number
+  checkedInCount: number
+  reviewCount: number
+  averageEventRatingAsHost: number | null
+}
+
+export function getTrustSummary(userId: number) {
+  return apiClient.get<TrustSummaryResponse>(`/users/${userId}/trust-summary`)
+}
+
+/**
  * PATCH /api/v1/users/me — 닉네임/전화번호 부분 업데이트.
  * 필드는 모두 optional. 응답은 갱신된 UserProfileResponse.
  */

@@ -39,4 +39,7 @@ interface TicketRepository : JpaRepository<Ticket, Long> {
         @Param("event") event: Event,
         @Param("buyerIds") buyerIds: Collection<Long>,
     ): List<Ticket>
+
+    /** PR145 — 사용자가 USED 상태로 체크인 완료한 티켓 수. Trust Snapshot 의 checkedInCount. */
+    fun countByBuyerIdAndStatus(buyerId: Long, status: TicketStatus): Long
 }

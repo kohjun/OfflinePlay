@@ -3,9 +3,11 @@ package com.contenido.domain.user.controller
 import com.contenido.domain.user.dto.ChangePasswordRequest
 import com.contenido.domain.user.dto.MyProfileResponse
 import com.contenido.domain.user.dto.PublicProfileResponse
+import com.contenido.domain.user.dto.TrustSummaryResponse
 import com.contenido.domain.user.dto.UpdateMyProfileRequest
 import com.contenido.domain.user.dto.UpdateProfileRequest
 import com.contenido.domain.user.dto.UserProfileResponse
+import com.contenido.domain.user.service.TrustSummaryService
 import com.contenido.domain.user.service.UserProfileService
 import com.contenido.domain.user.service.UserService
 import com.contenido.global.response.ApiResponse
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.*
 class UserController(
     private val userService: UserService,
     private val userProfileService: UserProfileService,
+    private val trustSummaryService: TrustSummaryService,
 ) {
 
     @GetMapping("/me")
@@ -90,5 +93,16 @@ class UserController(
             userProfileService.updateMyProfile(userId, request),
             "프로필이 수정되었습니다.",
         )
+    }
+
+    /**
+     * PR145 — 사용자 신뢰 요약. 기존 데이터(이벤트/참가/티켓/후기) 를 즉시 집계.
+     * 누구나 조회 가능 (인증 필요). 캐시 없음.
+     */
+    @GetMapping("/{userId}/trust-summary")
+    fun getTrustSummary(
+        @PathVariable userId: Long,
+    ): ApiResponse<TrustSummaryResponse> {
+        return ApiResponse.ok(trustSummaryService.compute(userId))
     }
 }
