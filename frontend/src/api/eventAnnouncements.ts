@@ -24,11 +24,15 @@ export interface EventAnnouncement {
   pinned: boolean
   /** PR151 — viewer 가 본 공지인지. */
   read: boolean
+  /** PR152 — 첨부 이미지 url 목록 (displayOrder asc). */
+  imageUrls: string[]
 }
 
 export interface CreateEventAnnouncementRequest {
   title: string
   content: string
+  /** PR152 — 최대 3장. backend 가 validation. */
+  imageUrls?: string[]
 }
 
 export interface UnreadAnnouncementCount {

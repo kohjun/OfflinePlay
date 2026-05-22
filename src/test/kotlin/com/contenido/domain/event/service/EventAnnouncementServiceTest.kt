@@ -50,6 +50,7 @@ class EventAnnouncementServiceTest {
 
     @MockK(relaxed = true) lateinit var announcementRepository: EventAnnouncementRepository
     @MockK(relaxed = true) lateinit var readRepository: com.contenido.domain.event.repository.EventAnnouncementReadRepository
+    @MockK(relaxed = true) lateinit var imageRepository: com.contenido.domain.event.repository.EventAnnouncementImageRepository
     @MockK lateinit var eventRepository: EventRepository
     @MockK lateinit var participationRepository: EventParticipationRepository
     @MockK lateinit var ticketRepository: TicketRepository
@@ -64,6 +65,7 @@ class EventAnnouncementServiceTest {
         service = EventAnnouncementService(
             announcementRepository = announcementRepository,
             readRepository = readRepository,
+            imageRepository = imageRepository,
             eventRepository = eventRepository,
             participationRepository = participationRepository,
             ticketRepository = ticketRepository,

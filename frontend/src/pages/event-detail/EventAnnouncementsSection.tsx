@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createEventAnnouncement,
   getEventAnnouncements,
@@ -6,8 +6,11 @@ import {
   setEventAnnouncementPinned,
   type EventAnnouncement,
 } from '../../api/eventAnnouncements'
+import { uploadFile } from '../../api/files'
 import { Badge } from '../../components/Badge'
 import { useToast } from '../../hooks/useToast'
+
+const MAX_IMAGES = 3
 
 interface EventAnnouncementsSectionProps {
   eventId: number
@@ -37,6 +40,10 @@ export function EventAnnouncementsSection({
   const [submitting, setSubmitting] = useState(false)
   /** PR151 — 펼침 상태별 read 자동 처리. */
   const [expandedIds, setExpandedIds] = useState<Set<number>>(() => new Set())
+  /** PR152 — 작성 form 에 첨부된 이미지 url. 최대 MAX_IMAGES 장. */
+  const [draftImageUrls, setDraftImageUrls] = useState<string[]>([])
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const refresh = useCallback(() => {
     setLoading(true)
@@ -68,10 +75,15 @@ export function EventAnnouncementsSection({
     }
     setSubmitting(true)
     try {
-      const created = await createEventAnnouncement(eventId, { title: t, content: c })
+      const created = await createEventAnnouncement(eventId, {
+        title: t,
+        content: c,
+        imageUrls: draftImageUrls.length > 0 ? draftImageUrls : undefined,
+      })
       setItems((prev) => [created, ...prev])
       setTitle('')
       setContent('')
+      setDraftImageUrls([])
       showToast({ title: '공지를 발송했어요', tone: 'success' })
     } catch (err) {
       showToast({
@@ -113,6 +125,45 @@ export function EventAnnouncementsSection({
                 disabled={submitting}
               />
             </label>
+            <div className="event-announcement-form__images">
+              <div className="card-heading-row">
+                <strong>첨부 이미지 (선택)</strong>
+                <span className="muted">{draftImageUrls.length}/{MAX_IMAGES}</span>
+              </div>
+              <div className="event-announcement-form__image-row">
+                {draftImageUrls.map((url, idx) => (
+                  <div key={url + idx} className="event-announcement-form__image-thumb">
+                    <img src={url} alt="" />
+                    <button
+                      type="button"
+                      className="button button-tertiary"
+                      onClick={() => removeDraftImage(idx)}
+                      disabled={submitting}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                ))}
+                {draftImageUrls.length < MAX_IMAGES ? (
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={submitting || uploadingImage}
+                    aria-busy={uploadingImage}
+                  >
+                    {uploadingImage ? '업로드 중…' : '이미지 추가'}
+                  </button>
+                ) : null}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={handlePickImage}
+                />
+              </div>
+            </div>
             <div className="event-announcement-form__actions">
               <button
                 type="submit"
@@ -160,7 +211,20 @@ export function EventAnnouncementsSection({
                     </div>
                   </div>
                   {expanded ? (
-                    <p className="ct-event-section-text">{a.content}</p>
+                    <>
+                      <p className="ct-event-section-text">{a.content}</p>
+                      {a.imageUrls.length > 0 ? (
+                        <div
+                          className={`event-announcement-images event-announcement-images--${a.imageUrls.length}`}
+                        >
+                          {a.imageUrls.map((url) => (
+                            <a key={url} href={url} target="_blank" rel="noreferrer">
+                              <img src={url} alt="" loading="lazy" />
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
                   <span className="muted">
                     {a.authorNickname} · {new Date(a.createdAt).toLocaleString()}
@@ -191,6 +255,34 @@ export function EventAnnouncementsSection({
       )}
     </section>
   )
+
+  /** PR152 — 이미지 picker → S3 upload → draft list 에 url append. */
+  async function handlePickImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (draftImageUrls.length >= MAX_IMAGES) {
+      showToast({ title: `이미지는 최대 ${MAX_IMAGES}장까지 첨부할 수 있어요.`, tone: 'warning' })
+      return
+    }
+    setUploadingImage(true)
+    try {
+      const uploaded = await uploadFile(file, 'POST')
+      setDraftImageUrls((prev) => [...prev, uploaded.url].slice(0, MAX_IMAGES))
+    } catch (err) {
+      showToast({
+        title: '이미지 업로드에 실패했어요',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  function removeDraftImage(index: number) {
+    setDraftImageUrls((prev) => prev.filter((_, i) => i !== index))
+  }
 
   /** PR151 — 펼치면 read 자동 POST + UI optimistic mark. 접기는 read 변경 없음. */
   async function handleToggleExpand(a: EventAnnouncement) {

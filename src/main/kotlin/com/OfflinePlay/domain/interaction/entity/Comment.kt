@@ -1,6 +1,9 @@
 package com.contenido.domain.interaction.entity
 
 import com.contenido.domain.user.entity.User
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
 import jakarta.persistence.*
 import org.springframework.data.annotation.CreatedDate
 import org.springframework.data.annotation.LastModifiedDate
@@ -32,6 +35,15 @@ class Comment(
 
     @Column(name = "like_count", nullable = false)
     var likeCount: Long = 0,
+
+    /**
+     * PR152 — 이벤트룸 댓글 inline 이미지 url 목록 (최대 3장 — service validation).
+     * JSON 직렬화 (List<String>). null / blank → 빈 리스트로 변환.
+     * 다른 targetType (POST 등) 의 댓글은 본 컬럼을 사용하지 않는다 — null 그대로 둔다.
+     */
+    @Convert(converter = CommentImagesConverter::class)
+    @Column(name = "images", columnDefinition = "TEXT")
+    var images: List<String> = emptyList(),
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -85,4 +97,22 @@ class Comment(
         hiddenAt = null
         hiddenReason = null
     }
+}
+
+/**
+ * PR152 — comment images TEXT 컬럼 ↔ `List<String>` 변환기.
+ *  - null / blank DB 값 → 빈 리스트.
+ *  - 손상된 JSON 도 빈 리스트로 fallback — entity load 가 깨지지 않게.
+ */
+@Converter(autoApply = false)
+class CommentImagesConverter : AttributeConverter<List<String>, String?> {
+
+    private val mapper: ObjectMapper = jacksonObjectMapper()
+
+    override fun convertToDatabaseColumn(attribute: List<String>?): String? =
+        if (attribute.isNullOrEmpty()) null else mapper.writeValueAsString(attribute)
+
+    override fun convertToEntityAttribute(dbData: String?): List<String> =
+        if (dbData.isNullOrBlank()) emptyList()
+        else runCatching { mapper.readValue<List<String>>(dbData) }.getOrDefault(emptyList())
 }

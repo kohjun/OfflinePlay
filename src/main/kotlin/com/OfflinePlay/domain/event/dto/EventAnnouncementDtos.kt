@@ -7,6 +7,8 @@ import java.time.LocalDateTime
 
 /**
  * PR141 — 이벤트 공지 생성/응답 DTO.
+ *
+ * PR152 — `imageUrls` 추가. 최대 3장, 각 URL 은 max 500자 (S3Service 가 발급한 fully qualified URL).
  */
 data class CreateEventAnnouncementRequest(
     @field:NotBlank
@@ -16,6 +18,9 @@ data class CreateEventAnnouncementRequest(
     @field:NotBlank
     @field:Size(min = 1, max = 5000)
     val content: String,
+
+    @field:Size(max = 3)
+    val imageUrls: List<@Size(min = 1, max = 500) String> = emptyList(),
 )
 
 data class EventAnnouncementResponse(
@@ -31,6 +36,8 @@ data class EventAnnouncementResponse(
     val pinned: Boolean = false,
     /** PR151 — viewer 가 본 공지인지. 미인증 viewer 또는 read 가 없으면 false. */
     val read: Boolean = false,
+    /** PR152 — 첨부 이미지 url. displayOrder asc 정렬. 빈 리스트면 표시 안 함. */
+    val imageUrls: List<String> = emptyList(),
 ) {
     companion object {
         fun from(announcement: EventAnnouncement) = EventAnnouncementResponse(
@@ -44,9 +51,14 @@ data class EventAnnouncementResponse(
             updatedAt = announcement.updatedAt,
             pinned = announcement.isPinned,
             read = false,
+            imageUrls = emptyList(),
         )
 
-        fun from(announcement: EventAnnouncement, read: Boolean) = from(announcement).copy(read = read)
+        fun from(
+            announcement: EventAnnouncement,
+            read: Boolean,
+            imageUrls: List<String> = emptyList(),
+        ) = from(announcement).copy(read = read, imageUrls = imageUrls)
     }
 }
 

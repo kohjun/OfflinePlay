@@ -5,8 +5,10 @@ import com.contenido.domain.event.dto.CreateEventAnnouncementRequest
 import com.contenido.domain.event.dto.EventAnnouncementResponse
 import com.contenido.domain.event.entity.Event
 import com.contenido.domain.event.entity.EventAnnouncement
+import com.contenido.domain.event.entity.EventAnnouncementImage
 import com.contenido.domain.event.entity.EventAnnouncementRead
 import com.contenido.domain.event.entity.ParticipationStatus
+import com.contenido.domain.event.repository.EventAnnouncementImageRepository
 import com.contenido.domain.event.repository.EventAnnouncementReadRepository
 import com.contenido.domain.event.repository.EventAnnouncementRepository
 import com.contenido.domain.event.repository.EventParticipationRepository
@@ -48,6 +50,7 @@ import java.time.LocalDateTime
 class EventAnnouncementService(
     private val announcementRepository: EventAnnouncementRepository,
     private val readRepository: EventAnnouncementReadRepository,
+    private val imageRepository: EventAnnouncementImageRepository,
     private val eventRepository: EventRepository,
     private val participationRepository: EventParticipationRepository,
     private val ticketRepository: TicketRepository,
@@ -76,6 +79,21 @@ class EventAnnouncementService(
             ),
         )
 
+        // PR152 — 첨부 이미지 저장 (최대 3장, DTO bean validation 이 미리 거른다).
+        val savedImages = if (request.imageUrls.isNotEmpty()) {
+            val rows = request.imageUrls
+                .take(3)
+                .mapIndexed { index, url ->
+                    EventAnnouncementImage(
+                        announcementId = saved.id,
+                        url = url,
+                        displayOrder = index,
+                    )
+                }
+            imageRepository.saveAll(rows)
+            rows.map { it.url }
+        } else emptyList()
+
         runCatching {
             val receivers = activeParticipantIds(event)
             if (receivers.isNotEmpty()) {
@@ -92,7 +110,7 @@ class EventAnnouncementService(
             log.warn("[announcement] notify failed eventId={} err={}", event.id, e.message)
         }
 
-        return EventAnnouncementResponse.from(saved)
+        return EventAnnouncementResponse.from(saved, read = false, imageUrls = savedImages)
     }
 
     fun list(userId: Long, eventId: Long): List<EventAnnouncementResponse> {
@@ -106,13 +124,23 @@ class EventAnnouncementService(
         val readIds = readRepository.findByUserIdAndAnnouncementIdIn(userId, items.map { it.id })
             .map { it.announcementId }
             .toSet()
+        // PR152 — 첨부 이미지 묶음 (N+1 회피).
+        val imagesByAnnouncement = imageRepository
+            .findByAnnouncementIdInOrderByAnnouncementIdAscDisplayOrderAsc(items.map { it.id })
+            .groupBy({ it.announcementId }, { it.url })
 
         return items
             .sortedWith(
                 compareByDescending<EventAnnouncement> { it.pinnedAt != null }
                     .thenByDescending { it.createdAt },
             )
-            .map { EventAnnouncementResponse.from(it, read = it.id in readIds) }
+            .map {
+                EventAnnouncementResponse.from(
+                    announcement = it,
+                    read = it.id in readIds,
+                    imageUrls = imagesByAnnouncement[it.id] ?: emptyList(),
+                )
+            }
     }
 
     /**
