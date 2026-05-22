@@ -655,7 +655,9 @@ export function ExplorePage({ onNavigate }: ExplorePageProps) {
             <span aria-hidden="true">🔍</span>
             <strong>조건에 맞는 결과가 없어요</strong>
             <span className="muted">
-              {hasAnyFilter ? '다른 키워드나 카테고리를 시도해보세요.' : '관심 카테고리를 선택해보세요.'}
+              {hasAnyFilter
+                ? '다른 키워드나 카테고리를 시도해보세요. 페이지 상단 "추천" 탭에서 비슷한 이벤트를 찾아볼 수 있어요.'
+                : '관심 카테고리를 선택해보세요.'}
             </span>
             {hasAnyFilter ? (
               <div className="ct-explore-empty-suggestions" aria-label="추천 검색어">

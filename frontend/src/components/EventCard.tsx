@@ -18,6 +18,30 @@ const REASON_LABEL: Record<string, string> = {
   LATEST: '신규',
 }
 
+/**
+ * PR149 — chip 우선순위. 한 카드에 reasonCodes 가 많이 들어오면 다음 순서로 상위 1-2개만 노출:
+ *   INTEREST_MATCH > NEAR_YOU > SUBSCRIBED_CHANNEL > CLOSING_SOON > TOP_RATED > POPULAR > LATEST
+ *
+ * 백엔드가 보내준 순서를 신뢰하지 않고 frontend 가 다시 정렬한다 — 백엔드 가중치가 바뀌어도 표시
+ * 일관성 유지.
+ */
+const REASON_PRIORITY: Record<string, number> = {
+  INTEREST_MATCH: 1,
+  NEAR_YOU: 2,
+  SUBSCRIBED_CHANNEL: 3,
+  CLOSING_SOON: 4,
+  TOP_RATED: 5,
+  POPULAR: 6,
+  LATEST: 7,
+}
+
+function topReasonChips(codes: string[] | undefined, max = 2): string[] {
+  if (!codes || codes.length === 0) return []
+  return [...codes]
+    .sort((a, b) => (REASON_PRIORITY[a] ?? 99) - (REASON_PRIORITY[b] ?? 99))
+    .slice(0, max)
+}
+
 const STATUS_LABEL: Record<EventStatus, string> = {
   UPCOMING: '곧 시작',
   ONGOING: '진행 중',
@@ -83,7 +107,7 @@ export function EventCard({ event, onOpen, reasonCodes }: EventCardProps) {
         <div className="badge-row">
           <Badge tone="neutral">{event.channelName}</Badge>
           {event.contentType ? <Badge tone="primary">{CONTENT_TYPE_LABEL[event.contentType]}</Badge> : null}
-          {(reasonCodes ?? []).slice(0, 2).map((code) => (
+          {topReasonChips(reasonCodes).map((code) => (
             <Badge key={code} tone="success">{REASON_LABEL[code] ?? code}</Badge>
           ))}
           {/* PR47: 후기 1건 이상일 때만 칩 노출. 0건이면 조용히 숨김. */}
