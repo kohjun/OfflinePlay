@@ -51,6 +51,18 @@ data class CreateEventRequest(
      * 구버전 호환을 위해 nullable로 둔다. null이면 서비스에서 SPECIAL로 보정한다.
      */
     val contentType: ContentType? = null,
+
+    /**
+     * PR147 — 정규화된 region (시군구 단위). null 허용. 잘못된 코드는 service 가 무시하고 region=null.
+     */
+    @field:Size(max = 10)
+    val regionCode: String? = null,
+
+    /**
+     * PR147 — 이벤트 관심사 (다대다). 빈 리스트 가능. 카탈로그에 없는 id 는 service 가 무시.
+     */
+    @field:Size(max = 20)
+    val interestIds: List<Long> = emptyList(),
 )
 
 /**
@@ -74,6 +86,12 @@ data class UpdateEventRequest(
     val refundPolicy: String? = null,
     val detailContent: String? = null,
     val contentType: ContentType? = null,
+
+    /** PR147 — 정규화 region. 빈 문자열은 region 해제. null 은 변경 없음. */
+    val regionCode: String? = null,
+
+    /** PR147 — 관심사 set. null 은 변경 없음. 빈 리스트는 모두 해제. */
+    val interestIds: List<Long>? = null,
 )
 
 data class EventResponse(

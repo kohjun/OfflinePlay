@@ -1,5 +1,9 @@
 package com.contenido.domain.user.service
 
+import com.contenido.domain.interest.dto.InterestResponse
+import com.contenido.domain.interest.repository.InterestRepository
+import com.contenido.domain.interest.repository.UserInterestRepository
+import com.contenido.domain.region.repository.RegionRepository
 import com.contenido.domain.user.dto.MyProfileResponse
 import com.contenido.domain.user.dto.PublicProfileResponse
 import com.contenido.domain.user.dto.UpdateMyProfileRequest
@@ -29,6 +33,9 @@ import org.springframework.transaction.annotation.Transactional
 class UserProfileService(
     private val userRepository: UserRepository,
     private val profileRepository: UserProfileRepository,
+    private val regionRepository: RegionRepository,
+    private val userInterestRepository: UserInterestRepository,
+    private val interestRepository: InterestRepository,
 ) {
 
     fun getPublicProfile(userId: Long): PublicProfileResponse {
@@ -62,6 +69,10 @@ class UserProfileService(
         request.avatarUrl?.let { profile.avatarUrl = it.ifBlank { null } }
         request.regionSido?.let { profile.regionSido = it.ifBlank { null } }
         request.regionSigungu?.let { profile.regionSigungu = it.ifBlank { null } }
+        request.regionCode?.let { code ->
+            profile.region = if (code.isBlank()) null
+            else regionRepository.findById(code).orElse(null)
+        }
         request.visibility?.let { profile.visibility = it }
 
         return toMyResponse(user, profile)
@@ -72,6 +83,7 @@ class UserProfileService(
     private fun toPublicResponse(user: User, profile: UserProfile?): PublicProfileResponse {
         val visibility = profile?.visibility ?: ProfileVisibility.PUBLIC
         val isPrivate = visibility == ProfileVisibility.PRIVATE
+        val interests = if (isPrivate) emptyList() else loadInterestResponses(user.id)
         return PublicProfileResponse(
             userId = user.id,
             nickname = user.nickname,
@@ -80,6 +92,9 @@ class UserProfileService(
             bio = profile?.bio?.takeUnless { isPrivate },
             regionSido = profile?.regionSido?.takeUnless { isPrivate },
             regionSigungu = profile?.regionSigungu?.takeUnless { isPrivate },
+            regionCode = profile?.region?.code?.takeUnless { isPrivate },
+            regionName = profile?.region?.name?.takeUnless { isPrivate },
+            interests = interests,
             visibility = visibility,
             joinedAt = user.createdAt,
         )
@@ -94,8 +109,20 @@ class UserProfileService(
             bio = profile?.bio,
             regionSido = profile?.regionSido,
             regionSigungu = profile?.regionSigungu,
+            regionCode = profile?.region?.code,
+            regionName = profile?.region?.name,
+            interests = loadInterestResponses(user.id),
             visibility = profile?.visibility ?: ProfileVisibility.PUBLIC,
             joinedAt = user.createdAt,
             updatedAt = profile?.updatedAt,
         )
+
+    /** PR147 — 사용자의 관심사 id → catalog row 로 변환. id 가 없으면 빈 리스트. */
+    private fun loadInterestResponses(userId: Long): List<InterestResponse> {
+        val ids = userInterestRepository.findByUserId(userId).map { it.interestId }
+        if (ids.isEmpty()) return emptyList()
+        return interestRepository.findByIdIn(ids)
+            .sortedWith(compareBy({ it.category }, { it.displayOrder }))
+            .map(InterestResponse::from)
+    }
 }

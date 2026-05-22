@@ -17,8 +17,12 @@ import com.contenido.domain.event.entity.EventStatus
 import com.contenido.domain.event.entity.ParticipationStatus
 import com.contenido.domain.event.repository.EventParticipationRepository
 import com.contenido.domain.event.repository.EventRepository
+import com.contenido.domain.interest.entity.EventInterest
+import com.contenido.domain.interest.repository.EventInterestRepository
+import com.contenido.domain.interest.repository.InterestRepository
 import com.contenido.domain.notification.entity.NotificationType
 import com.contenido.domain.notification.service.NotificationService
+import com.contenido.domain.region.repository.RegionRepository
 import com.contenido.domain.review.repository.ReviewRepository
 import com.contenido.domain.ticket.entity.Ticket
 import com.contenido.domain.ticket.entity.TicketStatus
@@ -54,6 +58,9 @@ class EventService(
     private val ticketRepository: TicketRepository,
     private val paymentAttemptRepository: com.contenido.domain.payment.repository.PaymentAttemptRepository,
     private val reviewRepository: ReviewRepository,
+    private val regionRepository: RegionRepository,
+    private val interestRepository: InterestRepository,
+    private val eventInterestRepository: EventInterestRepository,
     private val publisher: ApplicationEventPublisher,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -69,6 +76,8 @@ class EventService(
             throw InvalidEventDateRangeException()
         }
 
+        // PR147 — region 은 잘못된 코드면 silently null.
+        val region = request.regionCode?.let { regionRepository.findById(it).orElse(null) }
         val event = eventRepository.save(
             Event(
                 channel = channel,
@@ -83,8 +92,17 @@ class EventService(
                 refundPolicy = request.refundPolicy,
                 detailContent = request.detailContent,
                 contentType = request.contentType ?: ContentType.SPECIAL,
+                region = region,
             )
         )
+
+        // PR147 — 이벤트 관심사 다대다 (잘못된 id 는 무시).
+        if (request.interestIds.isNotEmpty()) {
+            val valid = interestRepository.findByIdIn(request.interestIds.distinct()).map { it.id }
+            if (valid.isNotEmpty()) {
+                eventInterestRepository.saveAll(valid.map { EventInterest(eventId = event.id, interestId = it) })
+            }
+        }
 
         publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "EVENT", event.id))
 
@@ -178,6 +196,24 @@ class EventService(
         request.contentType?.let { event.contentType = it }
         event.startAt = newStart
         event.endAt = newEnd
+
+        // PR147 — region 갱신. 빈 문자열은 해제, null 은 변경 없음.
+        request.regionCode?.let { code ->
+            event.region = if (code.isBlank()) null
+            else regionRepository.findById(code).orElse(null)
+        }
+        // PR147 — 관심사 set 갱신. null 은 그대로 두고, 빈 리스트는 모두 해제.
+        request.interestIds?.let { ids ->
+            eventInterestRepository.deleteByEventId(event.id)
+            if (ids.isNotEmpty()) {
+                val valid = interestRepository.findByIdIn(ids.distinct()).map { it.id }
+                if (valid.isNotEmpty()) {
+                    eventInterestRepository.saveAll(
+                        valid.map { EventInterest(eventId = event.id, interestId = it) },
+                    )
+                }
+            }
+        }
 
         publisher.publishEvent(ContentSyncEvent(ContentSyncAction.SYNC, "EVENT", event.id))
 

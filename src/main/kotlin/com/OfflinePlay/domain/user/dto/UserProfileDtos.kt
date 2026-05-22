@@ -1,5 +1,6 @@
 package com.contenido.domain.user.dto
 
+import com.contenido.domain.interest.dto.InterestResponse
 import com.contenido.domain.user.entity.ProfileVisibility
 import com.contenido.domain.user.entity.UserRole
 import jakarta.validation.constraints.Size
@@ -13,7 +14,12 @@ import java.time.LocalDateTime
  */
 
 /**
- * 공개 프로필 응답. visibility=PRIVATE 이면 [bio]/[avatarUrl]/[regionSido]/[regionSigungu] 모두 null.
+ * 공개 프로필 응답. visibility=PRIVATE 이면 [bio]/[avatarUrl]/[regionSido]/[regionSigungu]/[regionCode]
+ * /[regionName]/[interests] 모두 null/empty.
+ *
+ *  - PR147 부터 `regionCode` / `regionName` (정규화) 가 추가. 기존 free-form `regionSido`/`regionSigungu`
+ *    는 backfill 대상으로 유지.
+ *  - `interests` 는 사용자가 설정한 관심사 catalog 의 묶음 (label/category 포함).
  */
 data class PublicProfileResponse(
     val userId: Long,
@@ -23,6 +29,9 @@ data class PublicProfileResponse(
     val bio: String?,
     val regionSido: String?,
     val regionSigungu: String?,
+    val regionCode: String?,
+    val regionName: String?,
+    val interests: List<InterestResponse>,
     val visibility: ProfileVisibility,
     val joinedAt: LocalDateTime,
 )
@@ -38,6 +47,9 @@ data class MyProfileResponse(
     val bio: String?,
     val regionSido: String?,
     val regionSigungu: String?,
+    val regionCode: String?,
+    val regionName: String?,
+    val interests: List<InterestResponse>,
     val visibility: ProfileVisibility,
     val joinedAt: LocalDateTime,
     val updatedAt: LocalDateTime?,
@@ -63,9 +75,17 @@ data class UpdateMyProfileRequest(
     @field:Size(max = 50)
     val regionSigungu: String? = null,
 
+    /**
+     * PR147 — 정규화된 region code. 빈 문자열 → null (지움). null 자체는 변경 없음.
+     * 잘못된 code 는 service 가 silently null 처리 (FK 가 차단해도 안전).
+     */
+    @field:Size(max = 10)
+    val regionCode: String? = null,
+
     val visibility: ProfileVisibility? = null,
 ) {
     /** 어떤 필드도 들어오지 않은 경우 — service 가 일찍 return 할 수 있게 도와준다. */
     fun isNoop(): Boolean =
-        bio == null && avatarUrl == null && regionSido == null && regionSigungu == null && visibility == null
+        bio == null && avatarUrl == null && regionSido == null && regionSigungu == null &&
+            regionCode == null && visibility == null
 }

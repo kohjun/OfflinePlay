@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { Interest } from './taxonomy'
 import type { User, UserRole } from '../types'
 
 /**
@@ -14,6 +15,12 @@ export interface PublicProfileResponse {
   bio: string | null
   regionSido: string | null
   regionSigungu: string | null
+  /** PR147 — 정규화된 region code (시도 2자리 또는 시군구 5자리). PRIVATE 면 null. */
+  regionCode: string | null
+  /** PR147 — region.name (시도/시군구 이름). PRIVATE 면 null. */
+  regionName: string | null
+  /** PR147 — 사용자가 설정한 관심사. PRIVATE 면 빈 리스트. */
+  interests: Interest[]
   visibility: ProfileVisibility
   joinedAt: string
 }
@@ -28,6 +35,8 @@ export interface UpdateMyProfileRequest {
   avatarUrl?: string
   regionSido?: string
   regionSigungu?: string
+  /** PR147 — 빈 문자열은 해제, null/undefined 는 변경 없음. */
+  regionCode?: string
   visibility?: ProfileVisibility
 }
 

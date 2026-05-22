@@ -1,6 +1,7 @@
 package com.contenido.domain.event.entity
 
 import com.contenido.domain.channel.entity.Channel
+import com.contenido.domain.region.entity.Region
 import jakarta.persistence.*
 import org.springframework.data.annotation.CreatedDate
 import org.springframework.data.annotation.LastModifiedDate
@@ -67,6 +68,14 @@ class Event(
     @Enumerated(EnumType.STRING)
     @Column(name = "content_type", length = 20)
     var contentType: ContentType? = null,
+
+    /**
+     * PR147 — 정규화된 region. free-form `location` 과 병존 (legacy backfill 대상).
+     * EventService.createEvent / updateEvent 에서 nullable 입력.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "region_code")
+    var region: Region? = null,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

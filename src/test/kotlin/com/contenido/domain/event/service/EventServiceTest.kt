@@ -58,6 +58,9 @@ class EventServiceTest {
     @MockK lateinit var ticketRepository: TicketRepository
     @MockK lateinit var paymentAttemptRepository: com.contenido.domain.payment.repository.PaymentAttemptRepository
     @MockK lateinit var reviewRepository: com.contenido.domain.review.repository.ReviewRepository
+    @MockK(relaxed = true) lateinit var regionRepository: com.contenido.domain.region.repository.RegionRepository
+    @MockK(relaxed = true) lateinit var interestRepository: com.contenido.domain.interest.repository.InterestRepository
+    @MockK(relaxed = true) lateinit var eventInterestRepository: com.contenido.domain.interest.repository.EventInterestRepository
     @MockK lateinit var publisher: ApplicationEventPublisher
 
     private lateinit var eventService: EventService
@@ -76,6 +79,9 @@ class EventServiceTest {
             ticketRepository = ticketRepository,
             paymentAttemptRepository = paymentAttemptRepository,
             reviewRepository = reviewRepository,
+            regionRepository = regionRepository,
+            interestRepository = interestRepository,
+            eventInterestRepository = eventInterestRepository,
             publisher = publisher,
         )
         // PR47: 모든 EventResponse-반환 경로가 rating 을 조회한다. 후기 0건 기본 stub.

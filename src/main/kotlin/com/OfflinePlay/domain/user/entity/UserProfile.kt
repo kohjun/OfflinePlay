@@ -1,5 +1,6 @@
 package com.contenido.domain.user.entity
 
+import com.contenido.domain.region.entity.Region
 import jakarta.persistence.*
 import org.springframework.data.annotation.CreatedDate
 import org.springframework.data.annotation.LastModifiedDate
@@ -45,6 +46,14 @@ class UserProfile(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     var visibility: ProfileVisibility = ProfileVisibility.PUBLIC,
+
+    /**
+     * PR147 — 정규화된 region. PR144 의 free-form regionSido/regionSigungu 와 병존하며 점진 backfill.
+     * null 허용 — 기존 사용자는 region_code 가 채워질 때까지 free-form 값으로 표시된다.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "region_code")
+    var region: Region? = null,
 ) {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

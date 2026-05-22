@@ -7,7 +7,10 @@ import {
   type MyProfileResponse,
   type ProfileVisibility,
 } from '../api/users'
+import { getMyInterests, updateMyInterests } from '../api/taxonomy'
 import { ApiError } from '../api/client'
+import { InterestPicker } from '../components/InterestPicker'
+import { RegionPicker } from '../components/RegionPicker'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../hooks/useToast'
 import { authStore } from '../stores/authStore'
@@ -50,15 +53,15 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
   const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null)
   const [currentPasswordError, setCurrentPasswordError] = useState<string | null>(null)
 
-  // PR144 — 확장 프로필 (bio / avatar / region / visibility)
+  // PR144 + PR147 — 확장 프로필 (bio / avatar / region / interests / visibility)
   const [extProfile, setExtProfile] = useState<MyProfileResponse | null>(null)
   const [extLoading, setExtLoading] = useState(false)
   const [editingExt, setEditingExt] = useState(false)
   const [extBio, setExtBio] = useState('')
   const [extAvatarUrl, setExtAvatarUrl] = useState('')
-  const [extRegionSido, setExtRegionSido] = useState('')
-  const [extRegionSigungu, setExtRegionSigungu] = useState('')
+  const [extRegionCode, setExtRegionCode] = useState<string | null>(null)
   const [extVisibility, setExtVisibility] = useState<ProfileVisibility>('PUBLIC')
+  const [extInterestIds, setExtInterestIds] = useState<number[]>([])
   const [savingExt, setSavingExt] = useState(false)
 
   useEffect(() => {
@@ -76,9 +79,9 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
   function startEditExt() {
     setExtBio(extProfile?.bio ?? '')
     setExtAvatarUrl(extProfile?.avatarUrl ?? '')
-    setExtRegionSido(extProfile?.regionSido ?? '')
-    setExtRegionSigungu(extProfile?.regionSigungu ?? '')
+    setExtRegionCode(extProfile?.regionCode ?? null)
     setExtVisibility(extProfile?.visibility ?? 'PUBLIC')
+    setExtInterestIds(extProfile?.interests?.map((i) => i.id) ?? [])
     setEditingExt(true)
   }
 
@@ -92,14 +95,16 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
     if (savingExt) return
     setSavingExt(true)
     try {
+      // 프로필 본체 갱신 + 관심사 갱신을 한 호출로 합치지 않고 두 endpoint 호출. interests 가 실패해도
+      // bio/avatar/region 은 저장된 상태로 toast 안내.
       const updated = await updateMyExtendedProfile({
         bio: extBio,
         avatarUrl: extAvatarUrl,
-        regionSido: extRegionSido,
-        regionSigungu: extRegionSigungu,
+        regionCode: extRegionCode ?? '',
         visibility: extVisibility,
       })
-      setExtProfile(updated)
+      const interestsUpdated = await updateMyInterests(extInterestIds)
+      setExtProfile({ ...updated, interests: interestsUpdated })
       showToast({ title: '프로필이 저장되었어요', tone: 'success' })
       setEditingExt(false)
     } catch (error) {
@@ -515,27 +520,21 @@ export function ProfilePage({ onNavigate }: ProfilePageProps) {
               />
               <span className="muted">PR147 에서 직접 업로드를 지원할 예정이에요.</span>
             </label>
-            <div className="ct-form-grid-2">
-              <label>
-                활동 시/도
-                <input
-                  value={extRegionSido}
-                  onChange={(e) => setExtRegionSido(e.target.value)}
-                  maxLength={50}
-                  placeholder="예: 서울특별시"
-                  disabled={savingExt}
-                />
-              </label>
-              <label>
-                활동 시/군/구
-                <input
-                  value={extRegionSigungu}
-                  onChange={(e) => setExtRegionSigungu(e.target.value)}
-                  maxLength={50}
-                  placeholder="예: 종로구"
-                  disabled={savingExt}
-                />
-              </label>
+            <div>
+              <strong>활동 지역</strong>
+              <RegionPicker
+                value={extRegionCode}
+                onChange={(code) => setExtRegionCode(code)}
+                disabled={savingExt}
+              />
+            </div>
+            <div>
+              <strong>관심사</strong>
+              <InterestPicker
+                value={extInterestIds}
+                onChange={(ids) => setExtInterestIds(ids)}
+                disabled={savingExt}
+              />
             </div>
             <label>
               공개 범위

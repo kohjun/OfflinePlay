@@ -1,5 +1,8 @@
 package com.contenido.domain.user.service
 
+import com.contenido.domain.interest.repository.InterestRepository
+import com.contenido.domain.interest.repository.UserInterestRepository
+import com.contenido.domain.region.repository.RegionRepository
 import com.contenido.domain.user.dto.UpdateMyProfileRequest
 import com.contenido.domain.user.entity.ProfileVisibility
 import com.contenido.domain.user.entity.User
@@ -36,12 +39,24 @@ class UserProfileServiceTest {
 
     @MockK lateinit var userRepository: UserRepository
     @MockK lateinit var profileRepository: UserProfileRepository
+    @MockK(relaxed = true) lateinit var regionRepository: RegionRepository
+    @MockK(relaxed = true) lateinit var userInterestRepository: UserInterestRepository
+    @MockK(relaxed = true) lateinit var interestRepository: InterestRepository
 
     private lateinit var service: UserProfileService
 
     @BeforeEach
     fun setUp() {
-        service = UserProfileService(userRepository, profileRepository)
+        service = UserProfileService(
+            userRepository,
+            profileRepository,
+            regionRepository,
+            userInterestRepository,
+            interestRepository,
+        )
+        // PR147 — 기존 PR144 케이스들이 region/interest 를 사용하지 않으므로 relaxed mock 으로 빈 응답.
+        every { userInterestRepository.findByUserId(any()) } returns emptyList()
+        every { interestRepository.findByIdIn(any()) } returns emptyList()
     }
 
     @Test
