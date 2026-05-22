@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#FA5252" />
+    <title>CONTENIDO — 오프라인</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif;
+        background: #FFFFFF;
+        color: #1F2933;
+      }
+      .offline-root {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+        text-align: center;
+      }
+      .offline-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 24px;
+        background: #FA5252;
+        color: #FFFFFF;
+        display: grid;
+        place-items: center;
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: -1px;
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 8px;
+      }
+      p {
+        color: #5F6B7A;
+        margin: 0 0 24px;
+        line-height: 1.5;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        padding: 12px 24px;
+        border-radius: 12px;
+        background: #FA5252;
+        color: #FFFFFF;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:active { opacity: 0.85; }
+    </style>
+  </head>
+  <body>
+    <main class="offline-root">
+      <div class="offline-icon" aria-hidden="true">CT</div>
+      <h1>인터넷에 연결되어 있지 않아요</h1>
+      <p>네트워크가 복구되면 다시 접속해 주세요.<br />이미 받아둔 정보가 있다면 일부 화면은 계속 보여요.</p>
+      <button type="button" onclick="window.location.reload()">다시 시도</button>
+    </main>
+  </body>
+</html>
