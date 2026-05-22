@@ -4,6 +4,7 @@ import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../hooks/useAuth'
 import { EventAnnouncementsSection } from './event-detail/EventAnnouncementsSection'
 import { EventCommentsSection } from './event-detail/EventCommentsSection'
+import { EventMannerSection } from './event-detail/EventMannerSection'
 import {
   EventDetailActionPanel,
   type EventDetailCtaConfig,
@@ -318,6 +319,17 @@ export function EventDetailPage({ channelId, eventId, onNavigate }: EventDetailP
         onDraftChange={setCommentDraft}
         onSubmit={handleSubmitComment}
       />
+
+      {new Date(event.endAt).getTime() <= Date.now() ? (
+        <EventMannerSection
+          eventId={eventId}
+          isOwner={isOwner}
+          hostId={event.channelOwnerId}
+          hostNickname={event.channelName ?? null}
+          applicants={applicants}
+          myParticipationStatus={participation?.status ?? null}
+        />
+      ) : null}
 
       {!isOwner && user?.role !== 'ADMIN' ? (
         <EventDetailActionPanel

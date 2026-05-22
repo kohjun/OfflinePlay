@@ -60,6 +60,31 @@ export function getTrustSummary(userId: number) {
 }
 
 /**
+ * PR146 — 사용자 매너 요약. 누적 3건 미만이면 backend 가 `data: null` 로 응답한다.
+ */
+export interface MannerSummaryResponse {
+  userId: number
+  averageRating: number
+  count: number
+  topTags: string[]
+}
+
+export function getMannerSummary(userId: number) {
+  return apiClient.get<MannerSummaryResponse | null>(`/users/${userId}/manner-summary`)
+}
+
+export interface CreateMannerFeedbackRequest {
+  revieweeId: number
+  rating: number
+  tags?: string[]
+  comment?: string
+}
+
+export function createMannerFeedback(eventId: number, request: CreateMannerFeedbackRequest) {
+  return apiClient.post<number>(`/events/${eventId}/manner-feedbacks`, request)
+}
+
+/**
  * PATCH /api/v1/users/me — 닉네임/전화번호 부분 업데이트.
  * 필드는 모두 optional. 응답은 갱신된 UserProfileResponse.
  */

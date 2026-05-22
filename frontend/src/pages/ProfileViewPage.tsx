@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
+  getMannerSummary,
   getPublicProfile,
   getTrustSummary,
+  type MannerSummaryResponse,
   type PublicProfileResponse,
   type TrustSummaryResponse,
 } from '../api/users'
@@ -22,6 +24,15 @@ const VISIBILITY_NOTICE: Record<PublicProfileResponse['visibility'], string | nu
   PRIVATE: '이 프로필은 비공개로 설정되어 있어요. 닉네임만 공개됩니다.',
 }
 
+/** PR146 — MannerFeedbackForm 의 태그 set 과 동일. 본 페이지는 표시 전용 라벨 매핑. */
+const MANNER_TAG_LABEL: Record<string, string> = {
+  FRIENDLY: '친절해요',
+  PUNCTUAL: '시간 약속을 잘 지켜요',
+  POLITE: '매너가 좋아요',
+  COMMUNICATIVE: '소통이 원활해요',
+  PREPARED: '준비가 철저해요',
+}
+
 interface ProfileViewPageProps {
   userId: number
   onNavigate: (path: string) => void
@@ -36,6 +47,7 @@ export function ProfileViewPage({ userId, onNavigate }: ProfileViewPageProps) {
   const { showToast } = useToast()
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null)
   const [trust, setTrust] = useState<TrustSummaryResponse | null>(null)
+  const [manner, setManner] = useState<MannerSummaryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,15 +55,17 @@ export function ProfileViewPage({ userId, onNavigate }: ProfileViewPageProps) {
     let alive = true
     setLoading(true)
     setError(null)
-    // 프로필 + 신뢰 요약을 병렬로 fetch. 신뢰는 실패해도 프로필 노출 유지 (best-effort).
+    // 프로필 + 신뢰 + 매너 요약을 병렬로 fetch. 신뢰/매너는 실패해도 프로필 노출 유지 (best-effort).
     Promise.all([
       getPublicProfile(userId),
       getTrustSummary(userId).catch(() => null),
+      getMannerSummary(userId).catch(() => null),
     ])
-      .then(([profileRes, trustRes]) => {
+      .then(([profileRes, trustRes, mannerRes]) => {
         if (!alive) return
         setProfile(profileRes)
         setTrust(trustRes)
+        setManner(mannerRes)
       })
       .catch((err) => {
         if (!alive) return
@@ -115,6 +129,26 @@ export function ProfileViewPage({ userId, onNavigate }: ProfileViewPageProps) {
           <TrustChips summary={trust} variant="full" />
         </section>
       ) : null}
+
+      <section className="form-section" aria-label="매너 평가">
+        <h2>매너 평가</h2>
+        {manner ? (
+          <div className="stack">
+            <strong>
+              ★ {manner.averageRating.toFixed(1)} <span className="muted">({manner.count}건)</span>
+            </strong>
+            {manner.topTags.length > 0 ? (
+              <ul className="manner-tag-list">
+                {manner.topTags.map((slug) => (
+                  <li key={slug}>{MANNER_TAG_LABEL[slug] ?? slug}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <p className="muted">평가 데이터가 아직 부족해요. 함께한 이벤트가 끝나면 다른 참가자/호스트가 평가를 남길 수 있어요.</p>
+        )}
+      </section>
 
       {visibilityNotice ? (
         <p className="muted">{visibilityNotice}</p>

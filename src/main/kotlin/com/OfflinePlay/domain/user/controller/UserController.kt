@@ -1,12 +1,14 @@
 package com.contenido.domain.user.controller
 
 import com.contenido.domain.user.dto.ChangePasswordRequest
+import com.contenido.domain.user.dto.MannerSummaryResponse
 import com.contenido.domain.user.dto.MyProfileResponse
 import com.contenido.domain.user.dto.PublicProfileResponse
 import com.contenido.domain.user.dto.TrustSummaryResponse
 import com.contenido.domain.user.dto.UpdateMyProfileRequest
 import com.contenido.domain.user.dto.UpdateProfileRequest
 import com.contenido.domain.user.dto.UserProfileResponse
+import com.contenido.domain.user.service.MannerFeedbackService
 import com.contenido.domain.user.service.TrustSummaryService
 import com.contenido.domain.user.service.UserProfileService
 import com.contenido.domain.user.service.UserService
@@ -22,6 +24,7 @@ class UserController(
     private val userService: UserService,
     private val userProfileService: UserProfileService,
     private val trustSummaryService: TrustSummaryService,
+    private val mannerFeedbackService: MannerFeedbackService,
 ) {
 
     @GetMapping("/me")
@@ -104,5 +107,15 @@ class UserController(
         @PathVariable userId: Long,
     ): ApiResponse<TrustSummaryResponse> {
         return ApiResponse.ok(trustSummaryService.compute(userId))
+    }
+
+    /**
+     * PR146 — 사용자 매너 요약. 누적 3건 미만이면 `data` 는 null — frontend 가 "평가 부족" UI 분기.
+     */
+    @GetMapping("/{userId}/manner-summary")
+    fun getMannerSummary(
+        @PathVariable userId: Long,
+    ): ApiResponse<MannerSummaryResponse?> {
+        return ApiResponse.ok(mannerFeedbackService.getSummary(userId))
     }
 }

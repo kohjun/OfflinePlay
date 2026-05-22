@@ -357,6 +357,22 @@ class RefundDeadlinePassedException : ContENIDOException(
     HttpStatus.CONFLICT, "이벤트가 이미 시작되어 환불할 수 없습니다."
 )
 
+// --- Manner Feedback (PR146) ---
+/** 이벤트가 아직 끝나지 않은 상태에서 매너 평가 시도. */
+class MannerFeedbackBeforeEventEndedException : ContENIDOException(
+    HttpStatus.CONFLICT, "이벤트가 끝난 뒤에 매너 평가를 남길 수 있어요.",
+)
+
+/** 호스트/참가자 어느 쪽도 아닌 사용자가 매너 평가 시도, 또는 본인-자기 평가. */
+class MannerFeedbackNotAllowedException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "이 이벤트의 호스트와 참가자만 매너 평가를 남길 수 있어요.",
+)
+
+/** 같은 (reviewer, reviewee, event) 에 이미 평가가 존재. */
+class MannerFeedbackAlreadyExistsException : ContENIDOException(
+    HttpStatus.CONFLICT, "이미 매너 평가를 남기셨어요.",
+)
+
 // --- Review / Rating ---
 class ReviewNotFoundException : ContENIDOException(
     HttpStatus.NOT_FOUND, "후기를 찾을 수 없습니다."
