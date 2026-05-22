@@ -85,4 +85,32 @@ class SseEmitterService(
 
     /** Returns true if the given user currently has an active emitter on this instance. */
     fun isConnected(userId: Long): Boolean = emitters.containsKey(userId)
+
+    /**
+     * PR160 — 임의 SSE event 를 user 묶음에 broadcast. 채팅처럼 NotificationResponse 형식이 아닌
+     * 별도 payload (예: EventChatMessageResponse) 도 같은 채널로 흘려보낸다.
+     *
+     *  - eventName 은 SSE event 의 `event:` field. frontend `EventSource.addEventListener(eventName, ...)`
+     *    가 정확히 매칭해야 수신한다.
+     *  - userIds 가 비어 있으면 no-op. 같은 emitter 가 여러 번 send 받아도 안전 (ConcurrentHashMap).
+     *  - 개별 send 실패는 swallow + emitter 정리 — broadcast 자체가 partial 실패로 break 되지 않는다.
+     */
+    fun broadcast(userIds: Collection<Long>, eventName: String, payload: Any) {
+        if (userIds.isEmpty()) return
+        val serialized = runCatching { objectMapper.writeValueAsString(payload) }
+            .getOrElse {
+                log.warn("[SSE] broadcast payload 직렬화 실패 event={} err={}", eventName, it.message)
+                return
+            }
+        userIds.forEach { userId ->
+            val emitter = emitters[userId] ?: return@forEach
+            runCatching {
+                emitter.send(SseEmitter.event().name(eventName).data(serialized))
+            }.onFailure { e ->
+                log.debug("[SSE] broadcast {} 전송 실패 userId={} err={}", eventName, userId, e.message)
+                emitters.remove(userId)
+                emitter.completeWithError(e)
+            }
+        }
+    }
 }

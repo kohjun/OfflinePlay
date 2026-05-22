@@ -400,6 +400,11 @@ class EventRoomAccessDeniedException : ContENIDOException(
     HttpStatus.FORBIDDEN, "참가 확정자와 운영자만 이벤트 룸에 글을 쓸 수 있습니다."
 )
 
+/** PR160 — 일반 참가자가 isAnnouncement=true 로 채팅 메시지 송신 시도. owner/STAFF/ADMIN 만 가능. */
+class EventChatAnnouncementForbiddenException : ContENIDOException(
+    HttpStatus.FORBIDDEN, "공지 메시지는 운영자만 보낼 수 있습니다."
+)
+
 /** 같은 이벤트에 이미 후기를 작성한 사용자가 다시 POST 한 경우. UI 는 PATCH 로 유도. */
 class ReviewAlreadyExistsException : ContENIDOException(
     HttpStatus.CONFLICT, "이미 후기를 작성한 이벤트입니다."
