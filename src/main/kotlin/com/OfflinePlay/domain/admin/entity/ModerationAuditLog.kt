@@ -70,6 +70,16 @@ enum class ModerationAuditAction {
      * (`forceRefundByAdmin`) 는 본 액션을 만들지 않고 기존 [TICKET_FORCED_REFUNDED] 만 기록한다.
      */
     PAYMENT_REFUNDED,
+
+    /**
+     * PR154 — 채널 owner / STAFF / ADMIN 이 이벤트 신청자 목록을 CSV 로 export 한 액션.
+     * actor 는 호출자. targetType=null. afterValue JSON 에 eventId / channelId / exportedRowCount /
+     * exportedAt 을 동봉 — 후속 audit detail 조회 시 누가 언제 어느 이벤트 신청자 목록을 가져갔는지
+     * 추적 가능.
+     *
+     * 개인정보 보호 정책: 본 액션은 phone number 등 민감 데이터를 다루므로 운영 audit 가 필수다.
+     */
+    PARTICIPANT_EXPORTED,
 }
 
 @Entity

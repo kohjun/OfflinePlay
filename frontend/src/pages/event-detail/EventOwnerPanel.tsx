@@ -1,5 +1,8 @@
+import { useState } from 'react'
+import { downloadParticipantCsv } from '../../api/participantExport'
 import { Badge } from '../../components/Badge'
 import type { EventCheckInSummary } from '../../api/tickets'
+import { useToast } from '../../hooks/useToast'
 import type { EventApplicant } from '../../types'
 import {
   PARTICIPATION_LABEL,
@@ -30,7 +33,26 @@ export function EventOwnerPanel({
   onApprove,
   onReject,
 }: EventOwnerPanelProps) {
+  const { showToast } = useToast()
   const pendingApplicants = applicants.filter((a) => a.status === 'PENDING').length
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await downloadParticipantCsv(eventId)
+      showToast({ title: '신청자 CSV 를 내려받았어요', tone: 'success' })
+    } catch (err) {
+      showToast({
+        title: 'CSV 내보내기에 실패했어요',
+        message: err instanceof Error ? err.message : '잠시 후 다시 시도해주세요.',
+        tone: 'danger',
+      })
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <>
@@ -49,9 +71,21 @@ export function EventOwnerPanel({
           <h2 className="ct-event-section-title">
             신청자 관리 {applicants.length > 0 ? `(${applicants.length})` : ''}
           </h2>
-          {pendingApplicants > 0 ? (
-            <span className="badge badge-primary">대기 {pendingApplicants}</span>
-          ) : null}
+          <div className="ct-applicants-actions">
+            {pendingApplicants > 0 ? (
+              <span className="badge badge-primary">대기 {pendingApplicants}</span>
+            ) : null}
+            <button
+              type="button"
+              className="button button-tertiary"
+              onClick={handleExport}
+              disabled={exporting || applicants.length === 0}
+              aria-busy={exporting}
+              title="신청자 목록을 CSV 로 내보내요. 개인정보 보호를 위해 전화번호는 마스킹됩니다."
+            >
+              {exporting ? '내보내는 중…' : 'CSV 내보내기'}
+            </button>
+          </div>
         </div>
         {applicants.length === 0 ? (
           <div className="ct-applicants-empty">
