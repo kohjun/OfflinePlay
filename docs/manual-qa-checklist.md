@@ -817,6 +817,128 @@ PARTICIPANT 가 기획자가 되어가는 동선까지 보고 싶으면 위 CREA
 
 **기대 결과**: 구독자 fan-out 이 정확히 동작. owner 본인은 자기 이벤트 알림에서 항상 제외. preference / 구독 해지가 모두 효과적.
 
+### 34. Public profile foundation (PR144)
+**목적**: 공개 프로필 / 본인 확장 프로필 lazy create + visibility 정책 검증.
+
+- [ ] 🖱 PR144 — `/profile` → "공개 프로필 편집" 카드 → bio / avatarUrl / 활동 시도·시군구 / 공개 범위 → 저장 → toast.
+- [ ] 🖱 PR144 — 다른 사용자가 `/users/{내 id}` 진입 → 입력한 bio / region 노출.
+- [ ] 🖱 PR144 — 공개 범위 PRIVATE 로 저장 후 다른 사용자가 진입 → nickname / role / 가입일만, bio/avatar/region/interests 모두 숨김.
+- [ ] 🖱 PR144 — 신규 가입자의 `/users/{id}` 진입 → 빈 프로필 (visibility=PUBLIC default, 모든 필드 null) — 에러 없음.
+- [ ] 📋 PR144 — V14 `user_profiles` 테이블이 운영 DB 에 생성됨 + UNIQUE(user_id) 인덱스.
+- [ ] 📋 PR144 — `PATCH /me/profile` 빈 body (모든 필드 null) → no-op: row 생성 안 함 + 응답 200.
+
+### 35. Trust snapshot (PR145)
+- [ ] 🖱 PR145 — `/users/{id}` 진입 → "활동 요약" 섹션에 hosted / participated / checkedIn / review / host avg 표시 (0 이면 hide).
+- [ ] 🖱 PR145 — host 가 3개 이상 이벤트 진행 + 후기 다수 → averageEventRatingAsHost 가 ★ 4.0 이상 시 compact chip 표시.
+- [ ] 📋 PR145 — trust summary fetch 가 실패해도 ProfileViewPage 자체는 정상 노출 (best-effort Promise.all).
+
+### 36. Manner feedback (PR146)
+- [ ] 🖱 PR146 — endAt 지난 이벤트의 EventDetailPage → 호스트/참가자 양쪽이 "매너 평가" CTA 노출.
+- [ ] 🖱 PR146 — 참가자 → 호스트 평가 form (rating + tag chip + comment) → 제출 → toast + form 닫힘.
+- [ ] 🖱 PR146 — 같은 사람을 같은 이벤트에서 다시 평가 → 409 "이미 매너 평가를 남기셨어요" toast.
+- [ ] 🖱 PR146 — 누적 3건 이상 후 `/users/{id}` 진입 → 매너 평균 + topTags 노출. 3건 미만이면 "평가 데이터가 아직 부족해요".
+- [ ] 🖱 PR146 — 이벤트가 아직 끝나기 전인 상태에서 backend 호출하면 409 차단.
+- [ ] 📋 PR146 — V15 `user_manner_feedbacks` UNIQUE(reviewer, reviewee, event) 인덱스 동작.
+
+### 37. Interest & region taxonomy (PR147)
+- [ ] 🖱 PR147 — `/profile` → 공개 프로필 편집 → "관심사" chip 다중 선택 (최대 10) + "활동 지역" cascade picker → 저장.
+- [ ] 🖱 PR147 — `/users/me/interests` GET → 본인 선택 catalog 반환.
+- [ ] 🖱 PR147 — 새 이벤트 만들 때 interestIds + regionCode 전달 → 응답에 반영.
+- [ ] 🖱 PR147 — `GET /api/v1/interests` / `/regions` 비로그인 호출도 200.
+- [ ] 📋 PR147 — V16 migration 후 `regions` 테이블에 시도 17 + 시군구 250+ row.
+- [ ] 📋 PR147 — `interests` catalog 32 row (ACTIVITY/CULTURE/FOOD/GAME/GROWTH/TRAVEL/SOCIAL 카테고리 각 1개 이상).
+
+### 38. Personalized explore feed (PR148)
+- [ ] 🖱 PR148 — ExplorePage 상단에 "추천" / "인기" / "마감 임박" / "신규" 4 탭 (인증) 또는 3 탭 (비로그인).
+- [ ] 🖱 PR148 — 로그인 + 관심사 등록한 사용자 → 추천 탭 첫 카드에 `내 관심사` chip.
+- [ ] 🖱 PR148 — 사용자의 region 과 일치하는 이벤트 카드에 `내 근처` chip.
+- [ ] 🖱 PR148 — 구독한 채널의 이벤트 카드에 `구독 채널` chip.
+- [ ] 🖱 PR148 — 매칭 0건 사용자 → POPULAR fallback (segment="POPULAR" 응답).
+- [ ] 🖱 PR148 — 비로그인 시 추천 탭 자체가 hidden, 첫 탭이 "인기".
+- [ ] 📋 PR148 — 같은 score row 가 두 개면 id desc 순 (stable tie-break).
+
+### 39. Discovery quality polish (PR149)
+- [ ] 🖱 PR149 — 한 카드의 reasonCodes 가 3개 이상이어도 chip 은 최대 2개만 노출.
+- [ ] 🖱 PR149 — chip 우선순위: INTEREST_MATCH > NEAR_YOU > SUBSCRIBED_CHANNEL > CLOSING_SOON > TOP_RATED > POPULAR > LATEST.
+- [ ] 🖱 PR149 — 검색 0건 empty state 카피가 "페이지 상단 '추천' 탭에서 비슷한 이벤트를 찾아볼 수 있어요" 포함.
+
+### 40. Event room hub (PR150)
+- [ ] 🖱 PR150 — APPROVED 참가자 / owner / ADMIN 진입 시 "이벤트룸" 섹션 (공지/대화/참가자 3 탭) 노출.
+- [ ] 🖱 PR150 — 비참가자 (PENDING/REJECTED/미신청) 는 섹션 자체 hidden.
+- [ ] 🖱 PR150 — 공지 탭 클릭 시 EventAnnouncementsSection 그대로 렌더, 대화 탭은 EventCommentsSection, 참가자 탭은 APPROVED 목록.
+- [ ] 📋 PR150 — backend endpoint 신규 0개 — 기존 announcement / comment / participation API 그대로 재사용.
+
+### 41. Pinned announcements & read receipts (PR151)
+- [ ] 🖱 PR151 — owner 가 공지 카드의 "상단 고정" 클릭 → toast + 카드에 `고정` chip + 목록 최상단으로 이동.
+- [ ] 🖱 PR151 — 다른 공지에 pin 토글 → 기존 pinned 자동 해제 (한 이벤트 1건만).
+- [ ] 🖱 PR151 — 참가자가 펼치지 않은 공지에 `새 공지` chip + 펼치면 자동 사라짐 (read POST).
+- [ ] 🖱 PR151 — EventRoomSection 공지 탭에 unread danger badge → 모두 읽으면 사라짐.
+- [ ] 📋 PR151 — V17 migration 후 `event_announcements.pinned_at` 컬럼 + `event_announcement_reads` 테이블.
+
+### 42. Event room media (PR152)
+- [ ] 🖱 PR152 — owner 공지 작성 form 의 "이미지 추가" 버튼 → 1장 업로드 → thumbnail row 에 표시.
+- [ ] 🖱 PR152 — 3장까지 첨부 가능, 4번째 시도 시 버튼 disabled.
+- [ ] 🖱 PR152 — 공지 발송 후 펼침 시 grid (1/2/3장) 로 이미지 표시.
+- [ ] 🖱 PR152 — 이미지 클릭 시 new tab 으로 원본 열림.
+- [ ] 📋 PR152 — V18 migration 후 `event_announcement_images` 테이블 + `comments.images TEXT`.
+
+### 43. Creator revenue & refund analytics (PR153)
+- [ ] 🖱 PR153 — CreatorDashboardPage 진입 → "매출 / 환불 — {채널명}" 카드 노출 + 4 metric tile (총 매출 / 환불 / 순 매출 / 결제 건수).
+- [ ] 🖱 PR153 — 30일 / 90일 / 전체 탭 전환 → 합계 갱신.
+- [ ] 🖱 PR153 — 이벤트별 breakdown 테이블이 grossRevenue desc 정렬.
+- [ ] 🖱 PR153 — non-owner / non-STAFF 가 다른 채널 분석 호출 → 403 + toast.
+- [ ] 📋 PR153 — `/api/v1/creator/channels/{id}/analytics?from=&to=` 가 paid + partially refunded 시도만 합산.
+
+### 44. Participant CSV export (PR154)
+**목적**: 신청자 목록 CSV 다운로드 + 개인정보 마스킹 + audit row 기록.
+
+- [ ] 🖱 PR154 — EventOwnerPanel 의 "CSV 내보내기" 버튼 클릭 → 파일 다운로드 (`event-{id}-participants-{ts}.csv`).
+- [ ] 🖱 PR154 — CSV 첫 줄이 `participantId,nickname,phoneMasked,status,ticketStatus,paidAmount,refundedAmount,checkedInAt`.
+- [ ] 🖱 PR154 — phoneMasked 컬럼이 `010-****-1234` 형식 (raw phone 절대 노출 안 됨).
+- [ ] 🖱 PR154 — Excel 에서 열었을 때 한글 깨짐 없음 (UTF-8 BOM).
+- [ ] 🖱 PR154 — 빈 신청자 → 헤더 1줄만 다운로드 + 빈 행.
+- [ ] 🖱 PR154 — non-owner / non-STAFF 호출 → 403 + toast.
+- [ ] 📋 PR154 — `moderation_audit_logs` 에 `PARTICIPANT_EXPORTED` action row 1건 (afterValue eventId/channelId/exportedRowCount/exportedAt).
+
+### 45. Event clone (PR155)
+- [ ] 🖱 PR155 — EventOwnerPanel "이 이벤트 복제하기" 토글 → datetime-local 2 input + 안내 카피.
+- [ ] 🖱 PR155 — 7일 뒤 19:00 default → "복제하기" → 새 이벤트 페이지로 navigate.
+- [ ] 🖱 PR155 — 복제된 이벤트에 원본의 title/description/location/fee/refundPolicy/region/interests 가 모두 복사됨.
+- [ ] 🖱 PR155 — 복제된 이벤트의 currentParticipants=0, applicants/comments/announcements/reviews/tickets 모두 비어 있음.
+- [ ] 🖱 PR155 — 복제 시 채널 구독자에게 NEW_EVENT 알림 도착 (owner 본인 제외).
+- [ ] 🖱 PR155 — non-owner / non-ADMIN → 403.
+- [ ] 🖱 PR155 — endAt ≤ startAt 입력 → "이벤트 종료 시간은 시작 시간 이후여야 합니다" 400.
+
+### 46. PWA manifest & install prompt (PR156)
+- [ ] 📋 PR156 — `dist/manifest.webmanifest` + `dist/icons/icon-{192,512}.svg` 가 빌드 산출물에 포함.
+- [ ] 🖱 PR156 — Chrome devtools → Application → Manifest 가 모든 필드 valid + 두 아이콘 표시.
+- [ ] 🖱 PR156 — `beforeinstallprompt` event 가 firing 한 환경 (Android Chrome / Chromium 데스크톱) 에서 NotificationsPage 접속 시 "앱처럼 설치하기" 카드 노출.
+- [ ] 🖱 PR156 — "나중에" 클릭 → 카드 사라짐 + localStorage `contenido.installPromptDismissedAt` set.
+- [ ] 🖱 PR156 — 14일 안에 NotificationsPage 재진입 → 카드 다시 안 보임. (localStorage 수정해서 14일 이전으로 만들면 다시 보임.)
+- [ ] 🖱 PR156 — 이미 standalone 모드로 실행 중인 PWA → 카드 자체 hidden.
+- [ ] 🖱 PR156 — iOS Safari → `beforeinstallprompt` 미지원이라 카드 안 보임 (조용히 무시).
+
+### 47. SW cache shell + offline page (PR157)
+- [ ] 🖱 PR157 — Chrome devtools → Application → Service Workers → `/sw.js` active.
+- [ ] 🖱 PR157 — Application → Cache Storage → `contenido-shell-v1` 안에 `/`, `/index.html`, `/manifest.webmanifest`, `/icons/icon-192.svg`, `/icons/icon-512.svg`, `/offline.html` 6 entry.
+- [ ] 🖱 PR157 — Network → Offline 토글 + 새 navigate → offline.html 노출 (인터넷에 연결되어 있지 않아요 + 다시 시도 버튼).
+- [ ] 🖱 PR157 — Offline 상태에서 이미 캐시된 `/` 새로고침 → index 그대로 (이후 API 호출은 실패).
+- [ ] 🖱 PR157 — POST/PATCH/DELETE 는 절대 캐시 안 됨 (Network 탭에서 cache hit 표시 X) — 결제/환불 hot path 정합성 보장.
+- [ ] 🖱 PR157 — Web Push 회귀 (§31) 통과: navigate fetch handler 가 push 발송 / notificationclick 흐름을 깨지 않음.
+
+### 48. Push onboarding (PR158)
+- [ ] 🖱 PR158 — 권한 default 상태 (신규 가입자) → "푸시 알림 켜기" 버튼 + 일반 안내 카피.
+- [ ] 🖱 PR158 — 버튼 클릭 → 브라우저 권한 prompt → allow 시 자동 구독 + "푸시 알림 끄기" 로 전환.
+- [ ] 🖱 PR158 — 권한 denied 상태 → 4-줄 안내 ul (Chrome/Edge 자물쇠 → 사이트 설정, Android Chrome ⋮ → 사이트 설정, iOS Safari PWA 안내).
+- [ ] 🖱 PR158 — `VITE_PUSH_VAPID_PUBLIC_KEY` 비운 빌드 → "푸시 키가 아직 배포되지 않았어요" 카피.
+- [ ] 🖱 PR158 — SW/PushManager 미지원 환경 (Firefox 일부 / 구형 브라우저) → "이 브라우저에서는 푸시 알림을 사용할 수 없어요".
+
+#### 48.1 브라우저별 caveat
+- **Chrome / Edge (데스크톱)**: `beforeinstallprompt` 트리거 + manifest + push 모두 표준 동작. 권한 prompt 차단 시 자물쇠 → 사이트 설정 → 알림 허용.
+- **Android Chrome**: 위와 동일 + 홈 화면 추가 후 standalone 모드로 push 더 안정. 권한 reset 은 ⋮ → 설정 → 사이트 설정 → 알림 → CONTENIDO 항목.
+- **iOS Safari 18.5+**: **홈 화면에 추가한 PWA 에서만** 푸시 알림 동작. 일반 Safari 탭은 권한 prompt 자체가 표시되지 않음. PWA 설치는 공유 → 홈 화면에 추가.
+- **Firefox**: SW + PushManager 지원하지만 일부 모바일 버전에서 응답 timeout. 데스크톱 Firefox 는 동작 확인됨.
+
 ## 회귀 체크 (선택)
 - [ ] 모바일 사이즈(420px) 로 줄여도 레이아웃이 깨지지 않음
 - [ ] 새로고침 후에도 SSE 가 자동 재연결

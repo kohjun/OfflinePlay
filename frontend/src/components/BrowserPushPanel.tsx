@@ -11,12 +11,18 @@ import {
 import { useToast } from '../hooks/useToast'
 
 /**
- * PR139 — NotificationsPage 알림 설정 패널에 끼워 넣는 "브라우저 푸시 알림" 섹션.
+ * PR139 + PR158 — NotificationsPage 알림 설정 패널의 "브라우저 푸시 알림" 섹션.
  *
- *  - SW/PushManager 가 없거나 VAPID 키가 빠지면 비활성 안내만.
- *  - 권한이 denied 면 브라우저 설정에서 풀어야 한다는 안내.
- *  - 권한 prompt 는 사용자 액션(버튼 클릭) 안에서만 호출 (브라우저 정책).
- *  - 등록/해지는 idempotent — 이미 같은 endpoint 면 backend 가 credential 만 갱신.
+ * 상태 머신 (PR158 명세):
+ *  - `unsupported`     : SW/PushManager 미지원. 안내만.
+ *  - `no-vapid-key`    : env 키 빠짐. "잠시 후 다시" 안내.
+ *  - `default`         : 권한 미요청. "푸시 알림 켜기" CTA (브라우저 prompt 트리거).
+ *  - `granted` + 구독  : "푸시 알림 끄기" 토글 + last-seen 표시 후속 보강.
+ *  - `granted` + 미구독: "구독 등록 중…" 자동 진행 (rare race).
+ *  - `denied`          : 브라우저 설정에서 권한을 풀어야 한다는 안내 + 외부 도움말.
+ *
+ * 권한 prompt 는 사용자 액션(버튼 클릭) 안에서만 호출. 등록/해지는 idempotent —
+ * 이미 같은 endpoint 면 backend 가 credential 만 갱신.
  */
 export function BrowserPushPanel() {
   const { showToast } = useToast()
@@ -124,9 +130,17 @@ export function BrowserPushPanel() {
         앱이 열려 있지 않아도 브라우저 알림으로 새 소식을 받아보세요. 같은 기기에서 한 번만 켜면 됩니다.
       </p>
       {denied ? (
-        <p className="muted">
-          알림 권한이 차단돼 있어요. 브라우저 주소창 옆 사이트 설정에서 알림을 허용으로 바꿔주세요.
-        </p>
+        <div className="notification-push__denied" role="status">
+          <p className="muted">
+            알림 권한이 차단돼 있어요. 브라우저 주소창 왼쪽 자물쇠 (또는 ⓘ) 아이콘을 눌러 사이트 설정 →
+            알림을 <strong>허용</strong>으로 바꾼 뒤 페이지를 새로고침해 주세요.
+          </p>
+          <ul className="muted notification-push__denied-tips">
+            <li>Chrome / Edge: 주소창 왼쪽 자물쇠 → 사이트 설정 → 알림 → 허용</li>
+            <li>Android Chrome: ⋮ → 설정 → 사이트 설정 → 알림 → CONTENIDO 허용</li>
+            <li>iOS Safari 18.5+: 홈 화면에 추가한 PWA 에서만 푸시 알림이 동작해요.</li>
+          </ul>
+        </div>
       ) : null}
       <div className="notification-push__actions">
         {subscribed ? (

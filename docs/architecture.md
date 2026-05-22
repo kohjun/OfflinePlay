@@ -548,6 +548,67 @@ Frontend (`pages/event-detail/EventAnnouncementsSection.tsx`):
 
 `EventDetailPage.tsx` 가 `isOwner || user?.role === 'ADMIN'` 를 `canWrite` 로, `isOwner || ADMIN || participation?.status === 'APPROVED'` 를 `canRead` 로 전달한다.
 
+### 6.10 Event Room hub (PR150 + PR151 + PR152)
+
+PR150 부터 EventDetailPage 의 announcement / comment / participants 영역이 단일 "이벤트룸" 섹션 (`EventRoomSection`) 으로 통합. **BFF endpoint 없이** 기존 children (EventAnnouncementsSection / EventCommentsSection) 을 그대로 재사용하고 부모는 권한 분기 + tab 상태만 책임진다.
+
+| Tab | 표시 | 데이터 source |
+|---|---|---|
+| 공지 | EventAnnouncementsSection 그대로 | `GET /events/{eid}/announcements` (자체 fetch) |
+| 대화 | EventCommentsSection 그대로 | useEventDetailData 가 미리 fetch 한 comments prop |
+| 참가자 | APPROVED 참가자 목록 + 정원 | useEventDetailData 가 미리 fetch 한 applicants prop |
+
+권한: `canAccessRoom = isOwner || ADMIN || participation.status === 'APPROVED'`. false 면 섹션 자체 hidden.
+
+#### 6.10.1 Pinned announcements + read receipts (PR151)
+
+| DB / API | 책임 |
+|---|---|
+| V17 `event_announcements.pinned_at` ALTER | 한 이벤트에 동시 pinned 1건만 (service 가 보장) |
+| V17 `event_announcement_reads (announcement_id, user_id, read_at)` composite PK | 사용자별 read receipt. notification.isRead 와 별도 — push OFF 사용자도 read 추적 |
+| `PATCH /events/{eid}/announcements/{aid}/pin` body `{pinned}` | 같은 이벤트 기존 pinned 자동 해제 후 토글 |
+| `POST /events/{eid}/announcements/{aid}/read` | 멱등 upsert (existing row 의 readAt 만 갱신) |
+| `GET /events/{eid}/announcements/unread-count` | JPQL NOT IN subquery로 사용자 unread 카운트 |
+
+frontend: announcement 카드에 `고정` / `새 공지` chip, 펼침 시 자동 read POST + optimistic. EventRoomSection 공지 탭에 unread badge.
+
+#### 6.10.2 Inline media (PR152)
+
+| DB | 정책 |
+|---|---|
+| V18 `event_announcement_images (announcement_id FK, url, display_order)` | 최대 3장. service / DTO validation. 운영자가 첨부한 url 그대로 저장 |
+| V18 `comments.images TEXT` ALTER | JSON 직렬화 (`CommentImagesConverter`). 이벤트룸 댓글에서만 사용 — 다른 targetType comment 는 null 유지 |
+
+upload 흐름: frontend 가 `POST /files/upload?directory=POST` 로 S3 업로드 후 url 을 announcement create request 의 `imageUrls` 에 append. announcement list 응답은 N+1 회피용 IN 쿼리 1번으로 모든 image url 묶음 fetch.
+
+### 6.11 PWA — manifest / install prompt / SW cache shell (PR156 + PR157)
+
+| 영역 | 파일 | 책임 |
+|---|---|---|
+| Manifest | `frontend/public/manifest.webmanifest` | name / short_name / standalone display / theme #FA5252 / 192·512 SVG icon (any + maskable) |
+| Icons | `frontend/public/icons/icon-{192,512}.svg` | 단색 + CT 모노그램 — raster PNG 대신 SVG 로 어떤 픽셀 밀도에서도 깨끗하게 |
+| HTML head | `frontend/index.html` | `<link rel="manifest">` + apple-touch-icon + apple-mobile-web-app-* (iOS Safari 가 standalone 모드에서 사용) |
+| Install prompt | `components/InstallPrompt.tsx` | `beforeinstallprompt` event 캐치, standalone 이면 hidden, 14일 dismissal localStorage. NotificationsPage push panel 위에 렌더 |
+| Offline shell | `public/offline.html` | inline CSS, "인터넷에 연결되어 있지 않아요" + 새로고침 버튼 — offline 상태에서 외부 자원 fetch 실패해도 표시 보장 |
+| Service worker | `public/sw.js` | `SHELL_VERSION` 상수 (bump 시 옛 cache 삭제). install precache (`/`, `/index.html`, manifest, icons, offline.html). activate 가 `contenido-shell-*` 옛 cache 정리. fetch handler: navigate → network-first + cached `/index.html` → `/offline.html` → 503 chain; manifest/icons/offline.html → cache-first; **그 외 (API / dist/assets/* JS·CSS) 모두 network passthrough — 환불/결제 hot path 의 stale 응답 방지** |
+
+iOS Safari 18.5+ 에서는 **홈 화면에 추가한 PWA 에서만** 푸시 알림이 동작한다 — BrowserPushPanel 의 denied 안내가 이 caveat 를 노출.
+
+### 6.12 Push onboarding (PR158)
+
+`BrowserPushPanel` 의 상태 머신:
+
+| State | 노출 |
+|---|---|
+| `unsupported` | SW/PushManager 미지원 안내만 |
+| `no-vapid-key` | env 키 빠짐 — "잠시 후 다시" 안내 |
+| `default` (권한 미요청) | "푸시 알림 켜기" CTA (브라우저 prompt 트리거) |
+| `granted` + 구독 중 | "푸시 알림 끄기" 버튼 |
+| `granted` + 미구독 | "푸시 알림 켜기" 버튼 — 자동 등록 race 후엔 보통 위로 전환 |
+| `denied` | 브라우저별 절차 ul (Chrome/Edge 자물쇠 → 사이트 설정, Android Chrome ⋮ → 사이트 설정, iOS Safari PWA 설치 필요) |
+
+권한 prompt 는 사용자 액션(버튼 클릭) 안에서만 호출. 등록/해지는 idempotent — 이미 같은 endpoint 면 backend 가 credential 만 갱신.
+
 ---
 
 ## 7. Moderation Flow
@@ -764,6 +825,22 @@ cd frontend; npm run build    # tsc -b + vite build (typecheck 포함)
 - PR140 — Web Push 발송: `WebPushSender` 인터페이스 + `LibraryWebPushSender` (`nl.martijndwars:web-push:5.1.1` + `org.bouncycastle:bcprov-jdk18on:1.78.1`, BC provider 클래스 로드 시 1회 등록). `PushNotificationService.dispatch(notifications)` 가 receiver 별 active 구독 묶음 조회 → payload JSON (`title/body/type/targetType/targetId/url/notificationId`) → 각 endpoint 발송 → 결과 분기 (2xx → `touchSeen`, 410/404 → `disable()`, 그 외 → warn log). 모든 self-healing 은 `REQUIRES_NEW` 트랜잭션. NotificationService 가 row 저장 + SSE 이후 호출하며 실패를 try-catch 로 swallow — push 가 notification 트랜잭션을 깨지 않는다. VAPID 키 미설정이면 `WebPushSendResult.disabled()` 반환 → dispatch 자체가 no-op (로컬/CI 안전). `PushNotificationProperties` 가 application 에서 `@EnableConfigurationProperties` 로 활성화
 - PR141 — Event announcement notifications: V13 `event_announcements` (event_id FK / author_id FK / title VARCHAR(200) / content TEXT, idx event+created) + `EventAnnouncement` entity / repository / DTOs + `EventAnnouncementService` (create / list + 권한 가드) + `EventAnnouncementController` (`POST/GET /api/v1/events/{eventId}/announcements`). `NotificationType.EVENT_ANNOUNCEMENT` 추가. 작성 권한 — owner / 채널 STAFF / ADMIN. 조회 권한 — 작성자 + APPROVED 참가자. 수신자 — APPROVED participation × (무료 또는 ticket NOT IN CANCELED/REFUNDED). frontend `EventAnnouncementsSection` 이 EventDetailPage 안에서 canWrite/canRead 분기로 form + list 렌더. notificationMeta `content` 묶음에 EVENT_ANNOUNCEMENT 편입
 - PR142 — Channel new event push coverage: `EventService.createEvent` 의 NEW_EVENT 수신자 묶음에서 channel.owner.id 제외 (defensive — owner 가 자기 채널을 구독한 비정상 상태에서도 자기 알림은 안 받게) + dedupe. EventServiceTest 3 신규 케이스 — 구독자 receive / owner 본인 제외 / 빈 구독자도 notify 호출. push dispatch 자체는 PR140 NotificationService 통합 테스트로 보장 — 본 PR 은 receiver 정책만 정리
+- PR143 — push 문서화 사이클: architecture / manual-qa / release-notes 갱신 (PR139~PR142 묶음)
+- PR144 — Public profile foundation: V14 `user_profiles` (1:1, lazy create) + `UserProfile` entity + `UserProfileService` (lazy create / blank-to-null / noop request / visibility PRIVATE filter) + DTOs (`PublicProfileResponse`, `MyProfileResponse`, `UpdateMyProfileRequest`) + 3 endpoint (`GET /users/{id}/profile`, `GET /users/me/profile`, `PATCH /users/me/profile`). frontend `ProfileViewPage` + `ProfilePage` 의 공개 프로필 편집 section (bio textarea / avatar URL / sido·sigungu / visibility select). `App.tsx` 가 `/users/{userId}` 라우트 등록
+- PR145 — Trust snapshot: `ReviewRepository.averageRatingByHostUserId` + `countByAuthorId`, `EventParticipationRepository.countByParticipantId(+andStatus)`, `TicketRepository.countByBuyerIdAndStatus`. `TrustSummaryService.compute(userId)` 5-query 합산. `GET /users/{id}/trust-summary`. frontend `TrustChips` component (compact/full variant) + ProfileViewPage 가 Promise.all 로 profile + trust 병렬 fetch
+- PR146 — Manner feedback MVP: V15 `user_manner_feedbacks` (UNIQUE reviewer+reviewee+event, rating 1-5, TEXT JSON tags). `MannerFeedback` entity + `MannerTagsConverter` (TEXT JSON ↔ List<String>). `MannerFeedbackService` (event.endAt 가드 + host↔participant pair 가드 + 중복 가드 + 3건 미만 summary=null). 3 신규 exception. `POST /events/{eid}/manner-feedbacks` + `GET /users/{id}/manner-summary`. frontend `MannerFeedbackForm` + `EventMannerSection` (endAt 후 자동 노출, host/participant 양방향). ProfileViewPage 가 manner summary 도 병렬 fetch
+- PR147 — Interest & region taxonomy: V16 `interests` (32 seed) + `regions` (시도 17 + 시군구 250+, 행정안전부 법정동 코드) + `user_interests` / `event_interests` composite-PK join + `events.region_code` / `user_profiles.region_code` FK ALTER. User auth hot path 보호를 위해 `@ManyToMany` 컬렉션 대신 `@IdClass` 명시 join entity. `InterestService` (set semantics — toAdd/toRemove delta) + `RegionService` (sido + nested sigungu tree). 3 신규 endpoint (`GET /interests` / `GET /regions` / `GET·PATCH /users/me/interests`) — catalog 는 permitAll. `UserProfileService` / `EventService` 응답에 region + interests 포함. frontend `InterestPicker` (category chip multi-select, max 10) + `RegionPicker` (cascade select, 모듈 캐시) + ProfilePage 편집 form 이 free-form 입력 대체
+- PR148 — Personalized explore feed: `EventRepository.findRecommendationCandidates(now, pageable)` (hidden=false + status!=CLOSED + 정원 여유 + startAt>=now). `ChannelSubscriptionRepository.findBySubscriberId` derived query. `RecommendationService.recommend(userId, segment, size)` — RECOMMENDED 가중치 `interest×3 + region×2 + subscribed×2 + recency(7d)×1.5 + rating×1` + score 동률 시 id desc tie-break. POPULAR / CLOSING_SOON / LATEST 3 fallback segment. 매칭 0건 시 POPULAR fallback. `GET /recommendations/events?segment=&size=` — permitAll (비로그인은 POPULAR 자동). frontend `EventCard` 에 optional `reasonCodes` (INTEREST_MATCH/NEAR_YOU/SUBSCRIBED_CHANNEL/CLOSING_SOON/TOP_RATED/POPULAR/LATEST) + `RecommendationStrip` (인증 4 / 비로그인 3 segment 탭 + 가로 스크롤 카드). ExplorePage 검색 form 위에 strip 렌더
+- PR149 — Discovery quality polish: `EventCard` 의 reason chip 우선순위 desc 재정렬 (INTEREST_MATCH > NEAR_YOU > SUBSCRIBED_CHANNEL > CLOSING_SOON > TOP_RATED > POPULAR > LATEST), 상위 1-2개만 노출. ExplorePage 0건 검색 empty state copy 가 "상단 추천 탭에서 비슷한 이벤트" 로 RecommendationStrip 유도
+- PR150 — Event room hub (frontend-only): `EventRoomSection` 가 공지 / 대화 / 참가자 3 tabbed view. BFF endpoint 없이 기존 `EventAnnouncementsSection` + `EventCommentsSection` 을 재사용 + Promise.all 없이 자식이 각자 fetch. 권한 (`canAccessRoom = isOwner || ADMIN || APPROVED`) 없으면 섹션 자체 hidden. `EventDetailPage` 가 standalone 두 섹션 호출을 EventRoomSection 으로 교체
+- PR151 — Pinned announcements & read receipts: V17 `event_announcements.pinned_at` ALTER + `event_announcement_reads (announcement_id, user_id) PK`. `EventAnnouncement.pinnedAt` + `pin()/unpin()`. `EventAnnouncementService` 에 setPinned (같은 이벤트 기존 pinned 자동 해제), markAsRead (멱등 upsert), unreadCount (JPQL NOT IN subquery). 3 신규 endpoint: `PATCH /pin` / `POST /read` / `GET /unread-count`. frontend Announcement 카드에 pinned/unread chip + 펼침 시 자동 read POST + EventRoomSection 공지 탭 unread badge
+- PR152 — Event room media light: V18 `event_announcement_images (announcement_id FK, url, display_order)` + `comments.images TEXT` ALTER (JSON 직렬화). `Comment.images: List<String>` + `CommentImagesConverter` (MannerTagsConverter 패턴 재사용). `EventAnnouncementService` create 시 최대 3장 image row 저장, list 시 N+1 회피 IN 쿼리 묶음 fetch + announcement 별 grouping. `CreateEventAnnouncementRequest.imageUrls` (max 3, 각 URL max 500). 응답 `imageUrls` 필드 추가 (default empty). frontend 작성 form 에 이미지 picker (S3 `/files/upload?directory=POST` → url append) + 펼침 시 grid (1/2/3장 CSS class)
+- PR153 — Creator revenue & refund analytics: `PaymentAttemptRepository.aggregateChannelAnalytics(channelId, from, to)` 단일 GROUP BY query — event 별 [gross, refunded, partialRefund, fullRefundCount, paidAttemptCount]. `CreatorAnalyticsService.getChannelAnalytics` (owner/STAFF/ADMIN 가드, grossRevenue desc 정렬 + 채널 합계). `GET /creator/channels/{cid}/analytics?from=&to=`. frontend `CreatorAnalyticsCard` (4 metric tile + 30일/90일/전체 탭 + 부분/전액 환불 보조 라인 + 이벤트 breakdown 테이블) — CreatorDashboardPage 히어로 아래 렌더
+- PR154 — Participant CSV export: `ModerationAuditAction.PARTICIPANT_EXPORTED` 추가. `ParticipantExportService.exportCsv` — owner/STAFF/ADMIN 가드 + 신청자/티켓/결제 묶음 IN 쿼리 (N+1 회피) + phoneMasked (`010-****-1234`) + audit row 1건 (afterValue eventId/channelId/exportedRowCount/exportedAt). `GET /creator/events/{eid}/participants/export` (text/csv; charset=UTF-8 + UTF-8 BOM Excel 호환 + Content-Disposition attachment). frontend `downloadParticipantCsv` blob 다운로드 + EventOwnerPanel "CSV 내보내기" 버튼 (개인정보 안내 title)
+- PR155 — Event clone & repeat: `CloneEventRequest(startAt, endAt)` DTO. `EventService.cloneEvent` — owner/ADMIN 가드 + metadata 복사 (title/desc/location/img/fee/policy/maxParticipants/contentType/region/interests) + currentParticipants 0 reset + interests 다대다 복사. `POST /events/{eid}/clone` (ResponseStatus CREATED). PR142 정책 그대로 NEW_EVENT 알림 (owner 제외). frontend EventOwnerPanel 의 owner action 에 inline 복제 form (datetime-local 2 input, default 7일 뒤 19:00 + 2시간)
+- PR156 — PWA manifest & install prompt: `public/manifest.webmanifest` (standalone display, theme #FA5252, 192/512 SVG icons). `public/icons/icon-{192,512}.svg` 단색 + CT 모노그램. `index.html` head 에 manifest link + apple-touch-icon + apple-mobile-web-app-* meta. `InstallPrompt` 컴포넌트 — `beforeinstallprompt` event 캐치 후에만 노출, standalone 모드 / 14일 내 dismiss 한 경우 hidden, NotificationsPage push panel 위에 렌더
+- PR157 — Service worker cache shell: `public/offline.html` static page (inline CSS) + `sw.js` 의 install precache (`/`, `/index.html`, `/manifest.webmanifest`, `/icons/*`, `/offline.html`) + activate 에서 옛 `contenido-shell-*` cache 삭제 + fetch handler (navigate request → network-first → cached `/index.html` → `/offline.html` → 503 chain; manifest/icons/offline.html → cache 우선; 그 외 모두 network passthrough). API 응답은 절대 캐시하지 않음 — 환불/결제 hot path 의 stale 응답 방지. `SHELL_VERSION` 상수 — sw.js / manifest / icons 변경 시 bump (release-notes checklist)
+- PR158 — Push onboarding QA + docs: `BrowserPushPanel` 의 denied 상태에서 Chrome/Edge·Android Chrome·iOS Safari 18.5+ 브라우저별 절차를 ul 로 노출. `docs/architecture.md` / `docs/manual-qa-checklist.md` / `docs/release-notes-local-bundle.md` PR144~PR157 cycle retrospective
 
 ## Refund Audit Enrichment 정책 (PR115 / PR126 / PR130 / PR131 통합)
 
